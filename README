@@ -1,0 +1,192 @@
+SQLite ODBC Driver
+------------------
+
+This is an experimental ODBC driver for the wonderful SQLite 2.[0-4]
+Database Engine/Library. So far it is more a proof of concept and might
+contain lots of memory leaks and all other kinds of bugs. Thus I highly
+appreciate any feedback.
+
+The current source can be downloaded from
+
+    http://www.ch-werner.de/sqliteodbc/sqliteodbc-*.*.tar.gz
+
+WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
+
+    http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
+
+The binaries were made with SQLite 2.4.12, MS VC++ 6.0 and tested on
+Windows NT 4.0 with the query tool of MS Excel 97 and MS Access 97.
+Unzip the archive into a temporary directory and execute the INST.EXE
+program. This installs the SQLite ODBC driver and creates a System DSN.
+To remove the driver use the UNINST.EXE program. To create a SQLite
+data source use the ODBC control panel applet and provide the name of
+the SQLite database file to be worked on as an absolute pathname including
+the drive letter, eg as "C:\TEMP\SQLite.DB". The busy (or lock) timeout
+for the database can be specified in the respective field. If empty
+a default value of 1000 milliseconds is used.
+
+Other tests were made on Linux with the "isql" command line tool and the
+"DataManager" GUI tool of unixODBC 2.1.0.
+
+
+Since October 14th, 2001, the driver supports the data types SQL_INTEGER,
+SQL_TINYINT, SQL_SMALLINT, SQL_FLOAT, SQL_DOUBLE, SQL_DATE, SQL_TIME,
+SQL_TIMESTAMP, and SQL_VARCHAR.
+
+Since May 25th, 2002, SQL_LONGVARCHAR is available but rather
+experimental. That type is used for SQLite schema containing text
+or varchar with a size specifier larger than 255.
+
+The data type mapping obtains per-column meta information from the
+"PRAGMA table_info=..." SQLite statement. If SELECTs are used which
+contain columns for which the table qualifier cannot be determined,
+no meta information for data type mapping is available and therefore
+the database source data type will be SQL_VARCHAR or SQL_LONGVARCHAR
+which usually maps to SQL_C_CHAR.
+
+Restrictions of data type mapping:
+
+- Integer and floating point columns in the database are reported
+  as NULLs when no digit seen in the column, otherwise all digits
+  up to end of string or non-digit are interpreted as the value,
+  i.e. '10blurk' is ten, '0blurk' is zero, but 'blurk' is NULL.
+- Format for SQL_DATE is YYYY-MM-DD or YYYYMMDD
+- Format for SQL_TIME is hh:mm:ss or hhmmss
+- Format for SQL_TIMESTAMP is
+      YYYYMMDDhhmmss[fraction]
+  or  YYYY-MM-DD hh:mm:ss[.fraction]
+  or  hh:mm:ss[.fraction] YYYY-MM-DD
+  The fractional part is expressed as 1E-09 seconds
+- The driver puts the ODBC string representations for date/time,
+  (eg for "{ts '2001-10-10 12:58:00'}" the substring within the
+  single quotes) directly into the SQLite column
+
+
+Since November 17th, 2001, configure/libtool is used for the Un*x
+version which should automatically find the SQLite and unixODBC
+(or iODBC) header files and libraries. Do the usual
+
+    $ ./configure && make
+
+followed by
+
+    # make install
+
+in order to get /usr/local/lib/libsqliteodbc.so.
+Of course, you should have installed the unixODBC (or iODBC)
+development RPMs since the ODBC header files are required for
+the build of the SQLite ODBC driver.
+
+Since April 28th, 2002, (version 0.3), the driver supports execution
+of one query at a time (SQLPrepare/SQLExecute/SQLExecDirect) carried
+out in another thread as long as forward only cursors are used
+(default). This reduces memory consumption for large result sets.
+For Win32 the driver is built with threading support turned on
+by default. For UN*X operating systems the configure script tries
+to detect POSIX threads (configure --(enable|disable)-threads,
+disabled by default, but enabled in the .spec file). To use the
+threading support on both platforms it must be turned on by
+SQLConnect/SQLDriverConnect DSN strings. The keyword in ODBC.INI
+for that option is "Threaded=1". In the Win32 DSN config dialog
+a check button is provided for that option.
+
+
+To setup a SQLite data source using unixODBC (www.unixodbc.org):
+
+  1. Add the driver to /etc/odbcinst.ini:
+
+    [SQLite]
+    Description=SQLite ODBC Driver
+    Driver=/usr/local/lib/libsqliteodbc.so
+    Setup=
+
+  2. Add a DSN to your private ~/.odbc.ini:
+
+    [mysqlitedb]
+    Description=My SQLite test database
+    Driver=SQLite
+    Database=/home/johndoe/databases/mytest.db
+    # optional lock timeout in milliseconds
+    Timeout=2000
+    # optional turn threading support on
+    Threaded=1
+
+For iODBC (www.iodbc.org, only versions 3.0.[56] tested) do the
+following steps:
+
+  1. Add the driver to /etc/odbcinst.ini:
+
+    [ODBC Drivers]
+    ...
+    SQLite=Installed
+    ...
+
+    [SQLite]
+    Driver=/usr/local/lib/libsqliteodbc.so
+
+  2. Add a DSN to your private ~/.odbc.ini:
+
+    [ODBC Data Sources]
+    ...
+    mysqlitedb=SQLite
+    ...
+
+    [mysqlitedb]
+    Driver=/usr/local/lib/libsqliteodbc.so
+    Description=My SQLite test database
+    Database=/home/johndoe/databases/mytest.db
+    # optional lock timeout in milliseconds
+    Timeout=2000
+
+
+Python sample usage with eGenix mx-Extension
+(see http://www.lemburg.com/files/python/mxODBC.html)
+
+    $ python
+    >>> import mx.ODBC.unixODBC
+    >>> dbc=mx.ODBC.unixODBC.connect("mysqlitedb")
+    >>> cur=dbc.cursor()
+    >>> cur.execute("create table foo (id int, name string)")
+    1
+    >>> cur.execute("insert into foo values(1, 'Me')")
+    1
+    >>> cur.execute("insert into foo values(2, 'You')")
+    1
+    >>> dbc.commit()
+    >>> cur.execute("select * from foo")
+    >>> print cur.fetchall()
+    [(1, 'Me'), (2, 'You')]
+    >>> print cur.fetchall()
+    []
+    >>> cur.execute("drop table foo")
+    1
+    >>> dbc.commit()
+
+
+Build instructions for MS Visual C++ 6.0:
+
+1. Extract the source tarball sqliteodbc.tar.gz
+2. Extract the official SQLite 2.4.8 sources in the sqliteodbc
+   directory which resulted from step 1
+3. Setup your MSVC++ environment, ie PATH/INCLUDE/LIB, then
+   open a command window, cd to the sqliteodbc directory and enter:
+
+        nmake -f sqliteodbc.mak
+
+   This compiles the SQLite sources first, creates a link library
+   of the necessary object files, then compiles and links the ODBC
+   driver and the (un)install program.
+
+
+TODO:
+
+- proper changelog and revision handling
+- improve documentation
+- ??? InstallShield setup for Win32 ???
+- ??? UTF-8 and ODBC wide-char functions ???
+
+
+May, 25th, 2002
+Christian Werner
+mailto:chw@ch-werner.de
+

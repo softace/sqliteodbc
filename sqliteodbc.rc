@@ -1,0 +1,100 @@
+#include <winresrc.h>
+#include <winver.h>
+#include "resource.h"
+#include "odbcver.h"
+#include "sqlite.h"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+DRIVERCONNECT DIALOG DISCARDABLE  65, 43, 277, 95
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "SQLite ODBC Driver Connect"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_DSNAME,82,20,140,12,ES_AUTOHSCROLL | WS_GROUP
+    EDITTEXT        IDC_DBNAME,82,36,140,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "Browse...",IDC_BROWSE,225,35,40,14
+    EDITTEXT        IDC_TONAME,82,51,53,12,ES_AUTOHSCROLL
+    CONTROL         "Threaded",IDC_THREADED,"Button",BS_AUTOCHECKBOX |
+                    WS_TABSTOP,170,50,50,15
+    DEFPUSHBUTTON   "OK",IDOK,175,74,40,14
+    PUSHBUTTON      "Cancel",IDCANCEL,225,74,40,14
+    CTEXT           "Enter options for connect",1003,95,6,80,8
+    RTEXT           "Data Source Name:",IDC_DSNAMETEXT,6,22,73,9,NOT WS_GROUP
+    RTEXT           "Database Name:",IDC_DBNAMETEXT,7,38,71,9,NOT WS_GROUP
+    RTEXT           "Lock Timeout [ms]:"IDC_TONAMETEXT,6,53,73,9,NOT WS_GROUP
+END
+
+CONFIGDSN DIALOG DISCARDABLE  65, 43, 277, 95
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "SQLite ODBC DSN Configuration"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_DSNAME,82,20,140,12,ES_AUTOHSCROLL | WS_GROUP
+    EDITTEXT        IDC_DBNAME,82,36,140,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "Browse...",IDC_BROWSE,225,35,40,14
+    EDITTEXT        IDC_TONAME,82,51,53,12,ES_AUTOHSCROLL
+    CONTROL         "Threaded",IDC_THREADED,"Button",BS_AUTOCHECKBOX |
+                    WS_TABSTOP,170,50,50,15
+    DEFPUSHBUTTON   "OK",IDOK,175,74,40,14
+    PUSHBUTTON      "Cancel",IDCANCEL,225,74,40,14
+    CTEXT           "Enter options for connect",1003,95,6,80,8
+    RTEXT           "Data Source Name:",IDC_DSNAMETEXT,6,22,73,9,NOT WS_GROUP
+    RTEXT           "Database Name:",IDC_DBNAMETEXT,7,38,71,9,NOT WS_GROUP
+    RTEXT           "Lock Timeout [ms]:"IDC_TONAMETEXT,6,53,73,9,NOT WS_GROUP
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,0,0,0
+ PRODUCTVERSION 0,0,0,0
+ FILEFLAGSMASK VS_FF_DEBUG
+ FILEFLAGS (0)
+ FILEOS VOS__WINDOWS32
+ FILETYPE VFT_DLL
+ FILESUBTYPE VS_USER_DEFINED + 1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "Comments", "Don't panic!\0"
+            VALUE "CompanyName", "Christian Werner Software & Consulting\0"
+            VALUE "FileDescription", "SQLite ODBC Driver\0"
+            VALUE "FileVersion", VERSION "\0"
+            VALUE "InternalName", "SQLITEODBC\0"
+            VALUE "LegalCopyright", "Copyright © 2001-2002 <chw@ch-werner.de>\0"
+            VALUE "LegalTrademarks", "\0"
+            VALUE "OriginalFilename", "SQLITEODBC.DLL\0"
+            VALUE "PrivateBuild", "\0"
+            VALUE "ProductName", "ODBC Driver for SQLite " SQLITE_VERSION "\0"
+            VALUE "ProductVersion", VERSION "\0"
+            VALUE "SpecialBuild", "\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_MSGTITLE            "SQLite ODBC Setup"
+    IDS_BADDSN              "%s cannot be used as a data source name."
+END
+

@@ -1,0 +1,32 @@
+# Makefile template for SQLite ODBC Driver
+
+prefix =	@prefix@
+CC =		@CC@
+INSTALL =	@INSTALL@
+LIBTOOL =	./libtool
+SQLITE_INC =	@SQLITE_INC@
+SQLITE_LIB =	@SQLITE_LIB@
+ODBC_FLAGS =	@ODBC_FLAGS@
+ODBC_LIB =	@ODBC_LIB@
+VER_INFO =	@VER_INFO@
+THREAD_LIB =	@THREAD_LIB@
+THREAD_FLAGS =	@THREAD_FLAGS@
+
+libsqliteodbc.la:	sqliteodbc.lo
+		$(LIBTOOL) $(CC) -o libsqliteodbc.la sqliteodbc.lo \
+		    -rpath $(prefix)/lib $(SQLITE_LIB) $(ODBC_LIB) \
+		    $(THREAD_LIB) -release $(VER_INFO)
+
+sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
+		$(LIBTOOL) $(CC) -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
+		    $(THREAD_FLAGS) sqliteodbc.c
+
+install:	libsqliteodbc.la
+		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
+
+clean:
+		rm -f *.lo *.la *.o libsqliteodbc.la *~ core
+		rm -rf .libs .deps
+
+distclean:	clean
+		rm -f config.status config.log config.cache Makefile

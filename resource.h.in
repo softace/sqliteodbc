@@ -1,0 +1,15 @@
+#define VERSION				"--VERS--"
+#define DRIVERCONNECT                   104
+#define CONFIGDSN                       105
+#define IDC_DSNAME                      400
+#define IDC_DSNAMETEXT                  401
+#define IDC_DBNAME                      402
+#define IDC_DBNAMETEXT                  403
+#define IDC_DESC                        404
+#define IDC_TONAME                      405
+#define IDC_TONAMETEXT                  406
+#define IDC_BROWSE			407
+#define IDC_THREADED			408
+#define IDS_MSGTITLE                    500
+#define IDS_BADDSN                      501
+#define IDC_STATIC                      -1
