@@ -1,21 +1,17 @@
 /**
- * @file sqliteodbc.c
- * SQLite ODBC Driver main module.
+ * @file sqlite3odbc.c
+ * SQLite3 ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.81 2004/07/08 13:27:05 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.3 2004/07/08 13:28:49 chw Exp chw $
  *
- * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
  * DISCLAIMER OF ALL WARRANTIES.
  */
 
-#include "sqliteodbc.h"
-
-#ifdef SQLITE_UTF8
-#include <sqlucode.h>
-#endif
+#include "sqlite3odbc.h"
 
 #ifdef _WIN32
 #define ODBC_INI "ODBC.INI"
@@ -37,13 +33,8 @@
 
 /* Column types for static string column descriptions (SQLTables etc.) */
 
-#ifdef SQLITE_UTF8
-#define SCOL_VARCHAR SQL_WVARCHAR
-#define SCOL_CHAR SQL_WCHAR
-#else
 #define SCOL_VARCHAR SQL_VARCHAR
 #define SCOL_CHAR SQL_CHAR
-#endif
 
 #define ENV_MAGIC  0x53544145
 #define DBC_MAGIC  0x53544144
@@ -281,7 +272,7 @@ static SQLRETURN freestmt(HSTMT stmt);
  * If no output buffer is given, the function computes and
  * reports the space needed for the parameter. Otherwise
  * the parameter is converted to its string representation
- * in order to be presented to sqlite_exec_vprintf() et.al.
+ * in order to be presented to sqlite3_exec_vprintf() et.al.
  */
 
 static SQLRETURN substparam(STMT *s, int pnum, char **out, int *size);
@@ -320,251 +311,6 @@ strdup_(const char *str)
     }
     return p;
 }
-
-#ifdef SQLITE_UTF8
-/**
- * Return length of UNICODE string.
- * @param str UNICODE string
- * @result length of string
- */
-
-static int
-uc_strlen(SQLWCHAR *str)
-{
-    int len = 0;
-
-    if (str) {
-	while (*str) {
-	    ++len;
-	    ++str;
-	}
-    }
-    return len;
-}
-
-/**
- * Copy UNICODE string like strncpy().
- * @param dest destination area
- * @param src source area
- * @param len length of source area
- * @return pointer to destination area
- */
-
-static SQLWCHAR *
-uc_strncpy(SQLWCHAR *dest, SQLWCHAR *src, int len)
-{
-    int i = 0;
-
-    while (i < len) {
-	if (!src[i]) {
-	    break;
-	}
-	dest[i] = src[i];
-	++i;
-    }
-    if (i < len) {
-	dest[i] = 0;
-    }
-    return dest;
-}
-
-/**
- * Make UNICODE string from UTF8 string into buffer.
- * @param str UTF8 string to be converted
- * @param uc destination area to receive UNICODE string
- * @param ucLen byte length of destination area
- */
-
-static void
-uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
-{
-    ucLen = ucLen / sizeof (SQLWCHAR);
-    if (!uc || ucLen < 0) {
-	return;
-    }
-    uc[0] = 0;
-    if (str) {
-	int i = 0;
-
-	while (*str && i < ucLen) {
-	    unsigned char c = str[0];
-
-	    if (c < 0xc0) {
-		uc[i++] = c;
-		++str;
-	    } else if (c < 0xe0) {
-		if ((str[1] & 0xc0) == 0x80) {
-		    unsigned long t = ((c & 0x1f) << 6) | (str[1] & 0x3f);
-
-		    uc[i++] = t;
-		    str += 2;
-		} else {
-		    uc[i++] = c;
-		    ++str;
-		}
-	    } else if (c < 0xf0) {
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80) {
-		    unsigned long t = ((c & 0x0f) << 12) |
-			((str[1] & 0x3f) << 6) | (str[2] & 0x3f);
-
-		    uc[i++] = t;
-		    str += 3;
-		} else {
-		    uc[i++] = c;
-		    ++str;
-		}
-	    } else if (c < 0xf8) {
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 &&
-		    (str[3] & 0xc0) == 0x80) {
-		    unsigned long t = ((c & 0x03) << 18) |
-			((str[1] & 0x3f) << 12) | ((str[2] & 0x3f) << 6) |
-			(str[4] & 0x3f);
-
-		    uc[i++] = t;
-		    str += 4;
-		} else {
-		    uc[i++] = c;
-		    ++str;
-		}
-	    } else if (c < 0xfc) {
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 &&
-		    (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80) {
-		    unsigned long t = ((c & 0x01) << 24) |
-			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
-			((str[4] & 0x3f) << 6) | (str[5] & 0x3f);
-
-		    uc[i++] = t;
-		    str += 5;
-		} else {
-		    uc[i++] = c;
-		    ++str;
-		}
-	    } else {
-		/* ignore */
-		++str;
-	    }
-	}
-	if (i < ucLen) {
-	    uc[i] = 0;
-	}
-    }
-}
-
-/**
- * Make UNICODE string from UTF8 string.
- * @param str UTF8 string to be converted
- * @param len length of UTF8 string
- * @return alloced UNICODE string to be free'd by uc_free()
- */
-
-static SQLWCHAR *
-uc_from_utf(unsigned char *str, int len)
-{
-    SQLWCHAR *uc = NULL;
-
-    if (str) {
-	if (len == SQL_NTS) {
-	    len = strlen(str);
-	}
-	len = sizeof (SQLWCHAR) * (len + 1);
-	uc = xmalloc(len);
-	if (uc) {
-	    uc_from_utf_buf(str, uc, len);
-	}
-    }
-    return uc;
-}
-
-/**
- * Make UTF8 string from UNICODE string.
- * @param str UNICODE string to be converted
- * @param len length of UNICODE string in bytes
- * @return alloced UTF8 string to be free'd by uc_free()
- */
-
-static char *
-uc_to_utf(SQLWCHAR *str, int len)
-{
-    int i;
-    char *cp, *ret = NULL;
-
-    if (!str) {
-	return ret;
-    }
-    if (len == SQL_NTS) {
-	len = uc_strlen(str);
-    } else {
-	len = len / sizeof (SQLWCHAR);
-    }
-    cp = xmalloc(len * 6 + 1);
-    if (!cp) {
-	return ret;
-    }
-    ret = cp;
-    for (i = 0; i < len; i++) {
-	unsigned long c = str[i];
-
-	if (c < 0xc0) {
-	    *cp++ = c;
-	} else if (c < 0x800) {
-	    *cp++ = 0xc0 | ((c >> 6) & 0x1f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x10000) {
-	    *cp++ = 0xe0 | ((c >> 12) & 0x0f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x200000) {
-	    *cp++ = 0xf0 | ((c >> 18) & 0x07);
-	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x4000000) {
-	    *cp++ = 0xf8 | ((c >> 24) & 0x03);
-	    *cp++ = 0x80 | ((c >> 18) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x80000000) {
-	    *cp++ = 0xfc | ((c >> 31) & 0x01);
-	    *cp++ = 0x80 | ((c >> 24) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 18) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	}
-    }
-    *cp = '\0';
-    return ret;
-}
-
-/**
- * Make UTF8 string from UNICODE string.
- * @param str UNICODE string to be converted
- * @param len length of UNICODE string in characters
- * @return alloced UTF8 string to be free'd by uc_free()
- */
-
-static char *
-uc_to_utf_c(SQLWCHAR *str, int len)
-{
-    if (len != SQL_NTS) {
-	len = len * sizeof (SQLWCHAR);
-    }
-    return uc_to_utf(str, len);
-}
-
-/**
- * Free converted UTF8 or UNICODE string.
- */
-
-static void
-uc_free(void *str)
-{
-    if (str) {
-	xfree(str);
-    }
-}
-#endif
 
 #ifdef USE_DLOPEN_FOR_GPPS
 
@@ -790,11 +536,11 @@ noconn(STMT *s)
  * @result double value
  */
 
-#if defined(HAVE_SQLITEATOF) && HAVE_SQLITEATOF
+#if defined(HAVE_SQLITE3ATOF) && HAVE_SQLITE3ATOF
 
-extern double sqliteAtoF(char *data, char **endp);
+extern double sqlite3AtoF(char *data, char **endp);
 
-#define ln_strtod sqliteAtoF
+#define ln_strtod sqlite3AtoF
 
 #else
 
@@ -832,45 +578,15 @@ ln_strtod(const char *data, char **endp)
 
 #endif
 
-#if !defined(HAVE_SQLITEMPRINTF) || !HAVE_SQLITEMPRINTF
-/**
- * Internal locale neutral sprintf("%g") function.
- * @param buf pointer to string
- * @param value double value
- */
-
-static void
-ln_sprintfg(char *buf, double value)
-{
-#if defined(HAVE_LOCALECONV) || defined(_WIN32)
-    struct lconv *lc;
-    char *p;
-
-    sprintf(buf, "%.16g", value);
-    lc = localeconv();
-    if (lc && lc->decimal_point && lc->decimal_point[0] &&
-	lc->decimal_point[0] != '.') {
-	p = strchr(buf, lc->decimal_point[0]);
-	if (p) {
-	    *p = '.';
-	}
-    }
-#else
-    sprintf(buf, "%.16g", value);
-#endif
-}
-#endif
-
 /**
  * Busy callback for SQLite.
  * @param udata user data, pointer to DBC
- * @param table table name or NULL
  * @param count count of subsequenct calls
  * @result true of false
  */
 
 static int
-busy_handler(void *udata, const char *table, int count)
+busy_handler(void *udata, int count)
 {
     DBC *d = (DBC *) udata;
     long t1;
@@ -925,35 +641,24 @@ done:
  * "full_column_names" is always turned on to get the table
  * names in column labels. "count_changes" is always turned
  * on to get the number of affected rows for INSERTs et.al.
- * "empty_result_callbacks" is always turned on to get
- * column labels even when no rows are returned.
- * Starting from SQLite 2.6.0 data types are reported for
- * callback functions when the "show_datatypes" pragma is
- * asserted.
  */
 
 static int
-setsqliteopts(sqlite *x, DBC *d)
+setsqliteopts(sqlite3 *x, DBC *d)
 {
     int count = 0, step = 0, rc;
 
-    while (step < 4) {
+    while (step < 2) {
 	if (step < 1) {
-	    rc = sqlite_exec(x, "PRAGMA full_column_names = on;",
-			     NULL, NULL, NULL);
+	    rc = sqlite3_exec(x, "PRAGMA full_column_names = on;",
+			      NULL, NULL, NULL);
 	} else if (step < 2) {
-	    rc = sqlite_exec(x, "PRAGMA count_changes = on;",
-			     NULL, NULL, NULL);
-	} else if (step < 3) {
-	    rc = sqlite_exec(x, "PRAGMA empty_result_callbacks = on;",
-			     NULL, NULL, NULL);
-	} else {
-	    rc = sqlite_exec(x, "PRAGMA show_datatypes = on;",
-			     NULL, NULL, NULL);
+	    rc = sqlite3_exec(x, "PRAGMA empty_result_callbacks = on;",
+			      NULL, NULL, NULL);
 	}
 	if (rc != SQLITE_OK) {
 	    if (rc != SQLITE_BUSY ||
-		!busy_handler((void *) d, NULL, ++count)) {
+		!busy_handler((void *) d, ++count)) {
 		return rc;
 	    }
 	    continue;
@@ -961,53 +666,7 @@ setsqliteopts(sqlite *x, DBC *d)
 	count = 0;
 	++step;
     }
-    sqlite_busy_handler(x, busy_handler, (void *) d);
-#if HAVE_ENCDEC
-    {
-	char *fname;
-	static void hextobin_func(sqlite_func *context,
-				  int argc, const char **argv);
-	static void bintohex_func(sqlite_func *context,
-				  int argc, const char **argv);
-
-	fname = "hextobin";
-	sqlite_create_function(x, fname, 1, hextobin_func, 0);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "bintohex";
-	sqlite_create_function(x, fname, 1, bintohex_func, 0);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-    }
-#endif
-    {
-	char *fname;
-	static void time_func(sqlite_func *context,
-			      int argc, const char **argv);
-
-	fname = "current_time_local";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 0);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_time_utc";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 1);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_date_local";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 2);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_date_utc";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 3);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_datetime_local";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 4);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_datetime_utc";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 5);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_timestamp_local";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 4);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-	fname = "current_timestamp_utc";
-	sqlite_create_function(x, fname, 0, time_func, (void *) 5);
-	sqlite_function_type(x, fname, SQLITE_TEXT);
-    }
+    sqlite3_busy_handler(x, busy_handler, (void *) d);
     return SQLITE_OK;
 }
 
@@ -1041,21 +700,16 @@ freerows(char **rowp)
  * @param typename field type string
  * @param nosign pointer to indicator for unsigned field or NULL
  * @param ov3 boolean, true for SQL_OV_ODBC3
- * @param nowchar boolean, for SQLITE_UTF8 don't use WCHAR
  * @result SQL data type
  */
 
 static int
-mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
+mapsqltype(const char *typename, int *nosign, int ov3)
 {
     char *p, *q;
     int testsign = 0, result;
 
-#ifdef SQLITE_UTF8
-    result = nowchar ? SQL_VARCHAR : SQL_WVARCHAR;
-#else
     result = SQL_VARCHAR;
-#endif
     if (!typename) {
 	return result;
     }
@@ -1112,30 +766,7 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 #endif
 #ifdef SQL_LONGVARCHAR
     } else if (strncmp(p, "text", 4) == 0) {
-#ifdef SQLITE_UTF8
-	result = nowchar ? SQL_LONGVARCHAR : SQL_WLONGVARCHAR;
-#else
 	result = SQL_LONGVARCHAR;
-#endif
-#ifdef SQLITE_UTF8
-    } else if (strncmp(p, "wtext", 5) == 0 ||
-	       strncmp(p, "wvarchar", 8) == 0 ||
-	       strncmp(p, "longwvarchar", 12) == 0) {
-	result = SQL_WLONGVARCHAR;
-#endif
-#endif
-#if HAVE_ENCDEC
-    } else if (strncmp(p, "binary", 6) == 0 ||
-	       strncmp(p, "varbinary", 9) == 0 ||
-	       strncmp(p, "bytea", 5) == 0 ||
-	       strncmp(p, "blob", 4) == 0 ||
-	       strncmp(p, "tinyblob", 8) == 0 ||
-	       strncmp(p, "mediumblob", 10) == 0) {
-	result = SQL_VARBINARY;
-    } else if (strncmp(p, "longbinary", 10) == 0 ||
-	       strncmp(p, "longvarbinary", 13) == 0 ||
-	       strncmp(p, "longblob", 8) == 0) {
-	result = SQL_LONGVARBINARY;
 #endif
     }
     if (nosign) {
@@ -1170,11 +801,6 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
     case SQL_FLOAT:        m = 25; d = 24; break;
     case SQL_DOUBLE:       m = 54; d = 53; break;
     case SQL_VARCHAR:      m = 255; d = 0; break;
-#ifdef SQLITE_UTF8
-#ifdef SQL_WVARCHAR
-    case SQL_WVARCHAR:     m = 255; d = 0; break;
-#endif
-#endif
 #ifdef SQL_TYPE_DATE
     case SQL_TYPE_DATE:
 #endif
@@ -1190,15 +816,8 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 #ifdef SQL_LONGVARCHAR
     case SQL_LONGVARCHAR : m = 65536; d = 0; break;
 #endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WLONGVARCHAR
-    case SQL_WLONGVARCHAR: m = 65536; d = 0; break;
-#endif
-#endif
-#if HAVE_ENCDEC
     case SQL_VARBINARY: m = 255; d = 0; break;
     case SQL_LONGVARBINARY: m = 65536; d = 0; break;
-#endif
     }
     if (m && typename) {
 	int mm, dd;
@@ -1223,12 +842,11 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
  * @param type input C type
  * @param stype input SQL type
  * @param nosign 0=signed, 0>unsigned, 0<undefined
- * @param nowchar when compiled with SQLITE_UTF8 don't use WCHAR
  * @result C type
  */
 
 static int
-mapdeftype(int type, int stype, int nosign, int nowchar)
+mapdeftype(int type, int stype, int nosign)
 {
     if (type == SQL_C_DEFAULT) {
 	switch (stype) {
@@ -1271,35 +889,15 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 	    type = SQL_C_TYPE_DATE;
 	    break;
 #endif
-#ifdef SQLITE_UTF8
-	case SQL_WVARCHAR:
-	case SQL_WCHAR:
-#ifdef SQL_WLONGVARCHAR
-	case SQL_WLONGVARCHAR:
-#endif
-	    type = nowchar ? SQL_C_CHAR : SQL_C_WCHAR;
-	    break;
-#endif
-#if HAVE_ENCDEC
 	case SQL_BINARY:
 	case SQL_VARBINARY:
 	case SQL_LONGVARBINARY:
 	    type = SQL_C_BINARY;
 	    break;
-#endif
 	default:
 	    type = SQL_C_CHAR;
 	}
     }
-#ifdef SQLITE_UTF8
-    if (nowchar) {
-	switch (type) {
-	case SQL_C_WCHAR:
-	    type = SQL_C_CHAR;
-	    break;
-	}
-    }
-#endif
     return type;
 }
 
@@ -1310,18 +908,14 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
  * @param nparam output number of parameters
  * @param isselect output indicator for SELECT statement
  * @param errmsg output error message
- * @param version SQLite version information
- * @param namepp pointer to parameter names array
  * @result newly allocated string containing query string for SQLite or NULL
  */
 
 static char *
-fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg,
-	 int version, char ***namepp)
+fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg)
 {
     char *q = sql, *qz = NULL, *p, *inq = NULL, *out;
     int np = 0, size;
-    char **npp = NULL, *ncp = NULL;
 
     *errmsg = NULL;
     if (sqlLen != SQL_NTS) {
@@ -1337,15 +931,13 @@ fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg,
     }
     size += sizeof (char *) - 1;
     size &= ~(sizeof (char *) - 1);
-    p = xmalloc(2 * size + size * sizeof (char *) / 2);
+    p = xmalloc(size);
     if (!p) {
 errout:
 	freep(&qz);
 	return NULL;
     }
     out = p;
-    npp = (char **) (out + size);
-    ncp = (char *) npp + size * sizeof (char *) / 2;
     while (*q) {
 	switch (*q) {
 	case '\'':
@@ -1372,33 +964,7 @@ errout:
 	    } else {
 		*p++ = '%';
 		*p++ = 'Q';
-		npp[np] = ncp;
-		*ncp = '\0';
-		++ncp;
 		np++;
-	    }
-	    break;
-	case ':':		/* ORACLE-style named parameter */
-	case '@':		/* ADO.NET-style named parameter */
-	    if (inq) {
-		*p++ = *q;
-	    } else {
-		int n = -1;
-
-		do {
-		   ++q;
-		   ++n;
-		} while (*q && ISIDCHAR(*q));
-		if (n > 0) {
-		    *p++ = '%';
-		    *p++ = 'Q';
-		    npp[np] = ncp;
-		    memcpy(ncp, q - n, n);
-		    ncp[n] = '\0';
-		    ncp += n + 1;
-		    np++;
-		}
-		--q;
 	    }
 	    break;
 	case ';':
@@ -1466,9 +1032,6 @@ errout:
 	}
 	*isselect = strncasecmp(p, "select", 6) == 0;
     }
-    if (namepp) {
-	*namepp = npp;
-    }
     return out;
 }
 
@@ -1499,7 +1062,6 @@ findcol(char **cols, int ncols, char *name)
  * Fixup column information for a running statement.
  * @param s statement to get fresh column information
  * @param sqlite SQLite database handle
- * @param types column types or NULL
  *
  * The column labels get the table names stripped
  * when there's more than one column and all table
@@ -1513,7 +1075,7 @@ findcol(char **cols, int ncols, char *name)
  */
 
 static void
-fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
+fixupdyncols(STMT *s, sqlite3 *sqlite)
 {
     int i, k, pk, t, r, nrows, ncols, doautoinc = 0;
     char **rowp, *flagp, flags[128];
@@ -1536,45 +1098,31 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    }
 	}
     }
-    if (types) {
-	for (i = 0; i < s->dcols; i++) {
-	    freep(&s->dyncols[i].typename);
-	    s->dyncols[i].typename = xstrdup(types[i] ? types[i] : "text");
-	    s->dyncols[i].type =
-		mapsqltype(types[i], &s->dyncols[i].nosign, *s->ov3,
-			   s->nowchar);
-	    getmd(types[i], s->dyncols[i].type, &s->dyncols[i].size, NULL);
+    for (i = 0; i < s->dcols; i++) {
+	s->dyncols[i].type =
+	    mapsqltype(s->dyncols[i].typename, &s->dyncols[i].nosign, *s->ov3);
+	getmd(s->dyncols[i].typename, s->dyncols[i].type,
+	      &s->dyncols[i].size, NULL);
 #ifdef SQL_LONGVARCHAR
-	    if (s->dyncols[i].type == SQL_VARCHAR &&
-		s->dyncols[i].size > 255) {
-		s->dyncols[i].type = SQL_LONGVARCHAR;
-	    }
-#endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WLONGVARCHAR
-	    if (s->dyncols[i].type == SQL_WVARCHAR &&
-		s->dyncols[i].size > 255) {
-		s->dyncols[i].type = SQL_WLONGVARCHAR;
-	    }
-#endif
-#endif
-#if HAVE_ENCDEC
-	    if (s->dyncols[i].type == SQL_VARBINARY &&
-		s->dyncols[i].size > 255) {
-		s->dyncols[i].type = SQL_LONGVARBINARY;
-	    }
-#endif
-	    if (types[i] && strlen(types[i]) == 7 &&
-		strncasecmp(types[i], "integer", 7) == 0) {
-		doautoinc++;
-		s->dyncols[i].autoinc = -1;
-	    } else {
-		s->dyncols[i].autoinc = 0;
-	    }
+	if (s->dyncols[i].type == SQL_VARCHAR &&
+	    s->dyncols[i].size > 255) {
+	    s->dyncols[i].type = SQL_LONGVARCHAR;
 	}
-	if (!doautoinc) {
-	    return;
+#endif
+	if (s->dyncols[i].type == SQL_VARBINARY &&
+	    s->dyncols[i].size > 255) {
+	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
+	if (s->dyncols[i].typename && strlen(s->dyncols[i].typename) == 7 &&
+	    strncasecmp(s->dyncols[i].typename, "integer", 7) == 0) {
+	    doautoinc++;
+	    s->dyncols[i].autoinc = -1;
+	} else {
+	    s->dyncols[i].autoinc = 0;
+	}
+    }
+    if (!doautoinc) {
+	return;
     }
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
@@ -1590,6 +1138,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
     }
     for (i = 0; i < s->dcols; i++) {
 	int ret, lastpk = -1, autoinccount = 0;
+	char *sql;
 
 	if (!s->dyncols[i].table[0]) {
 	    continue;
@@ -1597,10 +1146,12 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	if (flagp[i]) {
 	    continue;
 	}
-	ret = sqlite_get_table_printf(sqlite,
-				      "PRAGMA table_info('%q')", &rowp,
-				      &nrows, &ncols, NULL,
-				      s->dyncols[i].table);
+	sql = sqlite3_mprintf("PRAGMA table_info('%q')", s->dyncols[i].table);
+	if (!sql) {
+	    continue;
+	}
+	ret = sqlite3_get_table(sqlite, sql, &rowp, &nrows, &ncols, NULL);
+	sqlite3_free(sql);
 	if (ret != SQLITE_OK) {
 	    continue;
 	}
@@ -1623,8 +1174,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 		    freep(&s->dyncols[m].typename);
 		    s->dyncols[m].typename = xstrdup(typename);
 		    s->dyncols[m].type =
-			mapsqltype(typename, &s->dyncols[m].nosign, *s->ov3,
-				   s->nowchar);
+			mapsqltype(typename, &s->dyncols[m].nosign, *s->ov3);
 		    getmd(typename, s->dyncols[m].type, &s->dyncols[m].size,
 			  NULL);
 #ifdef SQL_LONGVARCHAR
@@ -1633,20 +1183,10 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 			s->dyncols[m].type = SQL_LONGVARCHAR;
 		    }
 #endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WLONGVARCHAR
-		    if (s->dyncols[i].type == SQL_WVARCHAR &&
-			s->dyncols[i].size > 255) {
-			s->dyncols[i].type = SQL_WLONGVARCHAR;
-		    }
-#endif
-#endif
-#if HAVE_ENCDEC
 		    if (s->dyncols[i].type == SQL_VARBINARY &&
 			s->dyncols[i].size > 255) {
 			s->dyncols[i].type = SQL_LONGVARBINARY;
 		    }
-#endif
 		    if (pk >= 0	&& strcmp(rowp[r * ncols + pk], "1") == 0) {
 			if (++autoinccount > 1) {
 			    if (lastpk >= 0) {
@@ -1665,7 +1205,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    }
 	}
 freet:
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
     }
     if (flagp != flags) {
 	freep(&flagp);
@@ -2114,7 +1654,6 @@ getbool(char *string)
     return 0;
 }
 
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
 /**
  * SQLite trace callback
  * @param arg DBC pointer
@@ -2155,11 +1694,6 @@ dbtracerc(DBC *d, int rc, char *err)
 	fflush(d->trace);
     }
 }
-#else
-
-#define dbtracerc(a,b,c)
-
-#endif
 
 /**
  * Open SQLite database file given file name and flags.
@@ -2174,33 +1708,22 @@ dbtracerc(DBC *d, int rc, char *err)
 static SQLRETURN
 dbopen(DBC *d, char *name, char *dsn, char *sflag, char *busy)
 {
-    char *errp = NULL, *endp = NULL;
-    int tmp, busyto = 1000;
+    char *endp = NULL;
+    int rc, tmp, busyto = 1000;
 
     if (d->sqlite) {
-	sqlite_close(d->sqlite);
+	sqlite3_close(d->sqlite);
 	d->sqlite = NULL;
     }
-    d->sqlite = sqlite_open(name, 0, &errp);
-    if (d->sqlite == NULL) {
+    rc = sqlite3_open(name, &d->sqlite);
+    if (rc != SQLITE_OK) {
 connfail:
-	setstatd(d, -1, errp ? errp : "connect failed",
-		 (*d->ov3) ? "HY000" : "S1000");
-	if (errp) {
-	    sqlite_freemem(errp);
-	    errp = NULL;
-	}
+	setstatd(d, rc, "connect failed", (*d->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
-    if (errp) {
-	sqlite_freemem(errp);
-	errp = NULL;
-    }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     if (d->trace) {
-	sqlite_trace(d->sqlite, dbtrace, d);
+	sqlite3_trace(d->sqlite, dbtrace, d);
     }
-#endif
     d->step_enable = getbool(sflag);
     d->curtype = d->step_enable ?
 	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
@@ -2213,7 +1736,7 @@ connfail:
     }
     d->timeout = busyto;
     if (setsqliteopts(d->sqlite, d) != SQLITE_OK) {
-	sqlite_close(d->sqlite);
+	sqlite3_close(d->sqlite);
 	d->sqlite = NULL;
 	goto connfail;
     }
@@ -2225,63 +1748,68 @@ connfail:
 }
 
 /**
- * Do one VM step gathering one result row
+ * Do one sqlite statement step gathering one result row
  * @param s statement pointer
  * @result ODBC error code
  */
 
 static int
-vm_step(STMT *s)
+s3stmt_step(STMT *s)
 {
     DBC *d = (DBC *) s->dbc;
-    char **rowd = NULL, *errp = NULL;
-    const char **values, **cols;
+    char **rowd = NULL;
+    const char *errp = NULL;
     int i, ncols, rc;
 
-    if (s != d->vm_stmt || !s->vm) {
+    if (s != d->cur_s3stmt || !s->s3stmt) {
 	setstat(s, -1, "stale statement", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
-    rc = sqlite_step(s->vm, &ncols, &values, &cols);
+    rc = sqlite3_step(s->s3stmt);
     if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
-	++d->vm_rownum;
-	if (d->vm_rownum == 0 && cols && ncols > 0) {
+	++d->s3stmt_rownum;
+	ncols = sqlite3_column_count(s->s3stmt);
+	if (d->s3stmt_rownum == 0 && ncols > 0) {
 	    int size;
 	    char *p;
 	    COL *dyncols;
+	    const char *colname, *typename;
 
 	    for (i = size = 0; i < ncols; i++) {
-		size += 3 + 3 * strlen(cols[i]);
+		colname = sqlite3_column_name(s->s3stmt, i);
+		size += 3 + 3 * strlen(colname);
 	    }
 	    dyncols = xmalloc(ncols * sizeof (COL) + size);
 	    if (!dyncols) {
 		freedyncols(s);
 		s->ncols = 0;
-		sqlite_finalize(s->vm, NULL);
-		s->vm = NULL;
-		d->vm_stmt = NULL;
+		sqlite3_finalize(s->s3stmt);
+		s->s3stmt = NULL;
+		d->cur_s3stmt = NULL;
 		return nomem(s);
 	    }
 	    p = (char *) (dyncols + ncols);
 	    for (i = 0; i < ncols; i++) {
 		char *q;
 
+		colname = sqlite3_column_name(s->s3stmt, i);
+		typename = sqlite3_column_decltype(s->s3stmt, i);
 		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
-		strcpy(p, cols[i]);
+		strcpy(p, colname);
 		dyncols[i].label = p;
 		p += strlen(p) + 1;
-		q = strchr(cols[i], '.');
+		q = strchr(colname, '.');
 		if (q) {
 		    dyncols[i].table = p;
-		    strncpy(p, cols[i], q - cols[i]);
-		    p[q - cols[i]] = '\0';
+		    strncpy(p, colname, q - colname);
+		    p[q - colname] = '\0';
 		    p += strlen(p) + 1;
 		    strcpy(p, q + 1);
 		    dyncols[i].column = p;
 		    p += strlen(p) + 1;
 		} else {
 		    dyncols[i].table = "";
-		    strcpy(p, cols[i]);
+		    strcpy(p, colname);
 		    dyncols[i].column = p;
 		    p += strlen(p) + 1;
 		}
@@ -2297,38 +1825,39 @@ vm_step(STMT *s)
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
 		dyncols[i].autoinc = -1;
-		dyncols[i].typename = NULL;
+		dyncols[i].typename = xstrdup(typename);
 	    }
 	    freedyncols(s);
 	    s->ncols = s->dcols = ncols;
 	    s->dyncols = s->cols = dyncols;
-	    fixupdyncols(s, d->sqlite, cols + ncols);
+	    fixupdyncols(s, d->sqlite);
 	    mkbindcols(s, s->ncols);
 	}
-	if (!cols || ncols <= 0) {
-	    goto killvm;
+	if (ncols <= 0) {
+	    goto killstmt;
 	}
-	if (!values) {
-	    if (rc == SQLITE_DONE) {
-		freeresult(s, 0);
-		s->nrows = 0;
-		sqlite_finalize(s->vm, NULL);
-		s->vm = NULL;
-		d->vm_stmt = NULL;
-		return SQL_SUCCESS;
-	    }
-	    goto killvm;
+	if (rc == SQLITE_DONE) {
+	    freeresult(s, 0);
+	    s->nrows = 0;
+	    sqlite3_finalize(s->s3stmt);
+	    s->s3stmt = NULL;
+	    d->cur_s3stmt = NULL;
+	    return SQL_SUCCESS;
 	}
 	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
 	if (rowd) {
+	    const unsigned char *value;
+
 	    rowd[0] = (char *) (ncols * 2);
 	    ++rowd;
 	    for (i = 0; i < ncols; i++) {
+		value = sqlite3_column_text(s->s3stmt, i);
 		rowd[i] = NULL;
-		rowd[i + ncols] = xstrdup(values[i]);
+		rowd[i + ncols] = xstrdup(value);
 	    }
 	    for (i = 0; i < ncols; i++) {
-		if (values[i] && !rowd[i + ncols]) {
+		value = sqlite3_column_text(s->s3stmt, i);
+		if (value && !rowd[i + ncols]) {
 		    freerows(rowd);
 		    rowd = 0;
 		    break;
@@ -2340,95 +1869,87 @@ vm_step(STMT *s)
 	    s->nrows = 1;
 	    s->rows = rowd;
 	    if (rc == SQLITE_DONE) {
-		sqlite_finalize(s->vm, NULL);
-		s->vm = NULL;
-		d->vm_stmt = NULL;
+		sqlite3_finalize(s->s3stmt);
+		s->s3stmt = NULL;
+		d->cur_s3stmt = NULL;
 	    }
 	    return SQL_SUCCESS;
 	}
     }
-killvm:
-    sqlite_finalize(s->vm, &errp);
-    s->vm = NULL;
-    d->vm_stmt = NULL;
+killstmt:
+    rc = sqlite3_finalize(s->s3stmt);
+    errp = sqlite3_errmsg(d->sqlite);
+    s->s3stmt = NULL;
+    d->cur_s3stmt = NULL;
     setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 	    errp ? errp : "unknown error", rc);
-    if (errp) {
-	sqlite_freemem(errp);
-	errp = NULL;
-    }
     return SQL_ERROR;	
 }
 
 /**
- * Stop running VM
+ * Stop running sqlite statement
  * @param s statement pointer
  */
 
 static void
-vm_end(STMT *s)
+s3stmt_end(STMT *s)
 {
     DBC *d;
 
-    if (!s || !s->vm) {
+    if (!s || !s->s3stmt) {
 	return;
     }
     d = (DBC *) s->dbc;
-    sqlite_finalize(s->vm, NULL);
-    s->vm = NULL;
-    d->vm_stmt = NULL;
+    sqlite3_finalize(s->s3stmt);
+    s->s3stmt = NULL;
+    d->cur_s3stmt = NULL;
 }
 
 /**
- * Conditionally stop running VM
+ * Conditionally stop running sqlite statement
  * @param s statement pointer
  */
 
 static void
-vm_end_if(STMT *s)
+s3stmt_end_if(STMT *s)
 {
     DBC *d = (DBC *) s->dbc;
 
-    if (d && d->vm_stmt == s) {
-	vm_end(s);
+    if (d && d->cur_s3stmt == s) {
+	s3stmt_end(s);
     }
 }
 
 /**
- * Start VM for execution of SELECT statement.
+ * Start sqlite statement for execution of SELECT statement.
  * @param s statement pointer
  * @param params string array of statement parameters
  * @result ODBC error code
  */
 
 static SQLRETURN
-vm_start(STMT *s, char **params)
+s3stmt_start(STMT *s, char **params)
 {
     DBC *d = (DBC *) s->dbc;
-    char *errp = NULL, *sql = NULL;
+    char *sql = NULL;
     const char *endp;
-    sqlite_vm *vm;
+    sqlite3_stmt *s3stmt;
     int rc;
 
-    sql = sqlite_vmprintf(s->query, (char *) params);
+    sql = sqlite3_vmprintf(s->query, (char *) params);
     if (!sql) {
 	return nomem(s);
     }
-    rc = sqlite_compile(d->sqlite, sql, &endp, &vm, &errp);
-    dbtracerc(d, rc, errp);
-    sqlite_freemem(sql);
+    rc = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &endp);
+    sqlite3_free(sql);
     if (rc != SQLITE_OK) {
 	setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		errp ? errp : "unknown error", rc);
-	if (errp) {
-	    sqlite_freemem(errp);
-	    errp = NULL;
-	}
+		sqlite3_errmsg(d->sqlite), rc);
 	return SQL_ERROR;
     }
-    s->vm = vm;
-    d->vm_stmt = s;
-    d->vm_rownum = -1;
+    s->s3stmt = s3stmt;
+    d->cur_s3stmt = s;
+    d->s3stmt_rownum = -1;
     return SQL_SUCCESS;
 }
 
@@ -2442,7 +1963,6 @@ SQLBulkOperations(SQLHSTMT stmt, SQLSMALLINT oper)
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -2457,26 +1977,7 @@ SQLDataSources(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *srvname,
     }
     return SQL_ERROR;
 }
-#endif
 
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLDataSourcesW(SQLHENV env, SQLUSMALLINT dir, SQLWCHAR *srvname,
-		SQLSMALLINT buflen1, SQLSMALLINT *lenp1,
-		SQLWCHAR *desc, SQLSMALLINT buflen2, SQLSMALLINT *lenp2)
-{
-    if (env == SQL_NULL_HENV) {
-	return SQL_INVALID_HANDLE;
-    }
-    return SQL_ERROR;
-}
-#endif
-
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -2491,26 +1992,7 @@ SQLDrivers(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *drvdesc,
     }
     return SQL_ERROR;
 }
-#endif
 
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLDriversW(SQLHENV env, SQLUSMALLINT dir, SQLWCHAR *drvdesc,
-	    SQLSMALLINT descmax, SQLSMALLINT *desclenp,
-	    SQLWCHAR *drvattr, SQLSMALLINT attrmax, SQLSMALLINT *attrlenp)
-{
-    if (env == SQL_NULL_HENV) {
-	return SQL_INVALID_HANDLE;
-    }
-    return SQL_ERROR;
-}
-#endif
-
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -2522,260 +2004,6 @@ SQLBrowseConnect(SQLHDBC dbc, SQLCHAR *connin, SQLSMALLINT conninLen,
 {
     return drvunimpldbc(dbc);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLBrowseConnectW(SQLHDBC dbc, SQLWCHAR *connin, SQLSMALLINT conninLen,
-		  SQLWCHAR *connout, SQLSMALLINT connoutMax,
-		  SQLSMALLINT *connoutLen)
-{
-    return drvunimpldbc(dbc);
-}
-#endif
-
-/**
- * SQLite function "current_time_local" etc.
- * @param context SQLite function context
- * @param argc number arguments
- * @param argv argument vector
- */
-
-static void
-time_func(sqlite_func *context, int argc, const char **argv)
-{
-    char buf[128];
-    int what = (int) sqlite_user_data(context);
-#ifdef _WIN32
-    SYSTEMTIME st;
-
-    if (what & 1) {
-	GetSystemTime(&st);
-    } else {
-	GetLocalTime(&st);
-    }
-    if (what & 4) {
-	sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d",
-		st.wYear, st.wMonth, st.wDay,
-		st.wHour, st.wMinute, st.wSecond);
-    } else if (what & 2) {
-	sprintf(buf, "%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
-    } else {
-	sprintf(buf, "%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
-    }
-#else
-    time_t t;
-    struct tm tm;
-
-    time(&t);
-    if (what & 1) {
-#ifdef HAVE_GMTIME_R
-	gmtime_r(&t, &tm);
-#else
-	tm = *gmtime(&t);
-#endif
-    } else {
-#ifdef HAVE_LOCALTIME_R
-	localtime_r(&t, &tm);
-#else
-	tm = *localtime(&t);
-#endif
-    }
-    if (what & 4) {
-	sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d",
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-		tm.tm_hour, tm.tm_min, tm.tm_sec);
-    } else if (what & 2) {
-	sprintf(buf, "%04d-%02d-%02d",
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-    } else {
-	sprintf(buf, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-    }
-#endif
-    sqlite_set_result_string(context, buf, -1);
-}
-
-#if HAVE_ENCDEC
-static const char hexdigits[] = "0123456789ABCDEFabcdef";
-
-/**
- * SQLite function "hextobin"
- * @param context SQLite function context
- * @param argc number arguments
- * @param argv argument vector
- */
-
-static void
-hextobin_func(sqlite_func *context, int argc, const char **argv)
-{
-    int i, len;
-    char *bin, *p;
-
-    if (argc < 1) {
-	return;
-    }
-    if (!argv[0]) {
-	sqlite_set_result_string(context, "NULL", 4);
-	return;
-    }
-    len = strlen(argv[0]) / 2;
-    bin = xmalloc(len + 1);
-    if (!bin) {
-oom:
-	sqlite_set_result_error(context, "out of memory", -1);
-	return;
-    }
-    if (len <= 0) {
-	sqlite_set_result_string(context, bin, 0);
-	freep(&bin);
-	return;
-    }
-    for (i = 0, p = (char *) argv[0]; i < len; i++) {
-	char *x;
-	int v;
-
-	if (!*p || !(x = strchr(hexdigits, *p))) {
-	    goto converr;
-	}
-	v = x - hexdigits;
-	bin[i] = (v >= 16) ? ((v - 6) << 4) : (v << 4);
-	++p;
-	if (!*p || !(x = strchr(hexdigits, *p))) {
-converr:
-	    freep(&bin);
-	    sqlite_set_result_error(context, "conversion error", -1);
-	    return;
-	}
-	v = x - hexdigits;
-	bin[i] |= (v >= 16) ? (v - 6) : v;
-	++p;
-    }
-    i = sqlite_encode_binary(bin, len, 0);
-    p = xmalloc(i + 1);
-    if (!p) {
-	freep(&bin);
-	goto oom;
-    }
-    i = sqlite_encode_binary(bin, len, p);
-    sqlite_set_result_string(context, p, i);
-    freep(&bin);
-    freep(&p);
-}
-
-/**
- * SQLite function "bintohex"
- * @param context SQLite function context
- * @param argc number arguments
- * @param argv argument vector
- */
-
-static void
-bintohex_func(sqlite_func *context, int argc, const char **argv)
-{
-    int i, k, len;
-    char *bin, *p;
-
-    if (argc < 1) {
-	return;
-    }
-    if (!argv[0]) {
-empty:
-	sqlite_set_result_string(context, "", 0);
-	return;
-    }
-    bin = xmalloc(strlen(argv[0]) + 1);
-    if (!bin) {
-oom:
-	sqlite_set_result_error(context, "out of memory", -1);
-	return;
-    }
-    len = sqlite_decode_binary(argv[0], bin);
-    if (len < 0) {
-	freep(&bin);
-	sqlite_set_result_error(context, "error decoding binary data", -1);
-	return;
-    }
-    if (len == 0) {
-	goto empty;
-    }
-    p = xmalloc(len * 2 + 1);
-    if (!p) {
-	goto oom;
-    }
-    for (i = 0, k = 0; i < len; i++) {
-	p[k++] = hexdigits[(bin[i] >> 4) & 0x0f];
-	p[k++] = hexdigits[bin[i] & 0x0f];
-    }
-    p[k] = '\0';
-    sqlite_set_result_string(context, p, k);
-    freep(&bin);
-    freep(&p);
-}
-
-/**
- * Encode hex (char) parameter to SQLite binary string.
- * @param s STMT pointer
- * @param p BINDPARM pointer
- * @result ODBD error code
- */
-
-static SQLRETURN
-hextobin(STMT *s, BINDPARM *p)
-{
-    int i, len = strlen(p->param) / 2;
-    char *bin = xmalloc(len + 1), *pp;
-
-    if (!bin) {
-	return nomem(s);
-    }
-    if (len <= 0) {
-	bin[0] = '\0';
-	if (p->param == p->ind) {
-	    freep(&p->param);
-	}
-	p->param = p->ind = bin;
-	p->len = 0;
-	return SQL_SUCCESS;
-    }
-    for (i = 0, pp = (char *) p->param; i < len; i++) {
-	char *x;
-	int v;
-
-	if (!*pp || !(x = strchr(hexdigits, *pp))) {
-	    goto converr;
-	}
-	v = x - hexdigits;
-	bin[i] = (v >= 16) ? ((v - 6) << 4) : (v << 4);
-	++pp;
-	if (!*pp || !(x = strchr(hexdigits, *pp))) {
-converr:
-	    freep(&bin);
-	    setstat(s, -1, "conversion error", (*s->ov3) ? "HY000" : "S1000");
-	    return SQL_ERROR;
-	}
-	v = x - hexdigits;
-	bin[i] |= (v >= 16) ? (v - 6) : v;
-	++pp;
-    }
-    i = sqlite_encode_binary(bin, len, 0);
-    pp = xmalloc(i + 1);
-    if (!pp) {
-	freep(&bin);
-	return nomem(s);
-    }
-    p->len = sqlite_encode_binary(bin, len, pp);
-    if (p->param == p->ind) {
-	freep(&p->param);
-    }
-    p->param = p->ind = pp;
-    freep(&bin);
-    return SQL_SUCCESS;
-}
-#endif
 
 /**
  * Put (partial) parameter data into executing statement.
@@ -2804,7 +2032,7 @@ seqerr:
     for (i = 0; i < s->nparams; i++) {
 	p = &s->bindparms[i];
 	if (p->need) {
-	    int type = mapdeftype(p->type, p->stype, -1, s->nowchar);
+	    int type = mapdeftype(p->type, p->stype, -1);
 
 	    if (len == SQL_NULL_DATA) {
 		freep(&p->param);
@@ -2812,7 +2040,6 @@ seqerr:
 		p->len = SQL_NULL_DATA;
 		p->need = 0;
 	    } else
-#if HAVE_ENCDEC
 	    if (type == SQL_C_BINARY) {
 		if (len <= 0) {
 		    setstat(s, -1, "invalid length", "HY090");
@@ -2820,13 +2047,7 @@ seqerr:
 		}
 		goto putd;
 	    } else
-#endif
-#ifdef SQLITE_UTF8
-	    if (type != SQL_C_CHAR && type != SQL_C_WCHAR)
-#else
-	    if (type != SQL_C_CHAR)
-#endif
-	    {
+	    if (type != SQL_C_CHAR) {
 		int size = 0;
 
 		switch (type) {
@@ -2881,40 +2102,20 @@ seqerr:
 	    } else if (len == SQL_NTS) {
 		char *dp = data;
 
-#ifdef SQLITE_UTF8
-		if (p->type == SQL_C_WCHAR) {
-		    dp = uc_to_utf(data, len);
-		    if (!dp) {
-			return nomem(s);
-		    }
-		}
-#endif
 		dlen = strlen(dp);
 		freep(&p->param);
 		p->param = xmalloc(dlen + 1);
 		if (!p->param) {
-#ifdef SQLITE_UTF8
-		    if (dp != data) {
-			uc_free(dp);
-		    }
-#endif
 		    return nomem(s);
 		}
 		strcpy(p->param, dp);
-#ifdef SQLITE_UTF8
-		if (dp != data) {
-		    uc_free(dp);
-		}
-#endif
 		p->len = dlen;
 		p->need = 0;
 	    } else if (len <= 0) {
 		setstat(s, -1, "invalid length", "HY090");
 		return SQL_ERROR;
 	    } else {
-#if HAVE_ENCDEC
 putd:
-#endif
 		dlen = min(p->len - p->offs, len);
 		if (!p->param) {
 		    setstat(s, -1, "no memory for parameter", "HY013");
@@ -2923,59 +2124,7 @@ putd:
 		memcpy((char *) p->param + p->offs, data, dlen);
 		p->offs += dlen;
 		if (p->offs >= p->len) {
-#ifdef SQLITE_UTF8
-		    if (p->type == SQL_C_WCHAR) {
-			char *dp = uc_to_utf(p->param, p->len);
-			char *np;
-			int nlen;
-
-			if (!dp) {
-			    return nomem(s);
-			}
-			nlen = strlen(dp);
-			np = xmalloc(nlen + 1);
-			if (!np) {
-			    uc_free(dp);
-			    return nomem(s);
-			}
-			strcpy(np, dp);
-			uc_free(dp);
-			freep(&p->param);
-			p->param = p->ind = np;
-			p->len = nlen;
-		    } else {
-			*((char *) p->param + p->len) = '\0';
-		    }
-#else
 		    *((char *) p->param + p->len) = '\0';
-#endif
-#if HAVE_ENCDEC
-		    if ((p->stype == SQL_BINARY ||
-			 p->stype == SQL_VARBINARY ||
-			 p->stype == SQL_LONGVARBINARY) &&
-#ifdef SQLITE_UTF8
-			(type == SQL_C_CHAR || type == SQL_C_WCHAR)
-#else
-			type == SQL_C_CHAR
-#endif
-		       ) {
-			if (hextobin(s, p) != SQL_SUCCESS) {
-			    return SQL_ERROR;
-			}
-		    } else if (type == SQL_C_BINARY) {
-			int bsize;
-			char *bin;
-
-			bsize = sqlite_encode_binary(p->param, p->len, 0);
-			bin = xmalloc(bsize + 1);
-			if (!bin) {
-			    return nomem(s);
-			}
-			p->len = sqlite_encode_binary(p->param, p->len, bin);
-			freep(&p->param);
-			p->param = p->ind = bin;
-		    }
-#endif
 		    p->need = 0;
 		}
 	    }
@@ -3030,7 +2179,7 @@ substparam(STMT *s, int pnum, char **out, int *size)
 	goto error;
     }
     p = &s->bindparms[pnum];
-    type = mapdeftype(p->type, p->stype, -1, s->nowchar);
+    type = mapdeftype(p->type, p->stype, -1);
     if (p->need) {
 	if (!p->param) {
 	    p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
@@ -3053,12 +2202,7 @@ substparam(STMT *s, int pnum, char **out, int *size)
     }
     switch (type) {
     case SQL_C_CHAR:
-#ifdef SQLITE_UTF8
-    case SQL_C_WCHAR:
-#endif
-#if HAVE_ENCDEC
     case SQL_C_BINARY:
-#endif
 	break;
     case SQL_C_UTINYINT:
 	sprintf(buf, "%d", *((unsigned char *) p->param));
@@ -3084,22 +2228,17 @@ substparam(STMT *s, int pnum, char **out, int *size)
 	goto dodouble;
     case SQL_C_DOUBLE:
 	dval = *((double *) p->param);
-    dodouble:
-#if defined(HAVE_SQLITEMPRINTF) && HAVE_SQLITEMPRINTF
-	{
-	    char *buf2 = sqlite_mprintf("%.16g", dval);
+    dodouble: {
+	char *buf2 = sqlite3_mprintf("%.16g", dval);
 
-	    if (buf2) {
-		strcpy(buf, buf2);
-		sqlite_freemem(buf2);
-	    } else {
-		strcpy(buf, "NULL");
-	    }
+	if (buf2) {
+	    strcpy(buf, buf2);
+	    sqlite3_free(buf2);
+	} else {
+	    strcpy(buf, "NULL");
 	}
-#else
-	ln_sprintfg(buf, dval);
-#endif
 	goto bind;
+    }
 #ifdef SQL_C_TYPE_DATE
     case SQL_C_TYPE_DATE:
 #endif
@@ -3257,15 +2396,6 @@ outofmem:
     p->offs = 0;
     p->len = 0;
     if (p->lenp) {
-#ifdef SQLITE_UTF8
-	if (buftype == SQL_C_WCHAR) {
-	    if (*p->lenp == SQL_NTS) {
-		p->max = buflen = uc_strlen(data);
-	    } else if (*p->lenp >= 0) {
-		p->max = buflen = *p->lenp;
-	    }
-	} else
-#endif
 	if (buftype == SQL_C_CHAR) {
 	    if (*p->lenp == SQL_NTS) {
 		p->len = p->max = buflen = strlen(data);
@@ -3283,60 +2413,13 @@ outofmem:
 	p->ind = NULL;
 	p->need = 0;
     } else {
-#if HAVE_ENCDEC
-	int chkbin = 1;
-#endif
-
-#ifdef SQLITE_UTF8
-	if (buftype == SQL_C_WCHAR) {
-	    p->ind = uc_to_utf(data, buflen);
-	    if (!p->ind) {
-		goto outofmem;
-	    }
-	    p->param = p->ind;
-	    p->len = strlen(p->param);
-	} else
-#endif
-#if HAVE_ENCDEC
-	if (buftype == SQL_C_BINARY) {
-	    int bsize;
-
-	    p->len = *p->lenp;
-	    if (p->len < 0) {
-		setstat(s, -1, "invalid length reference", "HY009");
-		return SQL_ERROR;
-	    }
-	    bsize = sqlite_encode_binary(data, p->len, 0);
-	    p->ind = xmalloc(bsize + 1);
-	    if (!p->ind) {
-		goto outofmem;
-	    }
-	    p->param = p->ind;
-	    p->len = sqlite_encode_binary(data, p->len, p->param);
-	    chkbin = 0;
-	} else
-#endif
 	if (buftype == SQL_C_CHAR) {
 	    p->param = data;
 	    p->ind = NULL;
 	} else {
 	    p->param = data;
 	    p->ind = NULL;
-#if HAVE_ENCDEC
-	    chkbin = 0;
-#endif
 	}
-#if HAVE_ENCDEC
-	if (chkbin) {
-	    if (ptype == SQL_BINARY ||
-		ptype == SQL_VARBINARY ||
-		ptype == SQL_LONGVARBINARY) {
-		if (hextobin(s, p) != SQL_SUCCESS) {
-		    return SQL_ERROR;
-		}
-	    }
-	}
-#endif
 	p->need = 0;
     }
     p->param0 = p->param;
@@ -3474,17 +2557,9 @@ SQLDescribeParam(SQLHSTMT stmt, UWORD pnum, SWORD *dtype, UDWORD *size,
     }
     if (dtype) {
 #ifdef SQL_LONGVARCHAR
-#ifdef SQLITE_UTF8
-	*dtype = s->nowchar ? SQL_LONGVARCHAR : SQL_WLONGVARCHAR;
-#else
 	*dtype = SQL_LONGVARCHAR;
-#endif
-#else
-#ifdef SQLITE_UTF8
-	*dtype = s->nowchar ? SQL_VARCHAR : SQL_WVARCHAR;
 #else
 	*dtype = SQL_VARCHAR;
-#endif
 #endif
     }
     if (size) {
@@ -3536,7 +2611,6 @@ SQLParamOptions(SQLHSTMT stmt, UDWORD rows, UDWORD *rowp)
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -3548,23 +2622,7 @@ SQLGetDescField(SQLHDESC handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
-#endif
 
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLGetDescFieldW(SQLHDESC handle, SQLSMALLINT recno,
-		 SQLSMALLINT fieldid, SQLPOINTER value,
-		 SQLINTEGER buflen, SQLINTEGER *strlen)
-{
-    return SQL_ERROR;
-}
-#endif
-
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -3576,23 +2634,7 @@ SQLSetDescField(SQLHDESC handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
-#endif
 
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLSetDescFieldW(SQLHDESC handle, SQLSMALLINT recno,
-		 SQLSMALLINT fieldid, SQLPOINTER value,
-		 SQLINTEGER buflen)
-{
-    return SQL_ERROR;
-}
-#endif
-
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -3607,24 +2649,6 @@ SQLGetDescRec(SQLHDESC handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLGetDescRecW(SQLHDESC handle, SQLSMALLINT recno,
-	       SQLWCHAR *name, SQLSMALLINT buflen,
-	       SQLSMALLINT *strlen, SQLSMALLINT *type,
-	       SQLSMALLINT *subtype, SQLINTEGER *len,
-	       SQLSMALLINT *prec, SQLSMALLINT *scale,
-	       SQLSMALLINT *nullable)
-{
-    return SQL_ERROR;
-}
-#endif
 
 /**
  * Function not implemented.
@@ -3666,7 +2690,7 @@ noconn:
     if (!d->sqlite) {
 	goto noconn;
     }
-    vm_end_if(s);
+    s3stmt_end_if(s);
     freeresult(s, 0);
     s->ncols = ncols;
     s->cols = colspec;
@@ -3690,7 +2714,6 @@ static COL tablePrivSpec[] = {
     { "SYSTEM", "TABLEPRIV", "IS_GRANTABLE", SCOL_VARCHAR, 50 }
 };
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve privileges on tables and/or views.
  * @param stmt statement handle
@@ -3711,32 +2734,6 @@ SQLTablePrivileges(SQLHSTMT stmt,
 {
     return mkresultset(stmt, tablePrivSpec, array_size(tablePrivSpec));
 }
-#endif
-
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
-#ifdef SQLITE_UTF8
-/**
- * Retrieve privileges on tables and/or views (UNICODE version).
- * @param stmt statement handle
- * @param catalog catalog name/pattern or NULL
- * @param catalogLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLTablePrivilegesW(SQLHSTMT stmt,
-		    SQLWCHAR *catalog, SQLSMALLINT catalogLen,
-		    SQLWCHAR *schema, SQLSMALLINT schemaLen,
-		    SQLWCHAR *table, SQLSMALLINT tableLen)
-{
-    return mkresultset(stmt, tablePrivSpec, array_size(tablePrivSpec));
-}
-#endif
-#endif
 
 /**
  * Columns for result set of SQLColumnPrivileges().
@@ -3752,7 +2749,6 @@ static COL colPrivSpec[] = {
     { "SYSTEM", "COLPRIV", "IS_GRANTABLE", SCOL_VARCHAR, 50 }
 };
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve privileges on columns.
  * @param stmt statement handle
@@ -3776,35 +2772,6 @@ SQLColumnPrivileges(SQLHSTMT stmt,
 {
     return mkresultset(stmt, colPrivSpec, array_size(colPrivSpec));
 }
-#endif
-
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
-#ifdef SQLITE_UTF8
-/**
- * Retrieve privileges on columns (UNICODE version).
- * @param stmt statement handle
- * @param catalog catalog name/pattern or NULL
- * @param catalogLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @param column column name or NULL
- * @param columnLen length of column name or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLColumnPrivilegesW(SQLHSTMT stmt,
-		     SQLWCHAR *catalog, SQLSMALLINT catalogLen,
-		     SQLWCHAR *schema, SQLSMALLINT schemaLen,
-		     SQLWCHAR *table, SQLSMALLINT tableLen,
-		     SQLWCHAR *column, SQLSMALLINT columnLen)
-{
-    return mkresultset(stmt, colPrivSpec, array_size(colPrivSpec));
-}
-#endif
-#endif
 
 /**
  * Columns for result set of SQLPrimaryKeys().
@@ -3841,7 +2808,7 @@ drvprimarykeys(SQLHSTMT stmt,
     DBC *d;
     SQLRETURN sret;
     int i, size, ret, nrows, ncols, offs, namec, uniquec;
-    char **rowp, *errp = NULL, tname[512];
+    char **rowp, *errp = NULL, *sql, tname[512];
 
     sret = mkresultset(stmt, pkeySpec, array_size(pkeySpec));
     if (sret != SQL_SUCCESS) {
@@ -3860,29 +2827,36 @@ drvprimarykeys(SQLHSTMT stmt,
     }
     strncpy(tname, table, size);
     tname[size] = '\0';
-    ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list('%q')", &rowp,
-				  &nrows, &ncols, &errp, tname);
+    sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (ret != SQLITE_OK) {
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	return SQL_ERROR;
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     if (ncols * nrows <= 0) {
 nodata:
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
 	/* try table_info for integer primary keys */
-	ret = sqlite_get_table_printf(d->sqlite,
-				      "PRAGMA table_info('%q')", &rowp,
-				      &nrows, &ncols, NULL, tname);
+	ret = SQLITE_ERROR;
+	sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
+	if (sql) {
+	    ret = sqlite3_get_table(d->sqlite, sql, &rowp,
+				    &nrows, &ncols, NULL);
+	    sqlite3_free(sql);
+	}
 	if (ret == SQLITE_OK) {
 	    int typec, roffs;
 
@@ -3920,7 +2894,7 @@ nodata:
 	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
 	    s->rows[roffs + 4] = xstrdup("1");
 nodata2:
-	    sqlite_free_table(rowp);
+	    sqlite3_free_table(rowp);
 	}
 	return SQL_SUCCESS;
     }
@@ -3935,13 +2909,17 @@ nodata2:
 	char **rowpp;
 
 	if (*rowp[i * ncols + uniquec] != '0') {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret == SQLITE_OK) {
 		size += nnrows;
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 	    }
 	}
     }
@@ -3967,10 +2945,14 @@ nodata2:
 	if (*rowp[i * ncols + uniquec] != '0') {
 	    int k;
 
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret != SQLITE_OK) {
 		continue;
 	    }
@@ -4002,14 +2984,13 @@ nodata2:
 		}
 	    }
 	    offs += nnrows;
-	    sqlite_free_table(rowpp);
+	    sqlite3_free_table(rowpp);
 	}
     }
-    sqlite_free_table(rowp);
+    sqlite3_free_table(rowp);
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information about indexed columns.
  * @param stmt statement handle
@@ -4031,59 +3012,6 @@ SQLPrimaryKeys(SQLHSTMT stmt,
     return drvprimarykeys(stmt, cat, catLen, schema, schemaLen,
 			  table, tableLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information about indexed columns (UNICODE version).
- * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLPrimaryKeysW(SQLHSTMT stmt,
-		SQLWCHAR *cat, SQLSMALLINT catLen,
-		SQLWCHAR *schema, SQLSMALLINT schemaLen,
-		SQLWCHAR *table, SQLSMALLINT tableLen)
-{
-    char *c = NULL, *s = NULL, *t = NULL;
-    SQLRETURN ret;
-
-    if (cat) {
-	c = uc_to_utf_c(cat, catLen);
-	if (!c) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (schema) {
-	s = uc_to_utf_c(schema, schemaLen);
-	if (!s) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (table) {
-	t = uc_to_utf_c(table, tableLen);
-	if (!t) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvprimarykeys(stmt, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS);
-done:
-    uc_free(t);
-    uc_free(s);
-    uc_free(c);
-    return ret;
-}
-#endif
 
 /**
  * Columns for result set of SQLSpecialColumns().
@@ -4128,7 +3056,7 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     SQLRETURN sret;
     int i, size, ret, nrows, ncols, nnnrows, nnncols, offs;
     int namec, uniquec, namecc, typecc, notnullcc, mkrowid = 0;
-    char *errp = NULL, tname[512];
+    char *errp = NULL, *sql, tname[512];
     char **rowp = NULL, **rowppp = NULL;
 
     sret = mkresultset(stmt, scolSpec, array_size(scolSpec));
@@ -4151,36 +3079,45 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     if (id != SQL_BEST_ROWID) {
 	goto nodata;
     }
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA index_list('%q')",
-				  &rowp, &nrows, &ncols, &errp, tname);
+    sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (ret != SQLITE_OK) {
 doerr:
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	return SQL_ERROR;	
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     if (ncols * nrows <= 0) {
 nodata:
-	sqlite_free_table(rowp);
-	sqlite_free_table(rowppp);
+	sqlite3_free_table(rowp);
+	sqlite3_free_table(rowppp);
 	return SQL_SUCCESS;
     }
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')",
-				  &rowppp, &nnnrows, &nnncols, &errp, tname);
+    sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    ret = sqlite3_get_table(d->sqlite, sql, &rowppp, &nnnrows, &nnncols,
+			    &errp);
+    sqlite3_free(sql);
     if (ret != SQLITE_OK) {
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
 	goto doerr;
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     size = 0;
@@ -4194,16 +3131,20 @@ nodata:
     notnullcc = findcol(rowppp, nnncols, "notnull");
     for (i = 1; i <= nrows; i++) {
 	int nnrows, nncols;
-	char **rowpp;
+	char **rowpp = NULL;
 
 	if (*rowp[i * ncols + uniquec] != '0') {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret == SQLITE_OK) {
 		size += nnrows;
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 	    }
 	}
     }
@@ -4229,15 +3170,19 @@ nodata:
     offs = 0;
     for (i = 1; i <= nrows; i++) {
 	int nnrows, nncols;
-	char **rowpp;
+	char **rowpp = NULL;
 
 	if (*rowp[i * ncols + uniquec] != '0') {
 	    int k;
 
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret != SQLITE_OK) {
 		continue;
 	    }
@@ -4265,26 +3210,16 @@ nodata:
 				    char buf[32];
 					
 				    s->rows[roffs + 3] = xstrdup(typen);
-				    sqltype = mapsqltype(typen, NULL, *s->ov3,
-							 s->nowchar);
+				    sqltype = mapsqltype(typen, NULL, *s->ov3);
 				    getmd(typen, sqltype, &mm, &dd);
 #ifdef SQL_LONGVARCHAR
 				    if (sqltype == SQL_VARCHAR && mm > 255) {
 					sqltype = SQL_LONGVARCHAR;
 				    }
 #endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WLONGVARCHAR
-				    if (sqltype == SQL_WVARCHAR && mm > 255) {
-					sqltype = SQL_WLONGVARCHAR;
-				    }
-#endif
-#endif
-#if HAVE_ENCDEC
 				    if (sqltype == SQL_VARBINARY && mm > 255) {
 					sqltype = SQL_LONGVARBINARY;
 				    }
-#endif
 				    sprintf(buf, "%d", sqltype);
 				    s->rows[roffs + 2] = xstrdup(buf);
 				    sprintf(buf, "%d", mm);
@@ -4306,11 +3241,11 @@ nodata:
 		}
 	    }
 	    offs += nnrows;
-	    sqlite_free_table(rowpp);
+	    sqlite3_free_table(rowpp);
 	}
     }
-    sqlite_free_table(rowp);
-    sqlite_free_table(rowppp);
+    sqlite3_free_table(rowp);
+    sqlite3_free_table(rowppp);
     if (nullable == SQL_NO_NULLS) {
 	for (i = 1; i < s->nrows; i++) {
 	    if (s->rows[i * s->ncols + 8][0] == '0') {
@@ -4348,7 +3283,6 @@ mkrowid:
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information about indexed columns.
  * @param stmt statement handle
@@ -4374,64 +3308,6 @@ SQLSpecialColumns(SQLHSTMT stmt, SQLUSMALLINT id,
     return drvspecialcolumns(stmt, id, cat, catLen, schema, schemaLen,
 			     table, tableLen, scope, nullable);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information about indexed columns (UNICODE version).
- * @param stmt statement handle
- * @param id type of information, e.g. best row id
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @param scope
- * @param nullable
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSpecialColumnsW(SQLHSTMT stmt, SQLUSMALLINT id,
-		   SQLWCHAR *cat, SQLSMALLINT catLen,
-		   SQLWCHAR *schema, SQLSMALLINT schemaLen,
-		   SQLWCHAR *table, SQLSMALLINT tableLen,
-		   SQLUSMALLINT scope, SQLUSMALLINT nullable)
-{
-    char *c = NULL, *s = NULL, *t = NULL;
-    SQLRETURN ret;
-
-    if (cat) {
-	c = uc_to_utf_c(cat, catLen);
-	if (!c) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (schema) {
-	s = uc_to_utf_c(schema, schemaLen);
-	if (!s) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (table) {
-	t = uc_to_utf_c(table, tableLen);
-	if (!t) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvspecialcolumns(stmt, id, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS,
-			    scope, nullable);
-done:
-    uc_free(t);
-    uc_free(s);
-    uc_free(c);
-    return ret;
-}
-#endif
 
 /**
  * Columns for result set of SQLForeignKeys().
@@ -4485,7 +3361,7 @@ drvforeignkeys(SQLHSTMT stmt,
     DBC *d;
     SQLRETURN sret;
     int i, size, ret, nrows, ncols, offs, namec, seqc, fromc, toc;
-    char **rowp, *errp = NULL, pname[512], fname[512];
+    char **rowp, *errp = NULL, *sql, pname[512], fname[512];
 
     sret = mkresultset(stmt, fkeySpec, array_size(fkeySpec));
     if (sret != SQL_SUCCESS) {
@@ -4510,6 +3386,7 @@ drvforeignkeys(SQLHSTMT stmt,
     pname[size] = '\0';
     size = 0;
     if (FKtable) {
+
 	if (FKtableLen == SQL_NTS) {
 	    size = sizeof (fname) - 1;
 	} else {
@@ -4521,25 +3398,29 @@ drvforeignkeys(SQLHSTMT stmt,
     if (fname[0] != '\0') {
 	int plen;
 
-	ret = sqlite_get_table_printf(d->sqlite,
-				      "PRAGMA foreign_key_list('%q')", &rowp,
-				      &nrows, &ncols, &errp, fname);
+	ret = SQLITE_ERROR;
+	sql = sqlite3_mprintf("PRAGMA foreign_key_list('%q')", fname);
+	if (sql) {
+	    ret = sqlite3_get_table(d->sqlite, sql, &rowp,
+				    &nrows, &ncols, &errp);
+	    sqlite3_free(sql);
+	}
 	if (ret != SQLITE_OK) {
 	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		    errp ? errp : "unknown error", ret);
 	    if (errp) {
-		sqlite_freemem(errp);
+		sqlite3_free(errp);
 		errp = NULL;
 	    }
 	    return SQL_ERROR;
 	}
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	if (ncols * nrows <= 0) {
 nodata:
-	    sqlite_free_table(rowp);
+	    sqlite3_free_table(rowp);
 	    return SQL_SUCCESS;
 	}
 	size = 0;
@@ -4608,26 +3489,25 @@ nodata:
 	    s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
 	    offs++;
 	}
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
     } else {
 	int nnrows, nncols, plen = strlen(pname);
 	char **rowpp;
 
-	ret = sqlite_get_table(d->sqlite,
-			       "select name from sqlite_master "
-			       "where type='table'", &rowp,
-			       &nrows, &ncols, &errp);
+	ret = sqlite3_get_table(d->sqlite, "select name from sqlite_master "
+				"where type='table'", &rowp,
+				&nrows, &ncols, &errp);
 	if (ret != SQLITE_OK) {
 	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		    errp ? errp : "unknown error", ret);
 	    if (errp) {
-		sqlite_freemem(errp);
+		sqlite3_free(errp);
 		errp = NULL;
 	    }
 	    return SQL_ERROR;
 	}
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	if (ncols * nrows <= 0) {
@@ -4644,12 +3524,16 @@ nodata:
 	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA foreign_key_list('%q')",
-					  &rowpp,
-					  &nnrows, &nncols, NULL, rowp[i]);
+	    rowpp = NULL;
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA foreign_key_list('%q')", rowp[i]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+				      &nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret != SQLITE_OK || nncols * nnrows <= 0) {
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 		continue;
 	    }
 	    namec = findcol(rowpp, nncols, "table");
@@ -4657,7 +3541,7 @@ nodata:
 	    fromc = findcol(rowpp, nncols, "from");
 	    toc = findcol(rowpp, nncols, "to");
 	    if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 		continue;
 	    }
 	    for (k = 1; k <= nnrows; k++) {
@@ -4671,7 +3555,7 @@ nodata:
 		}
 		size++;
 	    }
-	    sqlite_free_table(rowpp);
+	    sqlite3_free_table(rowpp);
 	}
 	if (size == 0) {
 	    goto nodata;
@@ -4698,12 +3582,16 @@ nodata:
 	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA foreign_key_list('%q')",
-					  &rowpp,
-					  &nnrows, &nncols, NULL, rowp[i]);
+	    rowpp = NULL;
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA foreign_key_list('%q')", rowp[i]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret != SQLITE_OK || nncols * nnrows <= 0) {
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 		continue;
 	    }
 	    namec = findcol(rowpp, nncols, "table");
@@ -4711,7 +3599,7 @@ nodata:
 	    fromc = findcol(rowpp, nncols, "from");
 	    toc = findcol(rowpp, nncols, "to");
 	    if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 		continue;
 	    }
 	    for (k = 1; k <= nnrows; k++) {
@@ -4743,14 +3631,13 @@ nodata:
 		s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
 		offs++;
 	    }
-	    sqlite_free_table(rowpp);
+	    sqlite3_free_table(rowpp);
 	}
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
     }
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information about primary/foreign keys.
  * @param stmt statement handle
@@ -4785,94 +3672,6 @@ SQLForeignKeys(SQLHSTMT stmt,
 			  FKschema, FKschemaLen,
 			  FKtable, FKtableLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information about primary/foreign keys (UNICODE version).
- * @param stmt statement handle
- * @param PKcatalog primary key catalog name/pattern or NULL
- * @param PKcatalogLen length of PKcatalog or SQL_NTS
- * @param PKschema primary key schema name/pattern or NULL
- * @param PKschemaLen length of PKschema or SQL_NTS
- * @param PKtable primary key table name/pattern or NULL
- * @param PKtableLen length of PKtable or SQL_NTS
- * @param FKcatalog foreign key catalog name/pattern or NULL
- * @param FKcatalogLen length of FKcatalog or SQL_NTS
- * @param FKschema foreign key schema name/pattern or NULL
- * @param FKschemaLen length of FKschema or SQL_NTS
- * @param FKtable foreign key table name/pattern or NULL
- * @param FKtableLen length of FKtable or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLForeignKeysW(SQLHSTMT stmt,
-		SQLWCHAR *PKcatalog, SQLSMALLINT PKcatalogLen,
-		SQLWCHAR *PKschema, SQLSMALLINT PKschemaLen,
-		SQLWCHAR *PKtable, SQLSMALLINT PKtableLen,
-		SQLWCHAR *FKcatalog, SQLSMALLINT FKcatalogLen,
-		SQLWCHAR *FKschema, SQLSMALLINT FKschemaLen,
-		SQLWCHAR *FKtable, SQLSMALLINT FKtableLen)
-{
-    char *pc = NULL, *ps = NULL, *pt = NULL;
-    char *fc = NULL, *fs = NULL, *ft = NULL;
-    SQLRETURN ret;
-
-    if (PKcatalog) {
-	pc = uc_to_utf_c(PKcatalog, PKcatalogLen);
-	if (!pc) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (PKschema) {
-	ps = uc_to_utf_c(PKschema, PKschemaLen);
-	if (!ps) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (PKtable) {
-	pt = uc_to_utf_c(PKtable, PKtableLen);
-	if (!pt) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (FKcatalog) {
-	fc = uc_to_utf_c(FKcatalog, FKcatalogLen);
-	if (!fc) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (FKschema) {
-	fs = uc_to_utf_c(FKschema, FKschemaLen);
-	if (!fs) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (FKtable) {
-	ft = uc_to_utf_c(FKtable, FKtableLen);
-	if (!ft) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvforeignkeys(stmt, pc, SQL_NTS, ps, SQL_NTS, pt, SQL_NTS,
-			 fc, SQL_NTS, fs, SQL_NTS, ft, SQL_NTS);
-done:
-    uc_free(ft);
-    uc_free(fs);
-    uc_free(fc);
-    uc_free(pt);
-    uc_free(ps);
-    uc_free(pc);
-    return ret;
-}
-#endif
 
 /**
  * Internal commit or rollback transaction.
@@ -4903,27 +3702,26 @@ endtran(DBC *d, SQLSMALLINT comptype)
 	sql = "ROLLBACK TRANSACTION";
     doit:
 	d->intrans = 0;
-	ret = sqlite_exec(d->sqlite, sql, NULL, NULL, &errp);
-	dbtracerc(d, ret, errp);
+	ret = sqlite3_exec(d->sqlite, sql, NULL, NULL, &errp);
 	if (ret != SQLITE_OK) {
 	    if (!fail) {
 		setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
 			 errp ? errp : "transaction failed");
 		if (errp) {
-		    sqlite_freemem(errp);
+		    sqlite3_free(errp);
 		    errp = NULL;
 		}
 		fail = 1;
 		goto rollback;
 	    }
 	    if (errp) {
-		sqlite_freemem(errp);
+		sqlite3_free(errp);
 		errp = NULL;
 	    }
 	    return SQL_ERROR;
 	}
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	return SQL_SUCCESS;
@@ -5014,7 +3812,6 @@ SQLCopyDesc(SQLHDESC source, SQLHDESC target)
     return SQL_ERROR;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Translate SQL string.
  * @param stmt statement handle
@@ -5053,48 +3850,6 @@ SQLNativeSql(SQLHSTMT stmt, SQLCHAR *sqlin, SQLINTEGER sqlinLen,
     }
     return SQL_SUCCESS;
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Translate SQL string (UNICODE version).
- * @param stmt statement handle
- * @param sqlin input string
- * @param sqlinLen length of input string
- * @param sql output string
- * @param sqlMax max space in output string
- * @param sqlLen value return for length of output string
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLNativeSqlW(SQLHSTMT stmt, SQLWCHAR *sqlin, SQLINTEGER sqlinLen,
-	      SQLWCHAR *sql, SQLINTEGER sqlMax, SQLINTEGER *sqlLen)
-{
-    int outLen = 0;
-
-    if (sqlinLen == SQL_NTS) {
-	sqlinLen = uc_strlen(sqlin);
-    }
-    if (sql) {
-	if (sqlMax > 0) {
-	    uc_strncpy(sql, sqlin, sqlMax - 1);
-	    sqlin[sqlMax - 1] = 0;
-	    outLen = min(sqlMax  - 1, sqlinLen);
-	}
-    } else {
-	outLen = sqlinLen;
-    }
-    if (sqlLen) {
-	*sqlLen = outLen;
-    }
-    if (sql && outLen < sqlinLen) {
-	setstat((STMT *) stmt, -1, "data right truncated", "01004");
-	return SQL_SUCCESS_WITH_INFO;
-    }
-    return SQL_SUCCESS;
-}
-#endif
 
 /**
  * Columns for result set of SQLProcedures().
@@ -5111,7 +3866,6 @@ static COL procSpec[] = {
     { "SYSTEM", "PROCEDURE", "PROCEDURE_TYPE", SQL_SMALLINT, 5 }
 };
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information about stored procedures.
  * @param stmt statement handle
@@ -5132,30 +3886,6 @@ SQLProcedures(SQLHSTMT stmt,
 {
     return mkresultset(stmt, procSpec, array_size(procSpec));
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information about stored procedures (UNICODE version).
- * @param stmt statement handle
- * @param catalog catalog name/pattern or NULL
- * @param catalogLen length of catalog or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema or SQL_NTS
- * @param proc procedure name/pattern or NULL
- * @param procLen length of proc or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLProceduresW(SQLHSTMT stmt,
-	       SQLWCHAR *catalog, SQLSMALLINT catalogLen,
-	       SQLWCHAR *schema, SQLSMALLINT schemaLen,
-	       SQLWCHAR *proc, SQLSMALLINT procLen)
-{
-    return mkresultset(stmt, procSpec, array_size(procSpec));
-}
-#endif
 
 /**
  * Columns for result set of SQLProcedureColumns().
@@ -5183,7 +3913,6 @@ static COL procColSpec[] = {
     { "SYSTEM", "PROCCOL", "IS_NULLABLE", SCOL_VARCHAR, 50 }
 };
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information about columns in result set of stored procedures.
  * @param stmt statement handle
@@ -5208,34 +3937,6 @@ SQLProcedureColumns(SQLHSTMT stmt,
     return mkresultset(stmt, procColSpec, array_size(procColSpec));
 
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information about columns in result
- * set of stored procedures (UNICODE version).
- * @param stmt statement handle
- * @param catalog catalog name/pattern or NULL
- * @param catalogLen length of catalog or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema or SQL_NTS
- * @param proc procedure name/pattern or NULL
- * @param procLen length of proc or SQL_NTS
- * @param column column name/pattern or NULL
- * @param columnLen length of column or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLProcedureColumnsW(SQLHSTMT stmt,
-		     SQLWCHAR *catalog, SQLSMALLINT catalogLen,
-		     SQLWCHAR *schema, SQLSMALLINT schemaLen,
-		     SQLWCHAR *proc, SQLSMALLINT procLen,
-		     SQLWCHAR *column, SQLSMALLINT columnLen)
-{
-    return mkresultset(stmt, procColSpec, array_size(procColSpec));
-}
-#endif
 
 /**
  * Get information of HENV.
@@ -5422,7 +4123,6 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT).
  * @param htype handle type
@@ -5444,87 +4144,7 @@ SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     return drvgetdiagrec(htype, handle, recno, sqlstate,
 			 nativeerr, msg, buflen, msglen);
 }
-#endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
-#ifdef SQLITE_UTF8
-/**
- * Get error message given handle (HENV, HDBC, or HSTMT)
- * (UNICODE version). 
- * @param htype handle type
- * @param handle HENV, HDBC, or HSTMT
- * @param recno
- * @param sqlstate output buffer for SQL state
- * @param nativeerr output buffer of native error code
- * @param msg output buffer for error message
- * @param buflen length of output buffer
- * @param msglen output length
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetDiagRecW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
-	      SQLWCHAR *sqlstate, SQLINTEGER *nativeerr, SQLWCHAR *msg,
-	      SQLSMALLINT buflen, SQLSMALLINT *msglen)
-{
-    char state[16];
-    SQLSMALLINT len;
-    SQLRETURN ret;
-    
-    ret = drvgetdiagrec(htype, handle, recno, state,
-			nativeerr, (char *) msg, buflen, &len);
-    if (ret == SQL_SUCCESS) {
-	if (sqlstate) {
-	    uc_from_utf_buf(state, sqlstate, 6 * sizeof (SQLWCHAR));
-	}
-	if (msg) {
-	    if (len > 0) {
-		SQLWCHAR *m = NULL;
-
-		m = uc_from_utf((char *) msg, len);
-		if (m) {
-		    if (buflen) {
-			uc_strncpy(msg, m, buflen);
-			len = min(buflen, uc_strlen(m));
-		    } else {
-			len = uc_strlen(m);
-		    }
-		    uc_free(m);
-		} else {
-		    len = 0;
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-		if (buflen > 0) {
-		    msg[0] = 0;
-		}
-	    }
-	} else {
-	    len = 0;
-	}
-	if (msglen) {
-	    *msglen = len;
-	}
-    } else if (ret == SQL_NO_DATA) {
-	if (sqlstate) {
-	    sqlstate[0] = 0;
-	}
-	if (msg) {
-	    if (buflen > 0) {
-		msg[0] = 0;
-	    }
-	}
-	if (msglen) {
-	    *msglen = 0;
-	}
-    }
-    return ret;
-}
-#endif
-#endif
-
-#ifndef SQLITE_UTF8
 /**
  * Function not implemented.
  */
@@ -5536,21 +4156,6 @@ SQLGetDiagField(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLGetDiagFieldW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
-		 SQLSMALLINT id, SQLPOINTER info, 
-		 SQLSMALLINT buflen, SQLSMALLINT *strlen)
-{
-    return SQL_ERROR;
-}
-#endif
 
 /**
  * Internal get option of HSTMT.
@@ -5587,9 +4192,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    STMT *s = (STMT *) stmt;
 	    DBC *d = (DBC *) s->dbc;
 
-	    if (s == d->vm_stmt) {
-		*uval = d->vm_rownum < 0 ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
+	    if (s == d->cur_s3stmt) {
+		*uval = d->s3stmt_rownum < 0 ?
+		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
 	    }
 	}
 	*uval = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
@@ -5651,7 +4256,6 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Get option of HSTMT.
  * @param stmt statement handle
@@ -5668,26 +4272,6 @@ SQLGetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 {
     return drvgetstmtattr(stmt, attr, val, bufmax, buflen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Get option of HSTMT (UNICODE version).
- * @param stmt statement handle
- * @param attr attribute to be retrieved
- * @param val output buffer
- * @param bufmax length of output buffer
- * @param buflen output length
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetStmtAttrW(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
-		SQLINTEGER bufmax, SQLINTEGER *buflen)
-{
-    return drvgetstmtattr(stmt, attr, val, bufmax, buflen);
-}
-#endif
 
 /**
  * Internal set option on HSTMT.
@@ -5810,7 +4394,6 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Set option on HSTMT.
  * @param stmt statement handle
@@ -5826,25 +4409,6 @@ SQLSetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 {
     return drvsetstmtattr(stmt, attr, val, buflen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Set option on HSTMT (UNICODE version).
- * @param stmt statement handle
- * @param attr attribute to be set
- * @param val input buffer (attribute value)
- * @param buflen length of input buffer
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSetStmtAttrW(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
-		SQLINTEGER buflen)
-{
-    return drvsetstmtattr(stmt, attr, val, buflen);
-}
-#endif
 
 /**
  * Internal get option of HSTMT.
@@ -5868,9 +4432,9 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	{
 	    DBC *d = (DBC *) s->dbc;
 
-	    if (s == d->vm_stmt) {
-		*ret = d->vm_rownum < 0 ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
+	    if (s == d->cur_s3stmt) {
+		*ret = d->s3stmt_rownum < 0 ?
+		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
 	    }
 	}
 	*ret = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
@@ -5905,22 +4469,6 @@ SQLGetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
     return drvgetstmtoption(stmt, opt, param);
 }
-
-#ifdef SQLITE_UTF8
-/**
- * Get option of HSTMT (UNICODE version).
- * @param stmt statement handle
- * @param opt option to be retrieved
- * @param param output buffer
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
-{
-    return drvgetstmtoption(stmt, opt, param);
-}
-#endif
 
 /**
  * Internal set option on HSTMT.
@@ -6004,22 +4552,6 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 {
     return drvsetstmtoption(stmt, opt, param);
 }
-
-#ifdef SQLITE_UTF8
-/**
- * Set option on HSTMT (UNICODE version).
- * @param stmt statement handle
- * @param opt option to be set
- * @param param input buffer (option value)
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
-{
-    return drvsetstmtoption(stmt, opt, param);
-}
-#endif
 
 /**
  * Function not implemented.
@@ -6469,7 +5001,6 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     return SQL_SUCCESS;
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Return information about what this ODBC driver supports.
  * @param dbc database connection handle
@@ -6486,99 +5017,6 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 {
     return drvgetinfo(dbc, type, val, valMax, valLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Return information about what this ODBC driver supports.
- * @param dbc database connection handle
- * @param type type of information to be retrieved
- * @param val output buffer
- * @param valMax length of output buffer
- * @param valLen output length
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
-	    SQLSMALLINT *valLen)
-{
-    SQLRETURN ret;
-    SQLSMALLINT len;
-
-    ret = drvgetinfo(dbc, type, val, valMax, &len);
-    if (ret == SQL_SUCCESS) {
-	SQLWCHAR *v = NULL;
-
-	switch (type) {
-	case SQL_USER_NAME:
-	case SQL_DRIVER_ODBC_VER:
-	case SQL_DATA_SOURCE_NAME:
-	case SQL_DRIVER_NAME:
-	case SQL_DRIVER_VER:
-	case SQL_ODBC_VER:
-	case SQL_SERVER_NAME:
-	case SQL_DATABASE_NAME:
-	case SQL_SEARCH_PATTERN_ESCAPE:
-	case SQL_DBMS_NAME:
-	case SQL_DBMS_VER:
-	case SQL_NEED_LONG_DATA_LEN:
-	case SQL_ROW_UPDATES:
-	case SQL_ACCESSIBLE_PROCEDURES:
-	case SQL_PROCEDURES:
-	case SQL_EXPRESSIONS_IN_ORDERBY:
-	case SQL_ODBC_SQL_OPT_IEF:
-	case SQL_LIKE_ESCAPE_CLAUSE:
-	case SQL_ORDER_BY_COLUMNS_IN_SELECT:
-	case SQL_OUTER_JOINS:
-	case SQL_COLUMN_ALIAS:
-	case SQL_ACCESSIBLE_TABLES:
-	case SQL_MULT_RESULT_SETS:
-	case SQL_MULTIPLE_ACTIVE_TXN:
-	case SQL_MAX_ROW_SIZE_INCLUDES_LONG:
-	case SQL_DATA_SOURCE_READ_ONLY:
-#ifdef SQL_DESCRIBE_PARAMETER
-	case SQL_DESCRIBE_PARAMETER:
-#endif
-	case SQL_IDENTIFIER_QUOTE_CHAR:
-	case SQL_OWNER_TERM:
-	case SQL_PROCEDURE_TERM:
-	case SQL_QUALIFIER_NAME_SEPARATOR:
-	case SQL_QUALIFIER_TERM:
-	case SQL_TABLE_TERM:
-	case SQL_KEYWORDS:
-	case SQL_SPECIAL_CHARACTERS:
-	    if (val) {
-		if (len > 0) {
-		    v = uc_from_utf((char *) val, len);
-		    if (v) {
-			int vmax = valMax / sizeof (SQLWCHAR);
-
-			uc_strncpy(val, v, vmax);
-			len = min(vmax, uc_strlen(v));
-			uc_free(v);
-		    } else {
-			len = 0;
-		    }
-		}
-		if (len <= 0) {
-		    len = 0;
-		    if (valMax >= sizeof (SQLWCHAR)) {
-			*((SQLWCHAR *)val) = 0;
-		    }
-		}
-	    } else {
-		len = 0;
-	    }
-	    break;
-	}
-	if (valLen) {
-	    *valLen = len;
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Return information about supported ODBC API functions.
@@ -6831,17 +5269,6 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
     }
     memset(d, 0, sizeof (DBC));
     d->curtype = SQL_CURSOR_STATIC;
-#if HAVE_LIBVERSION
-    verstr = sqlite_libversion();
-#else
-    verstr = sqlite_version;
-#endif
-    sscanf(verstr, "%d.%d.%d", &maj, &min, &lev);
-    d->version = verinfo(maj & 0xFF, min & 0xFF, lev & 0xFF);
-    if (d->version < verinfo(2, 8, 0)) {
-	xfree(d);
-	return SQL_ERROR;
-    }
     d->ov3 = &d->ov3val;
     e = (ENV *) env;
     if (e->magic == ENV_MAGIC) {
@@ -6930,11 +5357,9 @@ drvfreeconnect(SQLHDBC dbc)
     }
     drvrelgpps(d);
     d->magic = DEAD_MAGIC;
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     if (d->trace) {
 	fclose(d->trace);
     }
-#endif
     xfree(d);
     return SQL_SUCCESS;
 }
@@ -7066,7 +5491,6 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Get connect attribute of HDBC.
  * @param dbc database connection handle
@@ -7083,26 +5507,6 @@ SQLGetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 {
     return drvgetconnectattr(dbc, attr, val, bufmax, buflen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Get connect attribute of HDBC (UNICODE version).
- * @param dbc database connection handle
- * @param attr option to be retrieved
- * @param val output buffer
- * @param bufmax size of output buffer
- * @param buflen output length
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetConnectAttrW(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
-		   SQLINTEGER bufmax, SQLINTEGER *buflen)
-{
-    return drvgetconnectattr(dbc, attr, val, bufmax, buflen);
-}
-#endif
 
 /**
  * Internal set connect attribute of HDBC.
@@ -7135,7 +5539,7 @@ doit:
 	    if (d->autocommit && d->intrans) {
 		return endtran(d, SQL_COMMIT);
 	    } else if (!d->autocommit) {
-		vm_end(d->vm_stmt);
+		s3stmt_end(d->cur_s3stmt);
 	    }
 	}
 	break;
@@ -7146,7 +5550,6 @@ doit:
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Set connect attribute of HDBC.
  * @param dbc database connection handle
@@ -7162,25 +5565,6 @@ SQLSetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 {
     return drvsetconnectattr(dbc, attr, val, len);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Set connect attribute of HDBC (UNICODE version).
- * @param dbc database connection handle
- * @param attr option to be set
- * @param val option value
- * @param len size of option
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSetConnectAttrW(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
-		   SQLINTEGER len)
-{
-    return drvsetconnectattr(dbc, attr, val, len);
-}
-#endif
 
 /**
  * Internal get connect option of HDBC.
@@ -7269,7 +5653,6 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Get connect option of HDBC.
  * @param dbc database connection handle
@@ -7283,23 +5666,6 @@ SQLGetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 {
     return drvgetconnectoption(dbc, opt, param);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Get connect option of HDBC (UNICODE version).
- * @param dbc database connection handle
- * @param opt option to be retrieved
- * @param param output buffer
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetConnectOptionW(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
-{
-    return drvgetconnectoption(dbc, opt, param);
-}
-#endif
 
 /**
  * Internal set option on HDBC.
@@ -7324,7 +5690,7 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 	if (d->autocommit && d->intrans) {
 	    return endtran(d, SQL_COMMIT);
 	} else if (!d->autocommit) {
-	    vm_end(d->vm_stmt);
+	    s3stmt_end(d->cur_s3stmt);
 	}
 	break;
     default:
@@ -7334,7 +5700,6 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Set option on HDBC.
  * @param dbc database connection handle
@@ -7348,23 +5713,6 @@ SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 {
     return drvsetconnectoption(dbc, opt, param);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Set option on HDBC (UNICODE version).
- * @param dbc database connection handle
- * @param opt option to be set
- * @param param option value
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSetConnectOptionW(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
-{
-    return drvsetconnectoption(dbc, opt, param);
-}
-#endif
 
 #if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
 
@@ -7430,11 +5778,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     DBC *d;
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
-    char busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char sflag[32], nwflag[32];
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
-    char tracef[SQL_MAX_MESSAGE_LENGTH];
-#endif
+    char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
+    char sflag[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -7473,7 +5818,6 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     sflag[0] = '\0';
     nwflag[0] = '\0';
     getdsnattr(buf, "stepapi", sflag, sizeof (sflag));
-    getdsnattr(buf, "nowchar", nwflag, sizeof (nwflag));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "1000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -7481,10 +5825,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 			       dbname, sizeof (dbname), ODBC_INI);
     SQLGetPrivateProfileString(buf, "stepapi", "",
 			       sflag, sizeof (sflag), ODBC_INI);
-    SQLGetPrivateProfileString(buf, "nowchar", "",
-			       nwflag, sizeof (nwflag), ODBC_INI);
 #endif
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
     getsdnattr(buf, "tracefile", tracef, sizeof (tracef));
@@ -7495,12 +5836,9 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     if (tracef[0] != '\0') {
 	d->trace = fopen(tracef, "a");
     }
-#endif
-    d->nowchar = getbool(nwflag);
     return dbopen(d, dbname, dsn, sflag, busy);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Connect to SQLite database.
  * @param dbc database connection handle
@@ -7520,43 +5858,6 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
 {
     return drvconnect(dbc, dsn, dsnLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Connect to SQLite database.
- * @param dbc database connection handle
- * @param dsn DSN string
- * @param dsnLen length of DSN string or SQL_NTS
- * @param uid user id string or NULL
- * @param uidLen length of user id string or SQL_NTS
- * @param pass password string or NULL
- * @param passLen length of password string or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLConnectW(SQLHDBC dbc, SQLWCHAR *dsn, SQLSMALLINT dsnLen,
-	    SQLWCHAR *uid, SQLSMALLINT uidLen,
-	    SQLWCHAR *pass, SQLSMALLINT passLen)
-{
-    char *dsna = NULL;
-    SQLRETURN ret;
-
-    if (dsn) {
-	dsna = uc_to_utf_c(dsn, dsnLen);
-	if (!dsna) {
-	    DBC *d = (DBC *) dbc;
-
-	    setstatd(d, -1, "out of memory", (*d->ov3) ? "HY000" : "S1000");
-	    return SQL_ERROR;
-	}
-    }
-    ret = drvconnect(dbc, dsna, SQL_NTS);
-    uc_free(dsna);
-    return ret;
-}
-#endif
 
 /**
  * Disconnect given HDBC.
@@ -7580,11 +5881,11 @@ SQLDisconnect(SQLHDBC dbc)
 	setstatd(d, -1, "incomplete transaction", "25000");
 	return SQL_ERROR;
     }
-    if (d->vm_stmt) {
-	vm_end(d->vm_stmt);
+    if (d->cur_s3stmt) {
+	s3stmt_end(d->cur_s3stmt);
     }
     if (d->sqlite) {
-	sqlite_close(d->sqlite);
+	sqlite3_close(d->sqlite);
 	d->sqlite = NULL;
     }
     freep(&d->dbname);
@@ -7617,10 +5918,8 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char sflag[32];
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     char tracef[SQL_MAX_MESSAGE_LENGTH];
-#endif
+    char sflag[32];
 
     if (dbc == SQL_NULL_HDBC || hwnd != NULL) {
 	return SQL_INVALID_HANDLE;
@@ -7689,7 +5988,6 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	strncpy(dbname, buf, sizeof (dbname));
 	dbname[sizeof (dbname) - 1] = '\0';
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     tracef[0] = '\0';
     getdsnattr(buf, "tracefile", tracef, sizeof (tracef));
 #ifndef WITHOUT_DRIVERMGR
@@ -7698,21 +5996,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   tracef, sizeof (tracef), ODBC_INI);
     }
 #endif
-#endif
     if (connOut || connOutLen) {
 	int count;
 
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "Tracefile=%s",
-			 dsn, dbname, sflag, busy, tracef
-#else
-			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s",
-			 dsn, dbname, sflag, busy
-#endif
-			);
+			 dsn, dbname, sflag, busy, tracef);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -7725,11 +6016,9 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	    *connOutLen = len;
 	}
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     if (tracef[0] != '\0') {
 	d->trace = fopen(tracef, "a");
     }
-#endif
     return dbopen(d, dbname, dsn, sflag, busy);
 }
 #endif
@@ -7809,7 +6098,6 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     memset(s, 0, sizeof (STMT));
     s->dbc = dbc;
     s->ov3 = d->ov3;
-    s->nowchar = d->nowchar;
     s->curtype = d->curtype;
     s->row_status0 = &s->row_status1;
     s->rowset_size = 1;
@@ -7866,11 +6154,11 @@ drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 	unbindcols(s);
 	break;
     case SQL_CLOSE:
-	vm_end_if(s);
+	s3stmt_end_if(s);
 	freeresult(s, 0);
 	break;
     case SQL_DROP:
-	vm_end_if(s);
+	s3stmt_end_if(s);
 	return freestmt(stmt);
     default:
 	setstat(s, -1, "unsupported option", (*s->ov3) ? "HYC00" : "S1C00");
@@ -7939,7 +6227,6 @@ drvgetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Get cursor name of STMT.
  * @param stmt statement handle
@@ -7955,48 +6242,6 @@ SQLGetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
 {
     return drvgetcursorname(stmt, cursor, buflen, lenp);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Get cursor name of STMT (UNICODE version).
- * @param stmt statement handle
- * @param cursor output buffer
- * @param buflen length of output buffer
- * @param lenp output length
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT buflen,
-		  SQLSMALLINT *lenp)
-{
-    SQLRETURN ret;
-    SQLSMALLINT len;
-
-    ret = drvgetcursorname(stmt, (SQLCHAR *) cursor, buflen, &len);
-    if (ret == SQL_SUCCESS) {
-	SQLWCHAR *c = NULL;
-
-	if (cursor) {
-	    c = uc_from_utf((char *) cursor, len);
-	    if (!c) {
-		return nomem((STMT *) stmt);
-	    }
-	    len = uc_strlen(c);
-	    if (buflen > 0) {
-		uc_strncpy(cursor, c, buflen - 1);
-		cursor[buflen - 1] = 0;
-	    }
-	    uc_free(c);
-	}
-	if (lenp) {
-	    *lenp = min(len, buflen - 1);
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Internal function to set cursor name on STMT.
@@ -8031,7 +6276,6 @@ drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Set cursor name on STMT.
  * @param stmt statement handle
@@ -8045,34 +6289,6 @@ SQLSetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
 {
     return drvsetcursorname(stmt, cursor, len);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Set cursor name on STMT (UNICODE version).
- * @param stmt statement handle
- * @param cursor new cursor name
- * @param len length of cursor name or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLSetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT len)
-{
-    char *c = NULL;
-    SQLRETURN ret;
-
-    if (cursor) {
-	c = uc_to_utf_c(cursor, len);
-	if (!c) {
-	    return nomem((STMT *) stmt);
-	}
-    }
-    ret = drvsetcursorname(stmt, c, SQL_NTS);
-    uc_free(c);
-    return ret;
-}
-#endif
 
 /**
  * Close open cursor.
@@ -8173,11 +6389,6 @@ freedyncols(STMT *s)
 static void
 freeresult(STMT *s, int clrcols)
 {
-#if HAVE_ENCDEC
-    freep(&s->bincache);
-    freep(&s->hexcache);
-    s->bincell = NULL;
-#endif
     if (s->rows) {
 	if (s->rowfree) {
 	    s->rowfree(s->rows);
@@ -8288,9 +6499,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	return SQL_NO_DATA;
     }
-    type = mapdeftype(type, s->cols[col].type, s->cols[col].nosign ? 1 : 0,
-		      s->nowchar);
-#if HAVE_ENCDEC
+    type = mapdeftype(type, s->cols[col].type, s->cols[col].nosign ? 1 : 0);
     if (otype == SQL_C_CHAR) {
 	switch (s->cols[col].type) {
 	case SQL_BINARY:
@@ -8299,18 +6508,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    type = SQL_C_BINARY;
 	    break;
 	}
-#ifdef SQLITE_UTF8
-    } else if (otype == SQL_C_WCHAR) {
-	switch (s->cols[col].type) {
-	case SQL_BINARY:
-	case SQL_VARBINARY:
-	case SQL_LONGVARBINARY:
-	    type = SQL_C_BINARY;
-	    break;
-	}
-#endif
     }
-#endif
     data = s->rows + s->ncols + (s->rowp * s->ncols) + col;
     if (!lenp) {
 	lenp = &dummy;
@@ -8345,16 +6543,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    break;
 	case SQL_C_BINARY:
 	case SQL_C_CHAR:
-#ifdef SQLITE_UTF8
-	case SQL_C_WCHAR:
-	    if (otype == SQL_C_WCHAR) {
-		*((SQLWCHAR *) val) = '\0';
-	    } else {
-		*((char *) val) = '\0';
-	    }
-#else
 	    *((char *) val) = '\0';
-#endif
 	    break;
 #ifdef SQL_C_TYPE_DATE
 	case SQL_C_TYPE_DATE:
@@ -8428,165 +6617,22 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    }
 	    break;
 	case SQL_C_BINARY:
-#if HAVE_ENCDEC
-	{
-	    int dlen, offs = 0;
-	    char *bin, *hex = NULL;
-
-	    if (*data == s->bincell && s->bincache) {
-		bin = s->bincache;
-		dlen = s->binlen;
-	    } else {
-		freep(&s->bincache);
-		freep(&s->hexcache);
-		s->bincell = NULL;
-		dlen = strlen(*data);
-		bin = xmalloc(dlen + 1);
-		if (!bin) {
-		    return nomem(s);
-		}
-		dlen = sqlite_decode_binary(*data, bin);
-		if (dlen < 0) {
-		    freep(&bin);
-		    setstat(s, -1, "error decoding binary data",
-			    (*s->ov3) ? "HY000" : "S1000");
-		    return SQL_ERROR;
-		}
-		s->bincache = bin;
-		s->binlen = dlen;
-		s->bincell = *data;
-	    }
-#ifdef SQLITE_UTF8
-	    if (otype == SQL_C_CHAR || otype == SQL_C_WCHAR) {
-#else
-	    if (otype == SQL_C_CHAR) {
-#endif
-		if (s->hexcache) {
-		    hex = s->hexcache;
-		} else {
-		    int i, k;
-
-		    hex = xmalloc(dlen * 2 + 1);
-		    if (!hex) {
-			return nomem(s);
-		    }
-		    for (i = 0, k = 0; i < dlen; i++) {
-			hex[k++] = hexdigits[(bin[i] >> 4) & 0x0f];
-			hex[k++] = hexdigits[bin[i] & 0x0f];
-		    }
-		    hex[k] = '\0';
-		    s->hexcache = hex;
-		}
-	    }
-	    if (otype == SQL_C_CHAR) {
-		bin = hex;
-		dlen = dlen * 2;
-	    }
-#ifdef SQLITE_UTF8
-	    else if (otype == SQL_C_WCHAR) {
-		bin = hex;
-		dlen = dlen * 2 * sizeof (SQLWCHAR);
-	    }
-#endif
-	    if (partial && len && s->bindcols) {
-		if (dlen && s->bindcols[col].offs >= dlen) {
-		    s->bindcols[col].offs = 0;
-		    return SQL_NO_DATA;
-		}
-		offs = s->bindcols[col].offs;
-		dlen -= offs;
-	    }
-	    if (val && !valnull && len) {
-		int max = min(len, dlen);
-
-#ifdef SQLITE_UTF8
-		if (otype == SQL_C_WCHAR) {
-		    int i;
-		    SQLWCHAR *valw = (SQLWCHAR *) val;
-
-		    for (i = 0; i < max; i++) {
-		       valw[i] = bin[i + offs];
-		    }
-		} else
-#endif
-		    memcpy(val, bin + offs, max);
-	    }
-	    if (valnull || len < 1) {
-		*lenp = dlen;
-	    } else {
-		*lenp = min(len, dlen);
-		if (*lenp == len && *lenp != dlen) {
-		    *lenp = SQL_NO_TOTAL;
-		}
-	    }
-	    if (!valnull) {
-		if (otype == SQL_C_CHAR) {
-		    ((char *) val)[len - 1] = '\0';
-		}
-#ifdef SQLITE_UTF8
-		else if (otype == SQL_C_WCHAR) {
-		    ((SQLWCHAR *) val)[len / sizeof (SQLWCHAR) - 1] = 0;
-		}
-#endif
-	    }
-	    if (partial && len && s->bindcols) {
-		if (*lenp == SQL_NO_TOTAL) {
-		    s->bindcols[col].offs += len;
-		    setstat(s, -1, "data right truncated", "01004");
-		    if (s->bindcols[col].lenp) {
-			*s->bindcols[col].lenp = dlen;
-		    }
-		    return SQL_SUCCESS_WITH_INFO;
-		}
-		s->bindcols[col].offs += *lenp;
-	    }
-	    break;
-	}
-#endif
-#ifdef SQLITE_UTF8
-	case SQL_C_WCHAR:
-#endif
 	case SQL_C_CHAR: {
 	    int doz;
 	    int dlen = strlen(*data);
 	    int offs = 0;
 
-#ifdef SQLITE_UTF8
-	    SQLWCHAR *ucdata = NULL;
-
-	    doz = (type == SQL_C_CHAR || type == SQL_C_WCHAR) ? 1 : 0;
-	    if (otype == SQL_C_WCHAR) {
-		ucdata = uc_from_utf(*data, dlen);
-		if (!ucdata) {
-		    return nomem(s);
-		}
-		dlen = uc_strlen(ucdata) * sizeof (SQLWCHAR);
-	    }
-#else
 	    doz = type == SQL_C_CHAR ? 1 : 0;
-#endif
 	    if (partial && len && s->bindcols) {
 		if (dlen && s->bindcols[col].offs >= dlen) {
 		    s->bindcols[col].offs = 0;
-#ifdef SQLITE_UTF8
-		    uc_free(ucdata);
-#endif
 		    return SQL_NO_DATA;
 		}
 		offs = s->bindcols[col].offs;
 		dlen -= offs;
 	    }
 	    if (val && !valnull && len) {
-#ifdef SQLITE_UTF8
-		if (otype == SQL_C_WCHAR) {
-		    uc_strncpy(val, ucdata + offs / sizeof (SQLWCHAR),
-			       (len - doz) / sizeof (SQLWCHAR));
-		} else {
-		    strncpy(val, *data + offs, len - doz);
-		}
-#else
 		strncpy(val, *data + offs, len - doz);
-#endif
 	    }
 	    if (valnull || len < 1) {
 		*lenp = dlen;
@@ -8597,19 +6643,8 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		}
 	    }
 	    if (len && !valnull && doz) {
-#ifdef SQLITE_UTF8
-		if (otype == SQL_C_WCHAR) {
-		    ((SQLWCHAR *) val)[len / sizeof (SQLWCHAR) - 1] = 0;
-		} else {
-		    ((char *) val)[len - 1] = '\0';
-		}
-#else
 		((char *) val)[len - 1] = '\0';
-#endif
 	    }
-#ifdef SQLITE_UTF8
-	    uc_free(ucdata);
-#endif
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
 		    s->bindcols[col].offs += len - doz;
@@ -8701,7 +6736,7 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     }
     --col;
     if (type == SQL_C_DEFAULT) {
-	type = mapdeftype(type, s->cols[col].type, 0, s->nowchar);
+	type = mapdeftype(type, s->cols[col].type, 0);
     } else {
 	switch (type) {
 	case SQL_C_LONG:
@@ -8719,9 +6754,6 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	case SQL_C_TIME:
 	case SQL_C_DATE:
 	case SQL_C_CHAR:
-#ifdef SQLITE_UTF8
-	case SQL_C_WCHAR:
-#endif
 #ifdef SQL_C_TYPE_DATE
 	case SQL_C_TYPE_DATE:
 #endif
@@ -8732,10 +6764,8 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	case SQL_C_TYPE_TIMESTAMP:
 #endif
 	    break;
-#if HAVE_ENCDEC
 	case SQL_C_BINARY:
 	    break;
-#endif
 	default:
 	    setstat(s, -1, "invalid type %d", "HY003", type);
 	    return SQL_ERROR;
@@ -8793,7 +6823,7 @@ drvtables(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     int ncols, rc;
-    char *errp = NULL, tname[512];
+    char *errp = NULL, *sql, tname[512];
     char *where = "(type = 'table' or type = 'view')";
 
     ret = mkresultset(stmt, tableSpec, array_size(tableSpec));
@@ -8932,22 +6962,24 @@ drvtables(SQLHSTMT stmt,
 	strncpy(tname, table, size);
 	tname[size] = '\0';
     }
-    rc = sqlite_get_table_printf(d->sqlite,
-				 "select '' as 'TABLE_QUALIFIER', "
-				 "'' as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "upper(type) as 'TABLE_TYPE', "
-				 "NULL as 'REMARKS' "
-				 "from sqlite_master where %s"
-				 "and tbl_name like '%q'",
-				 &s->rows, &s->nrows, &ncols, &errp,
-				 where, tname);
+    sql = sqlite3_mprintf("select '' as 'TABLE_QUALIFIER', "
+			  "'' as 'TABLE_OWNER', "
+			  "tbl_name as 'TABLE_NAME', "
+			  "upper(type) as 'TABLE_TYPE', "
+			  "NULL as 'REMARKS' "
+			  "from sqlite_master where %s"
+			  "and tbl_name like '%q'", where, tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    rc = sqlite3_get_table(d->sqlite, sql, &s->rows, &s->nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
 	    freeresult(s, 0);
 	    s->nrows = 0;
 	} else {
-	    s->rowfree = sqlite_free_table;
+	    s->rowfree = sqlite3_free_table;
 	}
     } else {
 	s->nrows = 0;
@@ -8955,14 +6987,13 @@ drvtables(SQLHSTMT stmt,
 	s->rowfree = NULL;
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     s->rowp = -1;
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve information on tables and/or views.
  * @param stmt statement handle
@@ -8987,71 +7018,6 @@ SQLTables(SQLHSTMT stmt,
     return drvtables(stmt, cat, catLen, schema, schemaLen,
 		     table, tableLen, type, typeLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve information on tables and/or views.
- * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @param type types of tables string or NULL
- * @param typeLen length of types of tables string or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLTablesW(SQLHSTMT stmt,
-	   SQLWCHAR *cat, SQLSMALLINT catLen,
-	   SQLWCHAR *schema, SQLSMALLINT schemaLen,
-	   SQLWCHAR *table, SQLSMALLINT tableLen,
-	   SQLWCHAR *type, SQLSMALLINT typeLen)
-{
-    char *c = NULL, *s = NULL, *t = NULL, *y = NULL;
-    SQLRETURN ret;
-
-    if (cat) {
-	c = uc_to_utf_c(cat, catLen);
-	if (!c) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (schema) {
-	s = uc_to_utf_c(schema, schemaLen);
-	if (!s) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (table) {
-	t = uc_to_utf_c(table, tableLen);
-	if (!t) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (type) {
-	y = uc_to_utf_c(type, typeLen);
-	if (!y) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvtables(stmt, c, SQL_NTS, s, SQL_NTS,
-		    t, SQL_NTS, y, SQL_NTS);
-done:
-    uc_free(y);
-    uc_free(t);
-    uc_free(s);
-    uc_free(c);
-    return ret;
-}
-#endif
 
 /**
  * Columns for result set of SQLColumns().
@@ -9103,7 +7069,7 @@ drvcolumns(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     int ret, nrows, ncols, size, i, k;
-    char *errp = NULL, tname[512], **rowp;
+    char *errp = NULL, *sql, tname[512], **rowp;
 
     sret = mkresultset(stmt, colSpec, array_size(colSpec));
     if (sret != SQL_SUCCESS) {
@@ -9122,23 +7088,27 @@ drvcolumns(SQLHSTMT stmt,
     }
     strncpy(tname, table, size);
     tname[size] = '\0';
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')", &rowp,
-				  &nrows, &ncols, &errp, tname);
+    sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (ret != SQLITE_OK) {
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	return SQL_ERROR;	
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     if (ncols * nrows <= 0) {
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
 	return SQL_NO_DATA;
     }
     size = array_size(colSpec) * (nrows + 1);
@@ -9200,25 +7170,16 @@ drvcolumns(SQLHSTMT stmt,
 		char buf[256];
 
 		s->rows[array_size(colSpec) * i + 5] = xstrdup(typename);
-		sqltype = mapsqltype(typename, NULL, *s->ov3, s->nowchar);
+		sqltype = mapsqltype(typename, NULL, *s->ov3);
 		getmd(typename, sqltype, &m, &d);
 #ifdef SQL_LONGVARCHAR
 		if (sqltype == SQL_VARCHAR && m > 255) {
 		    sqltype = SQL_LONGVARCHAR;
 		}
 #endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WLONGVARCHAR
-		if (sqltype == SQL_WVARCHAR && m > 255) {
-		    sqltype = SQL_WLONGVARCHAR;
-		}
-#endif
-#endif
-#if HAVE_ENCDEC
 		if (sqltype == SQL_VARBINARY && m > 255) {
 		    sqltype = SQL_LONGVARBINARY;
 		}
-#endif
 		sprintf(buf, "%d", sqltype);
 		s->rows[array_size(colSpec) * i + 4] = xstrdup(buf);
 		s->rows[array_size(colSpec) * i + 13] = xstrdup(buf);
@@ -9229,11 +7190,10 @@ drvcolumns(SQLHSTMT stmt,
 	    }
 	}
     }
-    sqlite_free_table(rowp);
+    sqlite3_free_table(rowp);
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve column information on table.
  * @param stmt statement handle
@@ -9258,72 +7218,6 @@ SQLColumns(SQLHSTMT stmt,
     return drvcolumns(stmt, cat, catLen, schema, schemaLen,
 		      table, tableLen, col, colLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve column information on table (UNICODE version).
- * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @param col column name/pattern or NULL
- * @param colLen length of column name/pattern or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLColumnsW(SQLHSTMT stmt,
-	    SQLWCHAR *cat, SQLSMALLINT catLen,
-	    SQLWCHAR *schema, SQLSMALLINT schemaLen,
-	    SQLWCHAR *table, SQLSMALLINT tableLen,
-	    SQLWCHAR *col, SQLSMALLINT colLen)
-{
-    char *c = NULL, *s = NULL, *t = NULL, *k = NULL;
-    SQLRETURN ret;
-
-    if (cat) {
-	c = uc_to_utf_c(cat, catLen);
-	if (!c) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (schema) {
-	s = uc_to_utf_c(schema, schemaLen);
-	if (!s) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (table) {
-	t = uc_to_utf_c(table, tableLen);
-	if (!t) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (col) {
-	k = uc_to_utf_c(col, colLen);
-	if (!k) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvcolumns(stmt, c, SQL_NTS, s, SQL_NTS,
-		     t, SQL_NTS, k, SQL_NTS);
-done:
-    uc_free(k);
-    uc_free(t);
-    uc_free(s);
-    uc_free(c);
-    return ret;
-
-}
-#endif
 
 /**
  * Columns for result set of SQLGetTypeInfo().
@@ -9374,9 +7268,6 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
     default:
 #ifdef SQL_LONGVARCHAR
     case SQL_LONGVARCHAR:
-#ifdef SQLITE_UTF8
-    case SQL_WLONGVARCHAR:
-#endif
 	crpar = "length";
 	quote = "'";
 	sign = NULL;
@@ -9385,10 +7276,6 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 #endif
     case SQL_CHAR:
     case SQL_VARCHAR:
-#ifdef SQLITE_UTF8
-    case SQL_WCHAR:
-    case SQL_WVARCHAR:
-#endif
 	s->rows[offs + 2] = "255";
 	crpar = "length";
 	quote = "'";
@@ -9433,7 +7320,6 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 	quote = "'";
 	sign = NULL;
 	break;
-#if HAVE_ENCDEC
     case SQL_VARBINARY:
 	sign = NULL;
 	s->rows[offs + 2] = "255";
@@ -9442,7 +7328,6 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 	sign = NULL;
 	s->rows[offs + 2] = "65536";
 	break;
-#endif
     }
     s->rows[offs + 3] = s->rows[offs + 4] = quote;
     s->rows[offs + 5] = crpar;
@@ -9497,36 +7382,14 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
     }
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
-#ifdef SQLITE_UTF8
-#ifdef SQL_LONGVARCHAR
-#ifdef SQL_WLONGVARCHAR
-    if (s->nowchar) {
-	s->nrows = sqltype == SQL_ALL_TYPES ? 13 : 1;
-    } else {
-	s->nrows = sqltype == SQL_ALL_TYPES ? 17 : 1;
-    }
-#else
-    if (s->nowchar) {
-	s->nrows = sqltype == SQL_ALL_TYPES ? 12 : 1;
-    } else {
-	s->nrows = sqltype == SQL_ALL_TYPES ? 16 : 1;
-    }
-#endif
-#else
-    s->nrows = sqltype == SQL_ALL_TYPES ? 15 : 1;
-#endif
-#else
 #ifdef SQL_LONGVARCHAR
     s->nrows = sqltype == SQL_ALL_TYPES ? 13 : 1;
 #else
     s->nrows = sqltype == SQL_ALL_TYPES ? 12 : 1;
 #endif
-#endif
-#if HAVE_ENCDEC
     if (sqltype == SQL_ALL_TYPES) {
 	s->nrows += 2;
     }
-#endif
     s->rows = (char **) xmalloc(sizeof (char *) * (s->nrows + 1)
 				* array_size(typeSpec));
     if (!s->rows) {
@@ -9573,26 +7436,8 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 #else
 	mktypeinfo(s, cc++, "text", SQL_VARCHAR, 0);
 #endif
-#ifdef SQLITE_UTF8
-	if (!s->nowchar) {
-	    mktypeinfo(s, cc++, "wvarchar", SQL_WVARCHAR, 0);
-#ifdef SQL_LONGVARCHAR
-	    mktypeinfo(s, cc++, "wchar", SQL_WCHAR, 0);
-	    mktypeinfo(s, cc++, "wtext", SQL_WLONGVARCHAR, 0);
-#ifdef SQL_WLONGVARCHAR
-	    mktypeinfo(s, cc++, "longwvarchar", SQL_WLONGVARCHAR, 0);
-#endif
-#else
-	    mktypeinfo(s, cc++, "wvarchar", SQL_WVARCHAR, 0);
-	    mktypeinfo(s, cc++, "wchar", SQL_WCHAR, 0);
-	    mktypeinfo(s, cc++, "wtext", SQL_WVARCHAR, 0);
-#endif
-	}
-#endif
-#if HAVE_ENCDEC
 	mktypeinfo(s, cc++, "varbinary", SQL_VARBINARY, 0);
 	mktypeinfo(s, cc++, "longvarbinary", SQL_LONGVARBINARY, 0);
-#endif
 	qsort(s->rows + array_size(typeSpec), s->nrows,
 	      sizeof (char *) * array_size(typeSpec), typeinfosort);
     } else {
@@ -9647,31 +7492,12 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	    mktypeinfo(s, 1, "longvarchar", SQL_LONGVARCHAR, 12);
 	    break;
 #endif
-#ifdef SQLITE_UTF8
-#ifdef SQL_WCHAR
-	case SQL_WCHAR:
-	    mktypeinfo(s, 1, "wchar", SQL_WCHAR, 18);
-	    break;
-#endif
-#ifdef SQL_WVARCHAR
-	case SQL_WVARCHAR:
-	    mktypeinfo(s, 1, "wvarchar", SQL_WVARCHAR, 19);
-	    break;
-#endif
-#ifdef SQL_WLONGVARCHAR
-	case SQL_WLONGVARCHAR:
-	    mktypeinfo(s, 1, "longwvarchar", SQL_WLONGVARCHAR, 20);
-	    break;
-#endif
-#endif
-#if HAVE_ENCDEC
 	case SQL_VARBINARY:
 	    mktypeinfo(s, 1, "varbinary", SQL_VARBINARY, 30);
 	    break;
 	case SQL_LONGVARBINARY:
 	    mktypeinfo(s, 1, "longvarbinary", SQL_LONGVARBINARY, 31);
 	    break;
-#endif
 	default:
 	    s->nrows = 0;
 	    return SQL_NO_DATA;
@@ -9680,7 +7506,6 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Return data type information.
  * @param stmt statement handle
@@ -9693,22 +7518,6 @@ SQLGetTypeInfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 {
     return drvgettypeinfo(stmt, sqltype);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Return data type information (UNICODE version).
- * @param stmt statement handle
- * @param sqltype which type to retrieve
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLGetTypeInfoW(SQLHSTMT stmt, SQLSMALLINT sqltype)
-{
-    return drvgettypeinfo(stmt, sqltype);
-}
-#endif
 
 /**
  * Columns for result set of SQLStatistics().
@@ -9754,7 +7563,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     STMT *s;
     DBC *d;
     int i, size, ret, nrows, ncols, offs, namec, uniquec;
-    char **rowp, *errp = NULL, tname[512];
+    char **rowp, *errp = NULL, *sql, tname[512];
 
     sret = mkresultset(stmt, statSpec, array_size(statSpec));
     if (sret != SQL_SUCCESS) {
@@ -9773,30 +7582,38 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     }
     strncpy(tname, table, size);
     tname[size] = '\0';
-    ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list('%q')", &rowp,
-				  &nrows, &ncols, &errp, tname);
+    sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
+    if (!sql) {
+	return nomem(s);
+    }
+    ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (ret != SQLITE_OK) {
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	return SQL_ERROR;
     }
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
     if (ncols * nrows <= 0) {
 nodata:
-	sqlite_free_table(rowp);
+	sqlite3_free_table(rowp);
 	/* try table_info for integer primary keys */
 	if (itype == SQL_INDEX_UNIQUE) {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA table_info('%q')", &rowp,
-					  &nrows, &ncols, NULL, tname);
+	    ret = SQLITE_ERROR;
+
+	    sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowp,
+					&nrows, &ncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret == SQLITE_OK) {
 		int colid, typec, roffs;
 
@@ -9841,7 +7658,7 @@ nodata:
 		s->rows[roffs + 8] = xstrdup(rowp[i * ncols + namec]);
 		s->rows[roffs + 9] = xstrdup("A");
 nodata2:
-		sqlite_free_table(rowp);
+		sqlite3_free_table(rowp);
 	    }
 	}
 	return SQL_SUCCESS;
@@ -9859,13 +7676,17 @@ nodata2:
 
 	isuniq = *rowp[i * ncols + uniquec] != '0';
 	if (isuniq || itype == SQL_INDEX_ALL) {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')", 
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret == SQLITE_OK) {
 		size += nnrows;
-		sqlite_free_table(rowpp);
+		sqlite3_free_table(rowpp);
 	    }
 	}
     }
@@ -9891,10 +7712,14 @@ nodata2:
 	if (*rowp[i * ncols + uniquec] != '0' || itype == SQL_INDEX_ALL) {
 	    int k;
 
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
+	    ret = SQLITE_ERROR;
+	    sql = sqlite3_mprintf("PRAGMA index_info('%q')", 
+				  rowp[i * ncols + namec]);
+	    if (sql) {
+		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					&nnrows, &nncols, NULL);
+		sqlite3_free(sql);
+	    }
 	    if (ret != SQLITE_OK) {
 		continue;
 	    }
@@ -9937,14 +7762,13 @@ nodata2:
 		}
 	    }
 	    offs += nnrows;
-	    sqlite_free_table(rowpp);
+	    sqlite3_free_table(rowpp);
 	}
     }
-    sqlite_free_table(rowp);
+    sqlite3_free_table(rowp);
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Return statistic information on table indices.
  * @param stmt statement handle
@@ -9968,62 +7792,6 @@ SQLStatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     return drvstatistics(stmt, cat, catLen, schema, schemaLen,
 			 table, tableLen, itype, resv);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Return statistic information on table indices (UNICODE version).
- * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
- * @param schema schema name/pattern or NULL
- * @param schemaLen length of schema name/pattern or SQL_NTS
- * @param table table name/pattern or NULL
- * @param tableLen length of table name/pattern or SQL_NTS
- * @param itype type of index information
- * @param resv reserved
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLStatisticsW(SQLHSTMT stmt, SQLWCHAR *cat, SQLSMALLINT catLen,
-	       SQLWCHAR *schema, SQLSMALLINT schemaLen,
-	       SQLWCHAR *table, SQLSMALLINT tableLen,
-	       SQLUSMALLINT itype, SQLUSMALLINT resv)
-{
-    char *c = NULL, *s = NULL, *t = NULL;
-    SQLRETURN ret;
-
-    if (cat) {
-	c = uc_to_utf_c(cat, catLen);
-	if (!c) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (schema) {
-	s = uc_to_utf_c(schema, schemaLen);
-	if (!s) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    if (table) {
-	t = uc_to_utf_c(table, tableLen);
-	if (!t) {
-	    ret = nomem((STMT *) stmt);
-	    goto done;
-	}
-    }
-    ret = drvstatistics(stmt, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS,
-			itype, resv);
-done:
-    uc_free(t);
-    uc_free(s);
-    uc_free(c);
-    return ret;
-}
-#endif
 
 /**
  * Retrieve row data after fetch.
@@ -10151,10 +7919,10 @@ SQLFetch(SQLHSTMT stmt)
     }
     ret = SQL_SUCCESS;
     i = 0;
-    if (((DBC *) (s->dbc))->vm_stmt == s && s->vm) {
+    if (((DBC *) (s->dbc))->cur_s3stmt == s && s->s3stmt) {
 	s->rowp = 0;
 	for (; i < s->rowset_size; i++) {
-	    ret = vm_step(s);
+	    ret = s3stmt_step(s);
 	    if (ret != SQL_SUCCESS) {
 		s->row_status0[i] = SQL_ROW_ERROR;
 		break;
@@ -10246,10 +8014,10 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
     }
     ret = SQL_SUCCESS;
     i = 0;
-    if (((DBC *) (s->dbc))->vm_stmt == s && s->vm) {
+    if (((DBC *) (s->dbc))->cur_s3stmt == s && s->s3stmt) {
 	s->rowp = 0;
 	for (; i < s->rowset_size; i++) {
-	    ret = vm_step(s);
+	    ret = s3stmt_step(s);
 	    if (ret != SQL_SUCCESS) {
 		s->row_status0[i] = SQL_ROW_ERROR;
 		break;
@@ -10532,23 +8300,6 @@ drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     }
     if (type) {
 	*type = c->type;
-#ifdef SQLITE_UTF8
-	if (s->nowchar) {
-	    switch (c->type) {
-	    case SQL_WCHAR:
-		*type = SQL_CHAR;
-		break;
-	    case SQL_WVARCHAR:
-		*type = SQL_VARCHAR;
-		break;
-#ifdef SQL_LONGVARCHAR
-	    case SQL_WLONGVARCHAR:
-		*type = SQL_LONGVARCHAR;
-		break;
-#endif
-	    }
-	}
-#endif
     }
     if (size) {
 	*size = c->size;
@@ -10562,7 +8313,6 @@ drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Describe column information.
  * @param stmt statement handle
@@ -10586,64 +8336,6 @@ SQLDescribeCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     return drvdescribecol(stmt, col, name, nameMax, nameLen,
 			  type, size, digits, nullable);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Describe column information (UNICODE version).
- * @param stmt statement handle
- * @param col column number, starting at 1
- * @param name buffer for column name
- * @param nameMax length of name buffer
- * @param nameLen output length of column name
- * @param type output SQL type
- * @param size output column size
- * @param digits output number of digits
- * @param nullable output NULL allowed indicator
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
-		SQLSMALLINT nameMax, SQLSMALLINT *nameLen,
-		SQLSMALLINT *type, SQLUINTEGER *size,
-		SQLSMALLINT *digits, SQLSMALLINT *nullable)
-{
-    SQLRETURN ret;
-    SQLSMALLINT len;
-
-    ret = drvdescribecol(stmt, col, (char *) name, nameMax, &len,
-			 type, size, digits, nullable);
-    if (ret == SQL_SUCCESS) {
-	if (name) {
-	    if (len > 0) {
-		SQLWCHAR *n = NULL;
-
-		n = uc_from_utf((char *) name, len);
-		if (n) {
-		    uc_strncpy(name, n, nameMax);
-		    len = min(nameMax, uc_strlen(n));
-		    uc_free(n);
-		} else {
-		    len = 0;
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-		if (nameMax > 0) {
-		    name[0] = 0;
-		}
-	    }
-	} else {
-	    len = 0;
-	}
-	if (nameLen) {
-	    *nameLen = len;
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Internal retrieve column attributes.
@@ -10730,34 +8422,9 @@ checkLen:
 	return SQL_SUCCESS;
     case SQL_COLUMN_TYPE:
     case SQL_DESC_TYPE:
-#ifdef SQLITE_UTF8
-	{
-	    int type = c->type;
-
-	    if (s->nowchar) {
-		switch (type) {
-		case SQL_WCHAR:
-		    type = SQL_CHAR;
-		    break;
-		case SQL_WVARCHAR:
-		    type = SQL_VARCHAR;
-		    break;
-#ifdef SQL_LONGVARCHAR
-		case SQL_WLONGVARCHAR:
-		    type = SQL_LONGVARCHAR;
-		    break;
-		}
-	    }
-	    if (val2) {
-		*val2 = type;
-	    }
-#endif
-	}
-#else
 	if (val2) {
 	    *val2 = c->type;
 	}
-#endif
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_DISPLAY_SIZE:
@@ -10866,7 +8533,6 @@ checkLen:
     return SQL_ERROR;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve column attributes.
  * @param stmt statement handle
@@ -10886,69 +8552,6 @@ SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 {
     return drvcolattributes(stmt, col, id, val, valMax, valLen, val2);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve column attributes (UNICODE version).
- * @param stmt statement handle
- * @param col column number, starting at 1
- * @param id attribute id
- * @param val output buffer
- * @param valMax length of output buffer
- * @param valLen output length
- * @param val2 integer output buffer
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
-		  SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		  SQLINTEGER *val2)
-{
-    SQLRETURN ret;
-    SQLSMALLINT len;
-
-    ret = drvcolattributes(stmt, col, id, val, valMax, &len, val2);
-    if (ret == SQL_SUCCESS) {
-	SQLWCHAR *v = NULL;
-
-	switch (id) {
-	case SQL_COLUMN_LABEL:
-	case SQL_COLUMN_NAME:
-	case SQL_DESC_NAME:
-	case SQL_COLUMN_TYPE_NAME:
-	case SQL_COLUMN_OWNER_NAME:
-	case SQL_COLUMN_QUALIFIER_NAME:
-	case SQL_COLUMN_TABLE_NAME:
-#if (SQL_COLUMN_TABLE_NAME != SQL_DESC_TABLE_NAME)
-	case SQL_DESC_TABLE_NAME:
-#endif
-	    if (val && valMax > 0) {
-		int vmax = valMax / sizeof (SQLWCHAR);
-
-		v = uc_from_utf((char *) val, SQL_NTS);
-		if (v) {
-		    uc_strncpy(val, v, vmax);
-		    uc_free(v);
-		}
-		if (vmax > 0) {
-		    v = (SQLWCHAR *) val;
-		    v[vmax - 1] = '\0';
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-	    }
-	    break;
-	}
-	if (valLen) {
-	    *valLen = len;
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Internal retrieve column attributes.
@@ -11053,23 +8656,6 @@ checkLen:
 	break;
     case SQL_DESC_TYPE:
 	v = c->type;
-#ifdef SQLITE_UTF8
-	if (s->nowchar) {
-	    switch (v) {
-	    case SQL_WCHAR:
-		v = SQL_CHAR;
-		break;
-	    case SQL_WVARCHAR:
-		v = SQL_VARCHAR;
-		break;
-#ifdef SQL_LONGVARCHAR
-	    case SQL_WLONGVARCHAR:
-		v = SQL_LONGVARCHAR;
-		break;
-#endif
-	    }
-	}
-#endif
 	break;
     case SQL_DESC_CONCISE_TYPE:
 	switch (c->type) {
@@ -11113,11 +8699,7 @@ checkLen:
 	    break;
 #endif
 	default:
-#ifdef SQLITE_UTF8
-	    v = s->nowchar ? SQL_C_CHAR : SQL_C_WCHAR;
-#else
 	    v = SQL_C_CHAR;
-#endif
 	    break;
 	}
 	break;
@@ -11160,7 +8742,6 @@ checkLen:
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Retrieve column attributes.
  * @param stmt statement handle
@@ -11180,64 +8761,6 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 {
     return drvcolattribute(stmt, col, id, val, valMax, valLen, val2);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Retrieve column attributes (UNICODE version).
- * @param stmt statement handle
- * @param col column number, starting at 1
- * @param id attribute id
- * @param val output buffer
- * @param valMax length of output buffer
- * @param valLen output length
- * @param val2 integer output buffer
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
-		 SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		 SQLPOINTER val2)
-{
-    SQLRETURN ret;
-    SQLSMALLINT len;
-
-    ret = drvcolattribute(stmt, col, id, val, valMax, &len, val2);
-    if (ret == SQL_SUCCESS) {
-	SQLWCHAR *v = NULL;
-
-	switch (id) {
-	case SQL_DESC_CATALOG_NAME:
-	case SQL_COLUMN_LABEL:
-	case SQL_DESC_NAME:
-	case SQL_DESC_TABLE_NAME:
-	case SQL_DESC_TYPE_NAME:
-	    if (val && valMax > 0) {
-		int vmax = valMax / sizeof (SQLWCHAR);
-
-		v = uc_from_utf((char *) val, SQL_NTS);
-		if (v) {
-		    uc_strncpy(val, v, vmax);
-		    uc_free(v);
-		}
-		if (vmax > 0) {
-		    v = (SQLWCHAR *) val;
-		    v[vmax - 1] = '\0';
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-	    }
-	    break;
-	}
-	if (valLen) {
-	    *valLen = len;
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Internal return last HDBC or HSTMT error message.
@@ -11339,7 +8862,6 @@ noerr:
     return SQL_NO_DATA_FOUND;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Return last HDBC or HSTMT error message.
  * @param env environment handle or NULL
@@ -11361,82 +8883,6 @@ SQLError(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
     return drverror(env, dbc, stmt, sqlState, nativeErr,
 		    errmsg, errmax, errlen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Return last HDBC or HSTMT error message (UNICODE version).
- * @param env environment handle or NULL
- * @param dbc database connection handle or NULL
- * @param stmt statement handle or NULL
- * @param sqlState output buffer for SQL state
- * @param nativeErr output buffer for native error code
- * @param errmsg output buffer for error message
- * @param errmax length of output buffer for error message
- * @param errlen output length of error message
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLErrorW(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
-	  SQLWCHAR *sqlState, SQLINTEGER *nativeErr,
-	  SQLWCHAR *errmsg, SQLSMALLINT errmax, SQLSMALLINT *errlen)
-{
-    char state[16];
-    SQLSMALLINT len;
-    SQLRETURN ret;
-    
-    ret = drverror(env, dbc, stmt, state, nativeErr,
-		   (char *) errmsg, errmax, &len);
-    if (ret == SQL_SUCCESS) {
-	if (sqlState) {
-	    uc_from_utf_buf(state, sqlState, 6 * sizeof (SQLWCHAR));
-	}
-	if (errmsg) {
-	    if (len > 0) {
-		SQLWCHAR *e = NULL;
-
-		e = uc_from_utf((char *) errmsg, len);
-		if (e) {
-		    if (errmax > 0) {
-			uc_strncpy(errmsg, e, errmax);
-			len = min(errmax, uc_strlen(e));
-		    } else {
-			len = uc_strlen(e);
-		    }
-		    uc_free(e);
-		} else {
-		    len = 0;
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-		if (errmax > 0) {
-		    errmsg[0] = 0;
-		}
-	    }
-	} else {
-	    len = 0;
-	}
-	if (errlen) {
-	    *errlen = len;
-	}
-    } else if (ret == SQL_NO_DATA) {
-	if (sqlState) {
-	    sqlState[0] = 0;
-	}
-	if (errmsg) {
-	    if (errmax > 0) {
-		errmsg[0] = 0;
-	    }
-	}
-	if (errlen) {
-	    *errlen = 0;
-	}
-    }
-    return ret;
-}
-#endif
 
 /**
  * Return information for more result sets.
@@ -11451,81 +8897,6 @@ SQLMoreResults(SQLHSTMT stmt)
 	return SQL_INVALID_HANDLE;
     }
     return SQL_NO_DATA;
-}
-
-/**
- * SQLite callback during drvprepare(), used to collect column information.
- * @param arg user data, actually a statement pointer
- * @param ncols number of columns
- * @param values value string array
- * @param cols column name string array
- * @result always 1 to abort sqlite_exec()
- */
-
-static int
-selcb(void *arg, int ncols, char **values, char **cols)
-{
-    STMT *s = (STMT *) arg;
-
-    if (ncols > 0) {
-	int i, size;
-	char *p;
-	COL *dyncols;
-	DBC *d = (DBC *) s->dbc;
-
-	for (i = size = 0; i < ncols; i++) {
-	    size += 3 + 3 * strlen(cols[i]);
-	}
-	dyncols = xmalloc(ncols * sizeof (COL) + size);
-	if (!dyncols) {
-	    freedyncols(s);
-	    s->ncols = 0;
-	    return 1;
-	}
-	p = (char *) (dyncols + ncols);
-	for (i = 0; i < ncols; i++) {
-	    char *q;
-
-	    dyncols[i].db = ((DBC *) (s->dbc))->dbname;
-	    strcpy(p, cols[i]);
-	    dyncols[i].label = p;
-	    p += strlen(p) + 1;
-	    q = strchr(cols[i], '.');
-	    if (q) {
-		dyncols[i].table = p;
-		strncpy(p, cols[i], q - cols[i]);
-		p[q - cols[i]] = '\0';
-		p += strlen(p) + 1;
-		strcpy(p, q + 1);
-		dyncols[i].column = p;
-		p += strlen(p) + 1;
-	    } else {
-		dyncols[i].table = "";
-		strcpy(p, cols[i]);
-		dyncols[i].column = p;
-		p += strlen(p) + 1;
-	    }
-#ifdef SQL_LONGVARCHAR
-	    dyncols[i].type = SQL_LONGVARCHAR;
-	    dyncols[i].size = 65536;
-#else
-	    dyncols[i].type = SQL_VARCHAR;
-	    dyncols[i].size = 256;
-#endif
-	    dyncols[i].index = i;
-	    dyncols[i].scale = 0;
-	    dyncols[i].prec = 0;
-	    dyncols[i].nosign = 1;
-	    dyncols[i].autoinc = -1;
-	    dyncols[i].typename = NULL;
-	}
-	freedyncols(s);
-	s->dyncols = s->cols = dyncols;
-	s->dcols = ncols;
-	fixupdyncols(s, d->sqlite, (const char **) cols + ncols);
-    }
-    s->ncols = ncols;
-    return 1;
 }
 
 /**
@@ -11555,10 +8926,9 @@ noconn:
     if (!d->sqlite) {
 	goto noconn;
     }
-    vm_end(s);
+    s3stmt_end(s);
     freep(&s->query);
-    s->query = fixupsql(query, queryLen, &s->nparams, &s->isselect, &errp,
-			d->version, &s->parmnames);
+    s->query = fixupsql(query, queryLen, &s->nparams, &s->isselect, &errp);
     if (!s->query) {
 	if (errp) {
 	    setstat(s, -1, errp, (*s->ov3) ? "HY000" : "S1000");
@@ -11569,8 +8939,10 @@ noconn:
     errp = NULL;
     freeresult(s, -1);
     if (s->isselect) {
-	int ret;
-	char **params = NULL;
+	int ret, ncols;
+	const char *rest;
+	char *sql, **params = NULL;
+	sqlite3_stmt *s3stmt;
 
 	if (s->nparams) {
 	    int i;
@@ -11583,24 +8955,82 @@ noconn:
 		params[i] = NULL;
 	    }
 	}
-	ret = sqlite_exec_vprintf(d->sqlite, s->query, selcb, s,
-				  &errp, (char *) params);
-	if (ret != SQLITE_ABORT && ret != SQLITE_OK) {
-	    dbtracerc(d, ret, errp);
-	    freep(&params);
+	sql = sqlite3_vmprintf(s->query, (char *) params);
+	freep(&params);
+	if (!sql) {
+	    return nomem(s);
+	}
+	ret = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &rest);
+	sqlite3_free(sql);
+	if (ret != SQLITE_OK) {
 	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		    errp ? errp : "unknown error", ret);
-	    if (errp) {
-		sqlite_freemem(errp);
-		errp = NULL;
-	    }
+		    sqlite3_errmsg(d->sqlite), ret);
 	    return SQL_ERROR;
 	}
-	freep(&params);
-	if (errp) {
-	    sqlite_freemem(errp);
-	    errp = NULL;
+	ncols = sqlite3_column_count(s3stmt);
+	if (ncols > 0) {
+	    int i, size;
+	    char *p;
+	    COL *dyncols;
+	    DBC *d = (DBC *) s->dbc;
+	    const char *colname, *typename;
+
+	    for (i = size = 0; i < ncols; i++) {
+		colname = sqlite3_column_name(s3stmt, i);
+		size += 3 + 3 * strlen(colname);
+	    }
+	    dyncols = xmalloc(ncols * sizeof (COL) + size);
+	    if (!dyncols) {
+		freedyncols(s);
+		ncols = 0;
+	    } else {
+		p = (char *) (dyncols + ncols);
+		for (i = 0; i < ncols; i++) {
+		    char *q;
+
+		    colname = sqlite3_column_name(s3stmt, i);
+		    typename = sqlite3_column_decltype(s3stmt, i);
+		    dyncols[i].db = ((DBC *) (s->dbc))->dbname;
+		    strcpy(p, colname);
+		    dyncols[i].label = p;
+		    p += strlen(p) + 1;
+		    q = strchr(colname, '.');
+		    if (q) {
+			dyncols[i].table = p;
+			strncpy(p, colname, q - colname);
+			p[q - colname] = '\0';
+			p += strlen(p) + 1;
+			strcpy(p, q + 1);
+			dyncols[i].column = p;
+			p += strlen(p) + 1;
+		    } else {
+			dyncols[i].table = "";
+			strcpy(p, colname);
+			dyncols[i].column = p;
+			p += strlen(p) + 1;
+		    }
+#ifdef SQL_LONGVARCHAR
+		    dyncols[i].type = SQL_LONGVARCHAR;
+		    dyncols[i].size = 65536;
+#else
+		    dyncols[i].type = SQL_VARCHAR;
+		    dyncols[i].size = 256;
+#endif
+		    dyncols[i].index = i;
+		    dyncols[i].scale = 0;
+		    dyncols[i].prec = 0;
+		    dyncols[i].nosign = 1;
+		    dyncols[i].autoinc = -1;
+		    dyncols[i].typename = xstrdup(typename);
+		}
+		freedyncols(s);
+		s->dyncols = s->cols = dyncols;
+		s->dcols = ncols;
+		fixupdyncols(s, d->sqlite);
+	    }
 	}
+	s->ncols = ncols;
+	sqlite3_finalize(s3stmt);
     }
     mkbindcols(s, s->ncols);
     if (s->nparams) {
@@ -11616,7 +9046,7 @@ drvexecute(SQLHSTMT stmt)
 {
     STMT *s;
     DBC *d;
-    char *errp = NULL, **params = NULL;
+    char *errp = NULL, **params = NULL, *sql;
     int rc, i, size, ncols;
     SQLRETURN ret;
 
@@ -11642,7 +9072,7 @@ noconn:
 	return SQL_ERROR;
     }
 again:
-    vm_end(s);
+    s3stmt_end(s);
     for (i = size = 0; i < s->nparams; i++) {
 	ret = substparam(s, i, NULL, &size);
 	if (ret != SQL_SUCCESS) {
@@ -11675,14 +9105,13 @@ again:
     }
     freeresult(s, 0);
     if (!d->autocommit && !d->intrans) {
-	rc = sqlite_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
-	dbtracerc(d, rc, errp);
+	rc = sqlite3_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
 	if (rc != SQLITE_OK) {
 	    freep(&params);
 	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		    errp ? errp : "unknown error", rc);
 	    if (errp) {
-		sqlite_freemem(errp);
+		sqlite3_free(errp);
 		errp = NULL;
 	    }
 	    ret = SQL_ERROR;
@@ -11690,29 +9119,34 @@ again:
 	}
 	d->intrans = 1;
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
     }
     if (s->isselect && !d->intrans &&
 	s->curtype == SQL_CURSOR_FORWARD_ONLY &&
-	d->step_enable && s->nparams == 0 && d->vm_stmt == NULL) {
+	d->step_enable && s->nparams == 0 && d->cur_s3stmt == NULL) {
 	s->nrows = -1;
-	ret = vm_start(s, params);
+	ret = s3stmt_start(s, params);
 	if (ret == SQL_SUCCESS) {
 	    freep(&params);
 	    goto done2;
 	}
     }
-    rc = sqlite_get_table_vprintf(d->sqlite, s->query, &s->rows,
-				  &s->nrows, &ncols, &errp, (char *) params);
-    dbtracerc(d, rc, errp);
+    sql = sqlite3_vmprintf(s->query, (char *) params);
+    if (!sql) {
+	freep(&params);
+	ret = nomem(s);
+	goto cleanup;
+    }
+    rc = sqlite3_get_table(d->sqlite, sql, &s->rows, &s->nrows, &ncols, &errp);
+    sqlite3_free(sql);
     if (rc != SQLITE_OK) {
 	freep(&params);
 	setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", rc);
 	if (errp) {
-	    sqlite_freemem(errp);
+	    sqlite3_free(errp);
 	    errp = NULL;
 	}
 	ret = SQL_ERROR;
@@ -11720,80 +9154,26 @@ again:
     }
     freep(&params);
     if (errp) {
-	sqlite_freemem(errp);
+	sqlite3_free(errp);
 	errp = NULL;
     }
-    s->rowfree = sqlite_free_table;
-    if (ncols == 1 && !s->isselect) {
+    s->rowfree = sqlite3_free_table;
+    if (!s->isselect) {
 	/*
-	 * INSERT/UPDATE/DELETE results are immediately released,
-	 * but the row count is retained for SQLRowCount().
+	 * INSERT/UPDATE/DELETE results are immediately released.
 	 */
-	if (strcmp(s->rows[0], "rows inserted") == 0 ||
-	    strcmp(s->rows[0], "rows updated") == 0 ||
-	    strcmp(s->rows[0], "rows deleted") == 0) {
-	    int nrows = 0;
-	   
-	    nrows = strtol(s->rows[1], NULL, 0);
-	    freeresult(s, -1);
-	    s->nrows = nrows;
-	    goto done;
-	}
+	s->nrows = sqlite3_changes(d->sqlite);
+	freeresult(s, -1);
+	goto done;
     }
     if (s->ncols != ncols) {
-	int size;
-	char *p;
-	COL *dyncols;
-
-	for (i = size = 0; i < ncols; i++) {
-	    size += 3 + 3 * strlen(s->rows[i]);
-	}
-	if (size == 0) {
-	    freeresult(s, -1);
-	    goto done;
-	}
-	dyncols = xmalloc(ncols * sizeof (COL) + size);
-	if (!dyncols) {
-	    ret = nomem(s);
-	    goto cleanup;
-	}
-	p = (char *) (dyncols + ncols);
-	for (i = 0; i < ncols; i++) {
-	    char *q;
-
-	    dyncols[i].db = d->dbname;
-	    strcpy(p, s->rows[i]);
-	    dyncols[i].label = p;
-	    p += strlen(p) + 1;
-	    q = strchr(s->rows[i], '.');
-	    if (q) {
-		dyncols[i].table = p;
-		strncpy(p, s->rows[i], q - s->rows[i]);
-		p[q - s->rows[i]] = '\0';
-		p += strlen(p) + 1;
-		dyncols[i].column = q + 1;
-	    } else {
-		dyncols[i].table = "";
-		dyncols[i].column = s->rows[i];
-	    }
-#ifdef SQL_LONGVARCHAR
-	    dyncols[i].type = SQL_LONGVARCHAR;
-	    dyncols[i].size = 65536;
-#else
-	    dyncols[i].type = SQL_VARCHAR;
-	    dyncols[i].size = 255;
-#endif
-	    dyncols[i].index = i;
-	    dyncols[i].scale = 0;
-	    dyncols[i].prec = 0;
-	    dyncols[i].nosign = 1;
-	    dyncols[i].autoinc = -1;
-	    dyncols[i].typename = NULL;
-	}
-	freedyncols(s);
-	s->ncols = s->dcols = ncols;
-	s->dyncols = s->cols = dyncols;
-	fixupdyncols(s, d->sqlite, NULL);
+	/*
+	 * Weird result.
+	 */
+	setstat(s, -1, "broken result set %d/%d",
+		(*s->ov3) ? "HY000" : "S1000", s->ncols, ncols);
+	ret = SQL_ERROR;
+	goto cleanup;
     }
 done:
     mkbindcols(s, s->ncols);
@@ -11828,7 +9208,6 @@ cleanup:
     return ret;
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Prepare HSTMT.
  * @param stmt statement handle
@@ -11842,31 +9221,6 @@ SQLPrepare(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
 {
     return drvprepare(stmt, query, queryLen);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Prepare HSTMT (UNICODE version).
- * @param stmt statement handle
- * @param query query string
- * @param queryLen length of query string or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLPrepareW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
-{
-    SQLRETURN ret;
-    char *q = uc_to_utf_c(query, queryLen);
-
-    if (!q) {
-	return nomem((STMT *) stmt);
-    }
-    ret = drvprepare(stmt, q, SQL_NTS);
-    uc_free(q);
-    return ret;
-}
-#endif
 
 /**
  * Execute query.
@@ -11880,7 +9234,6 @@ SQLExecute(SQLHSTMT stmt)
     return drvexecute(stmt);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Execute query directly.
  * @param stmt statement handle
@@ -11897,34 +9250,6 @@ SQLExecDirect(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
     }
     return drvexecute(stmt);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Execute query directly (UNICODE version).
- * @param stmt statement handle
- * @param query query string
- * @param queryLen length of query string or SQL_NTS
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLExecDirectW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
-{
-    SQLRETURN ret;
-    char *q = uc_to_utf_c(query, queryLen);
-
-    if (!q) {
-	return nomem((STMT *) stmt);
-    }
-    ret = drvprepare(stmt, q, SQL_NTS);
-    uc_free(q);
-    if (ret == SQL_SUCCESS) {
-	return drvexecute(stmt);
-    }
-    return ret;
-}
-#endif
 
 #ifdef _WIN32
 #ifndef WITHOUT_DRIVERMGR
@@ -11955,9 +9280,8 @@ static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #define KEY_DBNAME		2
 #define KEY_BUSY		3
 #define KEY_DRIVER		4
-#define KEY_NOWCHAR		5
-#define KEY_STEPAPI		6
-#define NUMOFKEYS		7
+#define KEY_STEPAPI		5
+#define NUMOFKEYS		6
 
 typedef struct {
     BOOL supplied;
@@ -11983,7 +9307,6 @@ static struct {
     { "Database", KEY_DBNAME },
     { "Timeout", KEY_BUSY },
     { "Driver", KEY_DRIVER },
-    { "NoWCHAR", KEY_NOWCHAR },
     { "StepAPI", KEY_STEPAPI },
     { NULL, 0 }
 };
@@ -12077,11 +9400,6 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_BUSY].attr,
 				     ODBC_INI);
     }
-    if (parent || setupdlg->attr[KEY_NOWCHAR].supplied) {
-	SQLWritePrivateProfileString(dsn, "NoWCHAR",
-				     setupdlg->attr[KEY_NOWCHAR].attr,
-				     ODBC_INI);
-    }
     if (parent || setupdlg->attr[KEY_STEPAPI].supplied) {
 	SQLWritePrivateProfileString(dsn, "StepAPI",
 				     setupdlg->attr[KEY_STEPAPI].attr,
@@ -12120,12 +9438,6 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "Timeout", "1000",
 				   setupdlg->attr[KEY_BUSY].attr,
 				   sizeof (setupdlg->attr[KEY_BUSY].attr),
-				   ODBC_INI);
-    }
-    if (!setupdlg->attr[KEY_NOWCHAR].supplied) {
-	SQLGetPrivateProfileString(dsn, "NoWCHAR", "",
-				   setupdlg->attr[KEY_NOWCHAR].attr,
-				   sizeof (setupdlg->attr[KEY_NOWCHAR].attr),
 				   ODBC_INI);
     }
     if (!setupdlg->attr[KEY_STEPAPI].supplied) {
@@ -12184,9 +9496,6 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	SetDlgItemText(hdlg, IDC_DESC, setupdlg->attr[KEY_DESC].attr);
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	SetDlgItemText(hdlg, IDC_TONAME, setupdlg->attr[KEY_BUSY].attr);
-	CheckDlgButton(hdlg, IDC_NOWCHAR,
-		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
-		       BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -12235,9 +9544,6 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    GetDlgItemText(hdlg, IDC_TONAME,
 			   setupdlg->attr[KEY_BUSY].attr,
 			   sizeof (setupdlg->attr[KEY_BUSY].attr));
-	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
-		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
 		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
@@ -12336,9 +9642,6 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 			   EM_LIMITTEXT, (WORD)(MAXDBNAME - 1), 0L);
 	SendDlgItemMessage(hdlg, IDC_TONAME,
 			   EM_LIMITTEXT, (WORD)(MAXTONAME - 1), 0L);
-	CheckDlgButton(hdlg, IDC_NOWCHAR,
-		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
-		       BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -12359,9 +9662,6 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    GetDlgItemText(hdlg, IDC_TONAME,
 			   setupdlg->attr[KEY_BUSY].attr,
 			   sizeof (setupdlg->attr[KEY_BUSY].attr));
-	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
-		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
 		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
@@ -12450,7 +9750,7 @@ retry:
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 			 "%s%s%s%s%s%sDatabase=%s;StepAPI=%s;"
-			 "Timeout=%s;NoWCHAR=%s",
+			 "Timeout=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? setupdlg->attr[KEY_DSN].attr : "",
 			 dsn_0 ? ";" : "",
@@ -12459,8 +9759,7 @@ retry:
 			 drv_0 ? ";" : "",
 			 setupdlg->attr[KEY_DBNAME].attr,
 			 setupdlg->attr[KEY_STEPAPI].attr,
-			 setupdlg->attr[KEY_BUSY].attr,
-			 setupdlg->attr[KEY_NOWCHAR].attr);
+			 setupdlg->attr[KEY_BUSY].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -12473,7 +9772,6 @@ retry:
 	    *connOutLen = len;
 	}
     }
-    d->nowchar = getbool(setupdlg->attr[KEY_NOWCHAR].attr);
     rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
 		setupdlg->attr[KEY_DSN].attr,
 		setupdlg->attr[KEY_STEPAPI].attr,
@@ -12495,7 +9793,6 @@ retry:
 
 #ifndef WITHOUT_DRIVERMGR
 
-#ifndef SQLITE_UTF8
 /**
  * Connect using a driver connection string.
  * @param dbc database connection handle
@@ -12518,72 +9815,6 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
     return drvdriverconnect(dbc, hwnd, connIn, connInLen,
 			    connOut, connOutMax, connOutLen, drvcompl);
 }
-#endif
-
-#ifdef SQLITE_UTF8
-/**
- * Connect using a driver connection string (UNICODE version).
- * @param dbc database connection handle
- * @param hwnd parent window handle
- * @param connIn driver connect input string
- * @param connInLen length of driver connect input string or SQL_NTS
- * @param connOut driver connect output string
- * @param connOutMax length of driver connect output string
- * @param connOutLen output length of driver connect output string
- * @param drvcompl completion type
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
-		  SQLWCHAR *connIn, SQLSMALLINT connInLen,
-		  SQLWCHAR *connOut, SQLSMALLINT connOutMax,
-		  SQLSMALLINT *connOutLen, SQLUSMALLINT drvcompl)
-{
-    SQLRETURN ret;
-    char *ci = NULL;
-    SQLSMALLINT len;
-
-    if (connIn) {
-	ci = uc_to_utf_c(connIn, connInLen);
-	if (!ci) {
-	    DBC *d = (DBC *) dbc;
-
-	    setstatd(d, -1, "out of memory", (*d->ov3) ? "HY000" : "S1000");
-	    return SQL_ERROR;
-	}
-    }
-    ret = drvdriverconnect(dbc, hwnd, ci, SQL_NTS,
-			   (char *) connOut, connOutMax, &len, drvcompl);
-    uc_free(ci);
-    if (ret == SQL_SUCCESS) {
-	SQLWCHAR *co = NULL;
-
-	if (connOut) {
-	    if (len > 0) {
-		co = uc_from_utf((char *) connOut, len);
-		if (co) {
-		    uc_strncpy(connOut, co, connOutMax);
-		    len = min(connOutMax, uc_strlen(co));
-		    uc_free(co);
-		} else {
-		    len = 0;
-		}
-	    }
-	    if (len <= 0) {
-		len = 0;
-		connOut[0] = 0;
-	    }
-	} else {
-	    len = 0;
-	}
-	if (connOutLen) {
-	    *connOutLen = len;
-	}
-    }
-    return ret;
-}
-#endif
 
 #endif /* WITHOUT_DRIVERMGR */
 
@@ -12671,16 +9902,6 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     memcpy(prop->aPromptData, instYN, sizeof (instYN));
     strncpy(prop->szName, "StepAPI", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
-#ifdef SQLITE_UTF8
-    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
-    prop = prop->pNext;
-    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
-    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
-    prop->aPromptData = malloc (sizeof (instYN));
-    memcpy(prop->aPromptData, instYN, sizeof (instYN));
-    strncpy(prop->szName, "NoWCHAR", INI_MAX_PROPERTY_NAME);
-    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
-#endif
     return 1;
 }
 

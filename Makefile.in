@@ -7,28 +7,51 @@ LIBTOOL =	./libtool
 CFLAGS=		@CFLAGS@
 SQLITE_INC =	@SQLITE_INC@
 SQLITE_LIB =	@SQLITE_LIB@
-SQLITE_FLAGS =	-DHAVE_LIBVERSION=@SQLITE_LIBVERSION@
+SQLITE_FLAGS =	-DHAVE_LIBVERSION=@SQLITE_LIBVERSION@ \
+		-DHAVE_ENCDEC=@SQLITE_ENCDEC@ \
+		-DHAVE_SQLITEATOF=@SQLITE_ATOF@ \
+		-DHAVE_SQLITEMPRINTF=@SQLITE_MPRINTF@ \
+		-DHAVE_SQLITETRACE=@SQLITE_TRACE@
+SQLITE3_INC =	@SQLITE3_INC@
+SQLITE3_LIB =	@SQLITE3_LIB@
+SQLITE3_FLAGS =	@SQLITE3_FLAGS@
 ODBC_FLAGS =	@ODBC_FLAGS@
 ODBC_LIB =	@ODBC_LIB@
 VER_INFO =	@VER_INFO@
 
+all:		@LIB_TARGETS@
+
 libsqliteodbc.la:	sqliteodbc.lo
-		$(LIBTOOL) $(CC) $(CFLAGS) -o libsqliteodbc.la sqliteodbc.lo \
-		    -rpath $(prefix)/lib $(SQLITE_LIB) $(ODBC_LIB) \
-		    -release $(VER_INFO)
+		$(LIBTOOL) $(CC) $(CFLAGS) -o libsqliteodbc.la \
+		    sqliteodbc.lo -rpath $(prefix)/lib $(SQLITE_LIB) \
+		    $(ODBC_LIB) -release $(VER_INFO)
+
+libsqlite3odbc.la:	sqlite3odbc.lo
+		$(LIBTOOL) $(CC) $(CFLAGS) -o libsqlite3odbc.la \
+		    sqlite3odbc.lo -rpath $(prefix)/lib $(SQLITE3_LIB) \
+		    $(ODBC_LIB) -release $(VER_INFO)
 
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 		$(LIBTOOL) $(CC) $(CFLAGS) -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
 		    $(SQLITE_FLAGS) sqliteodbc.c
 
-install:	libsqliteodbc.la
+sqlite3odbc.lo:	sqlite3odbc.c sqlite3odbc.h
+		$(LIBTOOL) $(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
+		    $(SQLITE3_FLAGS) sqlite3odbc.c
+
+install-2:	libsqliteodbc.la
 		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
+
+install-3:	libsqlite3odbc.la
+		$(LIBTOOL) $(INSTALL) libsqlite3odbc.la $(prefix)/lib
+
+install:	@INST_TARGETS@
 
 doxy:
 		doxygen doxygen.conf
 
 clean:
-		rm -f *.lo *.la *.o libsqliteodbc.la *~ core
+		rm -f *.lo *.la *.o libsqliteodbc.la libsqlite3odbc.la *~ core
 		rm -rf .libs .deps
 
 distclean:	clean

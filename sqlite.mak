@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.13
+# VC++ 6.0 Makefile for SQLite 2.8.14
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -307,6 +307,8 @@ sqlite.def:	sqlite.h
 	echo sqliteOsFileExists >> sqlite.def
 	echo sqliteIsNumber >> sqlite.def
 	echo sqliteStrNICmp >> sqlite.def
+	echo sqlite_encode_binary >> sqlite.def
+	echo sqlite_decode_binary >> sqlite.def
 
 clean:	
 	del *.obj

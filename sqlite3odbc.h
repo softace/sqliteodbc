@@ -1,5 +1,5 @@
-#ifndef _SQLITEODBC_H
-#define _SQLITEODBC_H
+#ifndef _SQLITE3ODBC_H
+#define _SQLITE3ODBC_H
 
 /**
  * @mainpage
@@ -12,12 +12,12 @@
  */
 
 /**
- * @file sqliteodbc.h
- * Header file for SQLite ODBC driver.
+ * @file sqlite3odbc.h
+ * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.32 2004/07/08 13:25:54 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.2 2004/07/08 13:25:25 chw Exp chw $
  *
- * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -26,6 +26,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <stdio.h>
 #else
 #include <sys/time.h>
 #include <sys/types.h>
@@ -42,7 +43,7 @@
 #include <sqlext.h>
 #include <time.h>
 
-#include "sqlite.h"
+#include "sqlite3.h"
 #ifdef HAVE_IODBC
 #include <iodbcinst.h>
 #endif
@@ -79,8 +80,7 @@ typedef struct dbc {
     int magic;			/**< Magic cookie */
     ENV *env;			/**< Pointer to environment */
     struct dbc *next;		/**< Pointer to next DBC */
-    sqlite *sqlite;		/**< SQLITE database handle */
-    int version;		/**< SQLITE version number */
+    sqlite3 *sqlite;		/**< SQLITE database handle */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
     int timeout;		/**< Lock timeout value */
@@ -96,11 +96,9 @@ typedef struct dbc {
     int nowchar;		/**< Don't try to use WCHAR */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
-    struct stmt *vm_stmt;	/**< Current STMT executing VM */
-    int vm_rownum;		/**< Current row number */
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
-    FILE *trace;		/**< sqlite_trace() file pointer or NULL */
-#endif
+    struct stmt *cur_s3stmt;	/**< Current STMT executing sqlite statement */
+    int s3stmt_rownum;		/**< Current row number */
+    FILE *trace;		/**< sqlite3_trace() file pointer or NULL */
 #ifdef USE_DLOPEN_FOR_GPPS
     void *instlib;
     int (*gpps)();
@@ -171,7 +169,6 @@ typedef struct stmt {
     HDBC dbc;			/**< Pointer to DBC */
     SQLCHAR cursorname[32];	/**< Cursor name */
     SQLCHAR *query;		/**< Current query, raw string */
-    char **parmnames;		/**< Parameter names from current query */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
     int isselect;		/**< True if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
@@ -192,7 +189,6 @@ typedef struct stmt {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
-    int nowchar;		/**< Don't try to use WCHAR */
     SQLUINTEGER rowset_size;	/**< Size of rowset */
     SQLUSMALLINT *row_status;	/**< Row status pointer */
     SQLUSMALLINT *row_status0;	/**< Internal status array */
@@ -208,13 +204,7 @@ typedef struct stmt {
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
     int curtype;		/**< Cursor type */
-    sqlite_vm *vm;		/**< SQLite VM or NULL */
-#if HAVE_ENCDEC
-    char *bincell;		/**< Undecoded string */
-    char *bincache;		/**< Cached decoded binary data */
-    int binlen;			/**< Length of decoded binary data */
-    char *hexcache;		/**< Cached decoded binary in hex */
-#endif
+    sqlite3_stmt *s3stmt;	/**< SQLite statement handle or NULL */
 } STMT;
 
 #endif

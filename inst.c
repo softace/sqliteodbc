@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.3 2003/05/15 07:49:40 chw Exp chw $
+ * $Id: inst.c,v 1.4 2004/06/23 08:53:40 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -177,7 +177,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpszCmdLine, int nCmdShow)
 {
     char path[300], *p;
-    int i, remove;
+    int i, remove, quiet;
     BOOL ret[2];
 
     GetModuleFileName(NULL, path, sizeof (path));
@@ -186,13 +186,20 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	*p = tolower(*p);
 	++p;
     }
-    remove = strstr(path, "uninst") != NULL;
+    p = strrchr(path, '\\');
+    if (p == NULL) {
+	p = path;
+    }
+    remove = strstr(p, "uninst") != NULL;
+    quiet = strstr(p, "instq") != NULL;
     for (i = 0; i < 2; i++) {
 	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], DSName[i]);
     }
     if (!remove && (ret[0] || ret[1])) {
-	MessageBox(NULL, "SQLite ODBC Driver(s) installed.", "Info",
-		   MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+	if (!quiet) {
+	    MessageBox(NULL, "SQLite ODBC Driver(s) installed.", "Info",
+		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+	}
     }
     exit(0);
 }

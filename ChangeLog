@@ -1,6 +1,33 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Jul 08 2004 version 0.63 released
+
+	* added tracefile DSN option using sqlite_trace() if available
+	* in drvprepare() make SQL check with all parameters set to NULL
+	* only use *step() for select statements w/o parameters
+	  (makes option usable on OpenOffice.org on Linux)
+	* added pre-alpha version for SQLite 3.x
+	* added limited support for paramsets/rowset for OTLv4
+	* added limited support for named parameters (Oracle-style)
+	* fixed problem in SQLBindParameter argument checking
+	* when using gcc do printf-style format checks on setstat/setstatd
+	* added SQLite functions current_(date|time|datetime)_(local|utc)
+	* include SQLite error codes or -1 in native error field in
+	  SQLError() and SQLGetDiagRec()
+	* bug fixes in SQLNativeSql() concerning buffer/length
+	  semantics, thanks to N Rajesh
+	* corrected problems in fixupdyncols (select on views) and
+	  UN*X version of drvdriverconnect
+	* added SQLite functions hextobin/bintohex when
+	  sqlite_(encode|decode)_binary API available
+	* introduced blob handling when sqlite_(encode|decode)_binary
+	  available (SQLite 2.8.14 made these APIs public)
+	* update to SQLite 2.8.14
+	* made SQL_COLUMN_LABEL different from SQL_COLUMN_NAME
+	* fix in configure.in concerning SQLITE_INC/LIBDIR macros,
+	  thanks to Stefan Radman
+
 Sat May 01 2004 version 0.62 released
 
 	* don't implement some APIs for unixODBC unicode driver version

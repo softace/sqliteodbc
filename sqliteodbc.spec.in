@@ -13,8 +13,8 @@ License: BSD
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
 
 %description
-ODBC driver for SQLite interfacing SQLite 2.x using unixODBC
-or iODBC. See http://www.hwaci.com/sw/sqlite for a description of
+ODBC driver for SQLite interfacing SQLite 2.x and/or 3.x using
+unixODBC or iODBC. See http://www.sqlite.org for a description of
 SQLite, http://www.unixodbc.org for a description of unixODBC.
 
 %prep
@@ -28,30 +28,46 @@ make
 mkdir -p $RPM_BUILD_ROOT%{_prefix}/lib
 make install prefix=$RPM_BUILD_ROOT%{_prefix}
 rm -f $RPM_BUILD_ROOT%{_prefix}/lib/libsqliteodbc*.{a,la}
+rm -f $RPM_BUILD_ROOT%{_prefix}/lib/libsqlite3odbc*.{a,la}
 
 %clean
 rm -rf $RPM_BUILD_ROOT
 
 %post
-test -x /usr/bin/odbcinst && {
-    INST=/tmp/sqliteinst$$
-    cat > $INST << 'EOD'
+if [ -x /usr/bin/odbcinst ] ; then
+   INST=/tmp/sqliteinst$$
+   if [ -r %{_libdir}/libsqliteodbc.so ] ; then
+      cat > $INST << 'EOD'
 [SQLITE]
-Description=SQLite ODBC
+Description=SQLite ODBC 2.X
 Driver=%{_prefix}/lib/libsqliteodbc.so
 Setup=%{_prefix}/lib/libsqliteodbc.so
 FileUsage=1
 EOD
-    /usr/bin/odbcinst -q -d -n SQLITE | grep ^SQLITE >/dev/null || {
-	/usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
-    }
-    rm -f $INST
-}
+      /usr/bin/odbcinst -q -d -n SQLITE | grep '^\[SQLITE\]' >/dev/null || {
+	 /usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
+      }
+   fi
+   if [ -r %{_libdir}/libsqlite3odbc.so ] ; then
+      cat > $INST << 'EOD'
+[SQLITE3]
+Description=SQLite ODBC 3.X
+Driver=%{_prefix}/lib/libsqlite3odbc.so
+Setup=%{_prefix}/lib/libsqlite3odbc.so
+FileUsage=1
+EOD
+      /usr/bin/odbcinst -q -d -n SQLITE3 | grep '^\[SQLITE3\]' >/dev/null || {
+	 /usr/bin/odbcinst -i -d -n SQLITE3 -f $INST || true
+      }
+   fi
+   rm -f $INST
+fi
 
 %preun
 if [ "$1" = "0" ] ; then
     test -x /usr/bin/odbcinst && {
 	/usr/bin/odbcinst -u -d -n SQLITE || true
+	/usr/bin/odbcinst -u -d -n SQLITE3 || true
     }
 fi
 

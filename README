@@ -14,7 +14,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.13, MS VC++ 6.0 and tested on
+The binaries were made with SQLite 2.8.14, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97, with
 StarOffice 5.2 and OpenOffice 1.1.
 Unzip the archive into a temporary directory and execute the INST.EXE
@@ -179,12 +179,16 @@ Build instructions for MS Visual C++ 6.0:
 	nmake -f sqliteodbc.mak ENCODING=UTF8
 
 
+Starting with release 0.63 support for SQLite version 3 will be
+added as a separate DLL/shared library.
+
+
 TODO:
 
 - improve documentation
 
 
-May, 1st, 2004
+July, 8th, 2004
 Christian Werner
 mailto:chw@ch-werner.de
 
