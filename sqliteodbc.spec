@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.49
+%define version 0.50
 %define release 1
 
 Name: %{name}

@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.40 2003/02/22 07:38:12 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.42 2003/03/08 16:17:55 chw Exp chw $
  *
- * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -196,11 +196,12 @@ static SQLRETURN mkbindcols(STMT *s, int ncols);
 /**
  * Free statement's result.
  * @param s statement pointer
- * @param clrcols boolean flag
+ * @param clrcols flag to clear column information
  *
  * The result rows are free'd using the rowfree function pointer.
- * If clrcols is true, then column bindings and dynamic column
- * descriptions are free'd, too.
+ * If clrcols is greater than zero, then column bindings and dynamic column
+ * descriptions are free'd.
+ * If clrcols is less than zero, then dynamic column descriptions are free'd.
  */
 
 static void freeresult(STMT *s, int clrcols);
@@ -3239,14 +3240,36 @@ SQLCopyDesc(SQLHDESC source, SQLHDESC target)
 }
 
 /**
- * Function not implemented.
+ * Translate SQL string.
+ * @param stmt statement handle
+ * @param sqlin input string
+ * @param sqlinLen length of input string
+ * @param sql output string
+ * @param sqlMax max space in output string
+ * @param sqlLen value return for length of output string
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLNativeSql(SQLHSTMT stmt, SQLCHAR *sqlin, SQLINTEGER sqlinLen,
 	     SQLCHAR *sql, SQLINTEGER sqlMax, SQLINTEGER *sqlLen)
 {
-    return drvunimplstmt(stmt);
+    if (sql) {
+	int outLen = 0;
+
+	if (sqlinLen == SQL_NTS) {
+	    sqlinLen = strlen(sqlin);
+	}
+	if (sqlMax > 0) {
+	    strncpy(sql, sqlin, sqlMax);
+	    sqlin[sqlMax - 1] = '\0';
+	    outLen = min(sqlMax - 1, sqlinLen);
+	}
+	if (sqlLen) {
+	    *sqlLen = outLen;
+	}
+    }
+    return SQL_SUCCESS;
 }
 
 /**
@@ -3764,6 +3787,9 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*(SQLSMALLINT *) val = 16;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
+    case SQL_USER_NAME:
+	strmak(val, "", valMax, valLen);
+	break;
     case SQL_DRIVER_ODBC_VER:
 	strmak(val, "02.50", valMax, valLen);
 	break;
@@ -3927,7 +3953,8 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "database", valMax, valLen);
 	break;
     case SQL_QUALIFIER_USAGE:
-	*(SQLUINTEGER *) val = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION;
+	*(SQLUINTEGER *) val = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION
+			       | SQL_QU_INDEX_DEFINITION;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
@@ -4140,7 +4167,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	exists[SQL_API_SQLDESCRIBECOL] = SQL_TRUE;
 	exists[SQL_API_SQLROWCOUNT] = SQL_TRUE;
 	exists[SQL_API_SQLDISCONNECT] = SQL_TRUE;
-	exists[SQL_API_SQLSETCURSORNAME] = SQL_TRUE;
+	exists[SQL_API_SQLSETCURSORNAME] = SQL_FALSE;
 	exists[SQL_API_SQLERROR] = SQL_TRUE;
 	exists[SQL_API_SQLSETPARAM] = SQL_TRUE;
 	exists[SQL_API_SQLEXECDIRECT] = SQL_TRUE;
@@ -4178,7 +4205,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	exists[SQL_API_SQLSETSCROLLOPTIONS] = SQL_TRUE;
 	exists[SQL_API_SQLMORERESULTS] = SQL_TRUE;
 	exists[SQL_API_SQLTABLEPRIVILEGES] = SQL_FALSE;
-	exists[SQL_API_SQLNATIVESQL] = SQL_FALSE;
+	exists[SQL_API_SQLNATIVESQL] = SQL_TRUE;
 	initialized = 1;
     }
     if (func == SQL_API_ALL_FUNCTIONS) {
@@ -4186,11 +4213,13 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     } else if (func == SQL_API_ODBC3_ALL_FUNCTIONS) {
 	int i;
 
-	for (i = 0; i < SQL_API_ODBC3_ALL_FUNCTIONS_SIZE; i++)
-	    if (i < array_size(exists) && exists[i])
+	memset(flags, 0,
+	       sizeof (SQLUSMALLINT) * SQL_API_ODBC3_ALL_FUNCTIONS_SIZE);
+	for (i = 0; i < array_size(exists); i++) {
+	    if (exists[i]) {
 		flags[i >> 4] |= (1 << (i & 0xF));
-	    else
-		flags[i >> 4] &= ~(1 << (i & 0xF));
+	    }
+	}
     } else {
 	if (func < array_size(exists)) {
 	    *flags = exists[func];
@@ -5412,9 +5441,11 @@ freeresult(STMT *s, int clrcols)
 	s->rows = NULL;
     }
     s->nrows = -1;
-    if (clrcols) {
+    if (clrcols > 0) {
 	freep(&s->bindcols);
 	s->nbindcols = 0;
+    }
+    if (clrcols) {
 	freedyncols(s);
 	s->cols = NULL;
 	s->ncols = 0;
@@ -5629,7 +5660,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		    *lenp = SQL_NO_TOTAL;
 		}
 	    }
-	    if (len && doz) {
+	    if (len && !valnull && doz) {
 		((char *) val)[len - 1] = '\0';
 	    }
 	    if (partial && len && s->bindcols) {
@@ -6125,27 +6156,43 @@ static COL typeSpec[] = {
  * @param row row number
  * @param typename name of type
  * @param type integer SQL type
- * @param sqltype string SQL type
+ * @param tind type index
  */
 
 static void
-mktypeinfo(STMT *s, int row, char *typename, int type, char *sqltype)
+mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 {
     int offs = row * array_size(typeSpec);
+    char *crpar = NULL, *quote = NULL, *sign = stringify(SQL_FALSE);
+    static char *tcodes[20];
 
+    if (tind <= 0) {
+	tind = row;
+    }
+    if (tcodes[tind] == NULL) {
+	char tmp[32];
+
+	sprintf(tmp, "%d", type);
+	tcodes[tind] = xstrdup(tmp);
+    }
     s->rows[offs + 0] = typename;
-    s->rows[offs + 1] = sqltype;
+    s->rows[offs + 1] = tcodes[tind];
     switch (type) {
     default:
 #ifdef SQL_LONGVARCHAR
-	type = SQL_LONGVARCHAR;
     case SQL_LONGVARCHAR:
+	crpar = "length";
+	quote = "'";
+	sign = NULL;
 	s->rows[offs + 2] = "65536";
-#else
-	type = SQL_VARCHAR;
+	break;
 #endif
+    case SQL_CHAR:
     case SQL_VARCHAR:
 	s->rows[offs + 2] = "255";
+	crpar = "length";
+	quote = "'";
+	sign = NULL;
 	break;
     case SQL_TINYINT:
 	s->rows[offs + 2] = "3";
@@ -6164,30 +6211,51 @@ mktypeinfo(STMT *s, int row, char *typename, int type, char *sqltype)
 	break;
     case SQL_DATE:
 	s->rows[offs + 2] = "10";
+	quote = "'";
+	sign = NULL;
 	break;
     case SQL_TIME:
 	s->rows[offs + 2] = "8";
+	quote = "'";
+	sign = NULL;
 	break;
     case SQL_TIMESTAMP:
 	s->rows[offs + 2] = "32";
+	quote = "'";
+	sign = NULL;
 	break;
     }
-    s->rows[offs + 3] = s->rows[offs + 4] = type == SQL_VARCHAR ? "'" : "";
-#ifdef SQL_LONGVARCHAR
-    if (type == SQL_LONGVARCHAR) {
-	s->rows[offs + 3] = s->rows[offs + 4] = "'";
-    }
-#endif
-    s->rows[offs + 5] = "";
-    s->rows[offs + 6] = "1";
-    s->rows[offs + 7] = "1";
-    s->rows[offs + 8] = "1";
-    s->rows[offs + 9] = "0";
-    s->rows[offs + 10] = "0";
-    s->rows[offs + 11] = "0";
+    s->rows[offs + 3] = s->rows[offs + 4] = quote;
+    s->rows[offs + 5] = crpar;
+    s->rows[offs + 6] = stringify(SQL_NULLABLE);
+    s->rows[offs + 7] = stringify(SQL_FALSE);
+    s->rows[offs + 8] = stringify(SQL_SEARCHABLE);
+    s->rows[offs + 9] = sign;
+    s->rows[offs + 10] = stringify(SQL_FALSE);
+    s->rows[offs + 11] = stringify(SQL_FALSE);
     s->rows[offs + 12] = typename;
-    s->rows[offs + 13] = "0";
-    s->rows[offs + 14] = "0";
+    s->rows[offs + 13] = NULL;
+    s->rows[offs + 14] = NULL;
+}
+
+/**
+ * Helper function to sort type information.
+ * Callback for qsort().
+ * @param a first item to compare
+ * @param b second item to compare
+ * @result ==0, <0, >0 according to data type number
+ */
+
+static int
+typeinfosort(const void *a, const void *b)
+{
+    char **pa = (char **) a;
+    char **pb = (char **) b;
+    int na, nb;
+
+    na = strtol(pa[1], NULL, 0);
+    nb = strtol(pb[1], NULL, 0);
+    return na - nb;
 }
 
 /**
@@ -6211,12 +6279,12 @@ SQLGetTypeInfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
 #ifdef SQL_LONGVARCHAR
-    s->nrows = sqltype == SQL_ALL_TYPES ? 10 : 1;
+    s->nrows = sqltype == SQL_ALL_TYPES ? 13 : 1;
 #else
-    s->nrows = sqltype == SQL_ALL_TYPES ? 9 : 1;
+    s->nrows = sqltype == SQL_ALL_TYPES ? 12 : 1;
 #endif
     s->rows = (char **) xmalloc(sizeof (char *) * (s->nrows + 1)
-			       * array_size(typeSpec));
+				* array_size(typeSpec));
     if (!s->rows) {
 	s->nrows = 0;
 	return nomem(s);
@@ -6226,58 +6294,65 @@ SQLGetTypeInfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 #else
     s->rowfree = free;
 #endif
-    memset(s->rows, 0, sizeof (char *) * (s->nrows + 1) * array_size(typeSpec));
+    memset(s->rows, 0,
+	   sizeof (char *) * (s->nrows + 1) * array_size(typeSpec));
     if (sqltype == SQL_ALL_TYPES) {
-	mktypeinfo(s, 1, "varchar", SQL_VARCHAR, stringify(SQL_VARCHAR));
-	mktypeinfo(s, 2, "tinyint", SQL_TINYINT, stringify(SQL_TINYINT));
-	mktypeinfo(s, 3, "smallint", SQL_SMALLINT, stringify(SQL_SMALLINT));
-	mktypeinfo(s, 4, "integer", SQL_INTEGER, stringify(SQL_INTEGER));
-	mktypeinfo(s, 5, "float", SQL_FLOAT, stringify(SQL_FLOAT));
-	mktypeinfo(s, 6, "double", SQL_DOUBLE, stringify(SQL_DOUBLE));
-	mktypeinfo(s, 7, "date", SQL_DATE, stringify(SQL_DATE));
-	mktypeinfo(s, 8, "time", SQL_TIME, stringify(SQL_TIME));
-	mktypeinfo(s, 9, "timestamp", SQL_TIMESTAMP, stringify(SQL_TIMESTAMP));
+	mktypeinfo(s, 1, "varchar", SQL_VARCHAR, 0);
+	mktypeinfo(s, 2, "tinyint", SQL_TINYINT, 0);
+	mktypeinfo(s, 3, "smallint", SQL_SMALLINT, 0);
+	mktypeinfo(s, 4, "integer", SQL_INTEGER, 0);
+	mktypeinfo(s, 5, "float", SQL_FLOAT, 0);
+	mktypeinfo(s, 6, "double", SQL_DOUBLE, 0);
+	mktypeinfo(s, 7, "date", SQL_DATE, 0);
+	mktypeinfo(s, 8, "time", SQL_TIME, 0);
+	mktypeinfo(s, 9, "timestamp", SQL_TIMESTAMP, 0);
+	mktypeinfo(s, 10, "char", SQL_CHAR, 0);
+	mktypeinfo(s, 11, "numeric", SQL_DOUBLE, 0);
 #ifdef SQL_LONGVARCHAR
-	mktypeinfo(s, 10, "longvarchar", SQL_LONGVARCHAR,
-		   stringify(SQL_LONGVARCHAR));
+	mktypeinfo(s, 12, "text", SQL_LONGVARCHAR, 0);
+	mktypeinfo(s, 13, "longvarchar", SQL_LONGVARCHAR, 0);
+#else
+	mktypeinfo(s, 12, "text", SQL_VARCHAR, 0);
 #endif
+	qsort(s->rows + array_size(typeSpec), s->nrows,
+	      sizeof (char *) * array_size(typeSpec), typeinfosort);
     } else {
 	switch (sqltype) {
+	case SQL_CHAR:
+	    mktypeinfo(s, 1, "char", SQL_CHAR, 10);
+	    break;
 	case SQL_VARCHAR:
-	    mktypeinfo(s, 1, "varchar", SQL_VARCHAR, stringify(SQL_VARCHAR));
+	    mktypeinfo(s, 1, "varchar", SQL_VARCHAR, 1);
 	    break;
 	case SQL_TINYINT:
-	    mktypeinfo(s, 1, "tinyint", SQL_TINYINT, stringify(SQL_TINYINT));
+	    mktypeinfo(s, 1, "tinyint", SQL_TINYINT, 2);
 	    break;
 	case SQL_SMALLINT:
-	    mktypeinfo(s, 1, "smallint", SQL_SMALLINT,
-		       stringify(SQL_SMALLINT));
+	    mktypeinfo(s, 1, "smallint", SQL_SMALLINT, 3);
 	    break;
 	case SQL_INTEGER:
-	    mktypeinfo(s, 1, "integer", SQL_INTEGER, stringify(SQL_INTEGER));
+	    mktypeinfo(s, 1, "integer", SQL_INTEGER, 4);
 	    break;
 	case SQL_FLOAT:
-	    mktypeinfo(s, 1, "float", SQL_FLOAT, stringify(SQL_FLOAT));
+	    mktypeinfo(s, 1, "float", SQL_FLOAT, 5);
 	    break;
 	case SQL_DOUBLE:
-	    mktypeinfo(s, 1, "double", SQL_DOUBLE, stringify(SQL_DOUBLE));
+	    mktypeinfo(s, 1, "double", SQL_DOUBLE, 6);
 	    break;
 	case SQL_DATE:
-	    mktypeinfo(s, 1, "date", SQL_DATE, stringify(SQL_DATE));
+	    mktypeinfo(s, 1, "date", SQL_DATE, 7);
 	    break;
 	case SQL_TIME:
-	    mktypeinfo(s, 1, "time", SQL_TIME, stringify(SQL_TIME));
+	    mktypeinfo(s, 1, "time", SQL_TIME, 8);
 	    break;
 	case SQL_TIMESTAMP:
-	    mktypeinfo(s, 1, "timestamp", SQL_TIMESTAMP,
-		       stringify(SQL_TIMESTAMP));
+	    mktypeinfo(s, 1, "timestamp", SQL_TIMESTAMP, 9);
 	    break;
 #ifdef SQL_LONGVARCHAR
 	case SQL_LONGVARCHAR:
-	    mktypeinfo(s, 1, "longvarchar", SQL_LONGVARCHAR,
-		       stringify(SQL_LONGVARCHAR));
-#endif
+	    mktypeinfo(s, 1, "longvarchar", SQL_LONGVARCHAR, 12);
 	    break;
+#endif
 	default:
 	    s->nrows = 0;
 	    return SQL_NO_DATA;
@@ -6678,6 +6753,12 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
 {
     SQLRETURN ret;
 
+    if (rowstatus) {
+	*rowstatus = SQL_ROW_NOROW;
+    }
+    if (rowcount) {
+	*rowcount = 0;
+    }
     ret = drvfetchscroll(stmt, orient, offset);
     switch (ret) {
 #ifdef SQL_ROW_SUCCESS_WITH_INFO
@@ -6700,13 +6781,6 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
 	    *rowcount = 1;
 	}
 	break;
-    default:
-	if (rowstatus) {
-	    *rowstatus = SQL_ROW_ERROR;
-	}
-	if (rowcount) {
-	    *rowcount = 0;
-	}
     }
     return ret;
 }
@@ -7186,6 +7260,7 @@ SQLError(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
     }
 noerr:
     sqlState[0] = '\0';
+    errmsg[0] = '\0';
     *nativeErr = 0;
     *errlen = 0;
     return SQL_NO_DATA_FOUND;
@@ -7321,7 +7396,7 @@ noconn:
 	}
 	return nomem(s);
     }
-    freeresult(s, 1);
+    freeresult(s, -1);
     if (s->isselect) {
 	int ret;
 	char **params = NULL;
@@ -7472,7 +7547,7 @@ noconn:
 	    int nrows = 0;
 	   
 	    nrows = strtoul(s->rows[1], NULL, 0);
-	    freeresult(s, 1);
+	    freeresult(s, -1);
 	    s->nrows = nrows;
 	    goto done;
 	}
@@ -7486,7 +7561,7 @@ noconn:
 	    size += 2 + strlen(s->rows[i]);
 	}
 	if (size == 0) {
-	    freeresult(s, 1);
+	    freeresult(s, -1);
 	    goto done;
 	}
 	dyncols = xmalloc(ncols * sizeof (COL) + size);

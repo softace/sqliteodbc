@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Mar 08 2003 version 0.50 released
+
+	* changed freeresult() behaviour in order to allow
+	  SQLBindCol() column bindings before prepare/execute
+	* revision of SQLGetTypeInfo()
+	* minor changes in SQLGetInfo() and SQLGetFunctions()
+
 Sat Feb 22 2003 version 0.49 released
 
 	* update to SQLite 2.8.0
