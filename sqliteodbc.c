@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.62 2004/04/05 06:59:02 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.66 2004/04/24 05:10:30 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -1272,7 +1272,7 @@ static void
 fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 {
     int i, k, pk, t, r, nrows, ncols, doautoinc = 0;
-    char **rowp;
+    char **rowp, *flagp, flags[128];
 
     if (!s->dyncols) {
 	return;
@@ -1311,16 +1311,27 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    return;
 	}
     }
+    if (s->dcols > array_size(flags)) {
+	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
+	if (flagp == NULL) {
+	    return;
+	}
+    } else {
+	flagp = flags;
+    }
+    memset(flagp, 0, sizeof (flags[0]) * s->dcols);
     for (i = 0; i < s->dcols; i++) {
-	int ret;
+	s->dyncols[i].autoinc = 0;
+    }
+    for (i = 0; i < s->dcols; i++) {
+	int ret, lastpk = -1, autoinccount = 0;
 
 	if (!s->dyncols[i].table[0]) {
 	    continue;
 	}
-	if (s->dyncols[i].typename && s->dyncols[i].autoinc >= 0) {
+	if (flagp[i]) {
 	    continue;
 	}
-	s->dyncols[i].autoinc = 0;
 	ret = sqlite_get_table_printf(sqlite,
 				      "PRAGMA table_info('%q')", &rowp,
 				      &nrows, &ncols, NULL,
@@ -1338,10 +1349,12 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    int m;
 
 	    for (m = i; m < s->dcols; m++) {
-		if (strcmp(s->dyncols[m].column, rowp[r * ncols + k]) == 0 &&
+		if (!flagp[m] &&
+		    strcmp(s->dyncols[m].column, rowp[r * ncols + k]) == 0 &&
 		    strcmp(s->dyncols[m].table, s->dyncols[i].table) == 0) {
 		    char *typename = rowp[r * ncols + t];
 
+		    flagp[m] = 1;
 		    freep(&s->dyncols[m].typename);
 		    s->dyncols[m].typename = xstrdup(typename);
 		    s->dyncols[m].type =
@@ -1363,17 +1376,28 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 		    }
 #endif
 #endif
-		    if (pk >= 0 &&
-			strlen(typename) == 7 &&
-			strncasecmp(typename, "integer", 7) == 0 &&
-			strcmp(rowp[r * ncols + pk], "1") == 0) {
-			s->dyncols[m].autoinc = 1;
+		    if (pk >= 0	&& strcmp(rowp[r * ncols + pk], "1") == 0) {
+			if (++autoinccount > 1) {
+			    if (lastpk >= 0) {
+				s->dyncols[lastpk].autoinc = 0;
+				lastpk = -1;
+			    }
+			} else {
+			    lastpk = m;
+			    if (strlen(typename) == 7 &&
+				strncasecmp(typename, "integer", 7) == 0) {
+				s->dyncols[m].autoinc = 1;
+			    }
+			}
 		    }
 		}
 	    }
 	}
 freet:
 	sqlite_free_table(rowp);
+    }
+    if (flagp != flags) {
+	freep(&flagp);
     }
 }
 
@@ -3189,6 +3213,49 @@ drvprimarykeys(SQLHSTMT stmt,
     if (ncols * nrows <= 0) {
 nodata:
 	sqlite_free_table(rowp);
+	/* try table_info for integer primary keys */
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "PRAGMA table_info('%q')", &rowp,
+				      &nrows, &ncols, NULL, tname);
+	if (ret == SQLITE_OK) {
+	    int typec, roffs;
+
+	    namec = findcol(rowp, ncols, "name");
+	    uniquec = findcol(rowp, ncols, "pk");
+	    typec = findcol(rowp, ncols, "type");
+	    if (namec < 0 || uniquec < 0 || typec < 0) {
+		goto nodata2;
+	    }
+	    for (i = 1; i <= nrows; i++) {
+		if (*rowp[i * ncols + uniquec] != '0' &&
+		    strlen(rowp[i * ncols + typec]) == 7 &&
+		    strncasecmp(rowp[i * ncols + typec], "integer", 7) == 0) {
+		    break;
+		}
+	    }
+	    if (i > nrows) {
+		goto nodata2;
+	    }
+	    size = (1 + 1) * array_size(pkeySpec);
+	    s->rows = xmalloc((size + 1) * sizeof (char *));
+	    if (!s->rows) {
+		s->nrows = 0;
+		return nomem(s);
+	    }
+	    s->rows[0] = (char *) size;
+	    s->rows += 1;
+	    memset(s->rows, 0, sizeof (char *) * size);
+	    s->rowfree = freerows;
+	    s->nrows = 1;
+	    roffs = s->ncols;
+	    s->rows[roffs + 0] = xstrdup("");
+	    s->rows[roffs + 1] = xstrdup("");
+	    s->rows[roffs + 2] = xstrdup(tname);
+	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
+	    s->rows[roffs + 4] = xstrdup("1");
+nodata2:
+	    sqlite_free_table(rowp);
+	}
 	return SQL_SUCCESS;
     }
     size = 0;
@@ -3604,7 +3671,7 @@ mkrowid:
 	s->rows[s->ncols + 5] = xstrdup("10");
 	s->rows[s->ncols + 6] = xstrdup("9");
 	s->rows[s->ncols + 7] = xstrdup(stringify(SQL_PC_PSEUDO));
-	s->rows[s->ncols + 8] = xstrdup("0");
+	s->rows[s->ncols + 8] = xstrdup(stringify(SQL_FALSE));
 	s->nrows = 1;
     }
     return SQL_SUCCESS;
@@ -5487,8 +5554,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "database", valMax, valLen);
 	break;
     case SQL_QUALIFIER_USAGE:
-	*((SQLUINTEGER *) val) = SQL_QU_DML_STATEMENTS |
-	    SQL_QU_TABLE_DEFINITION | SQL_QU_INDEX_DEFINITION;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
@@ -7618,6 +7684,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		if (*lenp == SQL_NO_TOTAL) {
 		    s->bindcols[col].offs += len - doz;
 		    setstat(s, "data right truncated", "01004");
+		    if (s->bindcols[col].lenp) {
+			*s->bindcols[col].lenp = dlen;
+		    }
 #ifdef SQLITE_UTF8
 		    uc_free(ucdata);
 #endif
@@ -8181,8 +8250,13 @@ drvcolumns(SQLHSTMT stmt,
 	    }
 	} else if (strcmp(rowp[k], "notnull") == 0) {
 	    for (i = 1; i <= s->nrows; i++) {
-		s->rows[array_size(colSpec) * i + 10] =
-		    xstrdup(*rowp[i * ncols + k] != '0' ? "0" : "1");
+		if (*rowp[i * ncols + k] != '0') {
+		    s->rows[array_size(colSpec) * i + 10] =
+			xstrdup(stringify(SQL_FALSE));
+		} else {
+		    s->rows[array_size(colSpec) * i + 10] =
+			xstrdup(stringify(SQL_TRUE));
+		}
 		s->rows[array_size(colSpec) * i + 17] =
 		    xstrdup(*rowp[i * ncols + k] != '0' ? "NO" : "YES");
 	    }
@@ -8756,6 +8830,58 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     if (ncols * nrows <= 0) {
 nodata:
 	sqlite_free_table(rowp);
+	/* try table_info for integer primary keys */
+	if (itype == SQL_INDEX_UNIQUE) {
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA table_info('%q')", &rowp,
+					  &nrows, &ncols, NULL, tname);
+	    if (ret == SQLITE_OK) {
+		int colid, typec, roffs;
+
+		namec = findcol(rowp, ncols, "name");
+		uniquec = findcol(rowp, ncols, "pk");
+		typec = findcol(rowp, ncols, "type");
+		colid = findcol(rowp, ncols, "cid");
+		if (namec < 0 || uniquec < 0 || typec < 0 || colid < 0) {
+		    goto nodata2;
+		}
+		for (i = 1; i <= nrows; i++) {
+		    if (*rowp[i * ncols + uniquec] != '0' &&
+			strlen(rowp[i * ncols + typec]) == 7 &&
+			strncasecmp(rowp[i * ncols + typec], "integer", 7)
+			== 0) {
+			break;
+		    }
+		}
+		if (i > nrows) {
+		    goto nodata2;
+		}
+		size = (1 + 1) * array_size(statSpec);
+		s->rows = xmalloc((size + 1) * sizeof (char *));
+		if (!s->rows) {
+		    s->nrows = 0;
+		    return nomem(s);
+		}
+		s->rows[0] = (char *) size;
+		s->rows += 1;
+		memset(s->rows, 0, sizeof (char *) * size);
+		s->rowfree = freerows;
+		s->nrows = 1;
+		roffs = s->ncols;
+		s->rows[roffs + 0] = xstrdup("");
+		s->rows[roffs + 1] = xstrdup("");
+		s->rows[roffs + 2] = xstrdup(tname);
+		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
+		s->rows[roffs + 4] = xstrdup("");
+		s->rows[roffs + 5] = xstrdup("");
+		s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
+		s->rows[roffs + 7] = xstrdup("1");
+		s->rows[roffs + 8] = xstrdup(rowp[i * ncols + namec]);
+		s->rows[roffs + 9] = xstrdup("A");
+nodata2:
+		sqlite_free_table(rowp);
+	    }
+	}
 	return SQL_SUCCESS;
     }
     size = 0;
@@ -8769,9 +8895,7 @@ nodata:
 	char **rowpp;
 	int isuniq;
 
-	isuniq = *rowp[i * ncols + uniquec] != '0' ||
-	    (*rowp[i * ncols + namec] == '(' &&
-	     strstr(rowp[i * ncols + namec], " autoindex "));
+	isuniq = *rowp[i * ncols + uniquec] != '0';
 	if (isuniq || itype == SQL_INDEX_ALL) {
 	    ret = sqlite_get_table_printf(d->sqlite,
 					  "PRAGMA index_info('%q')", &rowpp,
@@ -8820,13 +8944,15 @@ nodata:
 			int roffs = (offs + m) * s->ncols;
 			int isuniq;
 
-			isuniq = *rowp[i * ncols + uniquec] != '0' ||
-			    (*rowp[i * ncols + namec] == '(' &&
-			     strstr(rowp[i * ncols + namec], " autoindex "));
+			isuniq = *rowp[i * ncols + uniquec] != '0';
 			s->rows[roffs + 0] = xstrdup("");
 			s->rows[roffs + 1] = xstrdup("");
 			s->rows[roffs + 2] = xstrdup(tname);
-			s->rows[roffs + 3] = xstrdup(isuniq ? "0" : "1");
+			if (isuniq) {
+			    s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
+			} else {
+			    s->rows[roffs + 3] = xstrdup(stringify(SQL_TRUE));
+			}
 			s->rows[roffs + 4] = xstrdup("");
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
 			s->rows[roffs + 6] =

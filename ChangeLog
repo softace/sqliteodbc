@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Apr 24 version 0.61 released
+
+	* fixed getrowdata() to support SQLGetData() with NULL ptr and
+	  SQLFetch() to retrieve proper data length, thanks to Joel Reed
+	* fall back to integer primary key columns in SQLPrimaryKeys()
+	  and SQLStatistics() when no indices on table found
+	* improved auto increment detection
+
 Thu Apr 08 2004 version 0.60 released
 
 	* improved RPM .spec file
