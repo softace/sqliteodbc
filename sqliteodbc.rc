@@ -72,7 +72,7 @@ BEGIN
             VALUE "FileDescription", "SQLite ODBC Driver\0"
             VALUE "FileVersion", VERSION "\0"
             VALUE "InternalName", "SQLITEODBC\0"
-            VALUE "LegalCopyright", "Copyright © 2001-2002 <chw@ch-werner.de>\0"
+            VALUE "LegalCopyright", "Copyright © 2001-2003 <chw@ch-werner.de>\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SQLITEODBC.DLL\0"
             VALUE "PrivateBuild", "\0"

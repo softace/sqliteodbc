@@ -1,6 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Feb 22 2003 version 0.49 released
+
+	* update to SQLite 2.8.0
+	* bug fix in fixupsql() concerning quotes thanks to Alex Clement
+	* bug fix in substparam() for SQL_NTS/SQL_NULL_DATA
+	  thanks to Alex Clement
+	* bug fix in drvfetchscroll for wrong column counting
+	  for SQL_FETCH_ABSOLUTE, thanks to Gene Shkolnik
+
+Thu Jan 02 2003 version 0.48 released
+
+	* cleanup threading
+	* added mkopc tool for making opcodes.[ch] on Win32
+
 Sat Sep 14 2002 version 0.47 released
 
 	* fixed NULL pointer derefs in getmd() and mapsqltype()

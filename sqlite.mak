@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.7.x
+# VC++ 6.0 Makefile for SQLite 2.8.0
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -50,7 +50,7 @@ TCCXD = $(TCCX) -D_DLL
 
 # Object files for the SQLite library.
 
-LIBOBJ = btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
+LIBOBJ = auth.obj btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
          main.obj os.obj pager.obj parse.obj printf.obj random.obj select.obj \
 	 table.obj func.obj tokenize.obj update.obj util.obj vdbe.obj \
 	 where.obj encode.obj trigger.obj opcodes.obj
@@ -58,6 +58,7 @@ LIBOBJ = btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
 # All of the source code files.
 
 SRC = \
+  $(TOP)/src/auth.c \
   $(TOP)/src/btree.c \
   $(TOP)/src/build.c \
   $(TOP)/src/delete.c \
@@ -130,6 +131,9 @@ sqlite.exe:	sqlite.dll
 lemon:	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
 	$(BCC) -o lemon $(TOP)/tool/lemon.c
 	copy $(TOP)\tool\lempar.c .
+
+auth.obj:	$(TOP)/src/auth.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/auth.c
 
 btree.obj:	$(TOP)/src/btree.c $(HDR) $(TOP)/src/pager.h
 	$(TCCXD) -c $(TOP)/src/btree.c
@@ -258,6 +262,12 @@ sqlite.def:
 	echo sqlite_mprintf >> sqlite.def
 	echo sqlite_open_aux_file >> sqlite.def
 	echo sqliteStrICmp >> sqlite.def
+	echo sqlite_set_authorizer >> sqlite.def
+	echo sqlite_trace >> sqlite.def
+	echo sqlite_compile >> sqlite.def
+	echo sqlite_step >> sqlite.def
+	echo sqlite_finalize >> sqlite.def
+	echo sqlite_vmprintf >> sqlite.def
 
 clean:	
 	del *.obj

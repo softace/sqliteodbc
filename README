@@ -1,7 +1,7 @@
 SQLite ODBC Driver
 ------------------
 
-This is an experimental ODBC driver for the wonderful SQLite 2.[0-7]
+This is an experimental ODBC driver for the wonderful SQLite 2.[0-8]
 Database Engine/Library. So far it is more a proof of concept and might
 contain lots of memory leaks and all other kinds of bugs. Thus I highly
 appreciate any feedback.
@@ -14,7 +14,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.7.5, MS VC++ 6.0 and tested on
+The binaries were made with SQLite 2.8.0, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97 and MS Access 97.
 Unzip the archive into a temporary directory and execute the INST.EXE
 program. This installs the SQLite ODBC driver and creates a System DSN.
@@ -185,7 +185,7 @@ TODO:
 - ??? SQLForeignKeys() ???
 
 
-January, 2nd, 2003
+February, 22nd, 2003
 Christian Werner
 mailto:chw@ch-werner.de
 

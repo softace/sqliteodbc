@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.39 2003/01/02 07:21:27 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.40 2003/02/22 07:38:12 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -706,9 +706,8 @@ static char *
 fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg,
 	 int version)
 {
-    char *q = sql, *qz = NULL, *p;
-    int inq = 0, np = 0;
-    char *out;
+    char *q = sql, *qz = NULL, *p, *inq = NULL, *out;
+    int np = 0;
 
     *errmsg = NULL;
     if (sqlLen != SQL_NTS) {
@@ -730,20 +729,21 @@ errout:
     out = p;
     while (*q) {
 	switch (*q) {
-	case '`':
-	    if (!inq) {
-		*p++ = '\'';
-	    } else {
-		*p++ = *q;
-	    }
-	    break;
 	case '\'':
-	    if (inq) {
-		if (q[-1] != '\'') {
-		    inq = 0;
-		}
+	case '\"':
+	    if (q == inq) {
+		inq = NULL;
 	    } else {
-		inq = 1;
+		inq = q + 1;
+
+		while (*inq) {
+		    if (*inq == *q) {
+			if (inq[1] != *q) {
+			    break;
+			}
+		    }
+		    inq++;
+		}
 	    }
 	    *p++ = *q;
 	    break;
@@ -2128,7 +2128,7 @@ substparam(STMT *s, int pnum, char **out, int *size)
 	}
 	return SQL_NEED_DATA;
     }
-    if (!p->param) {
+    if (!p->param || (p->lenp && *p->lenp == SQL_NULL_DATA)) {
 	strcpy(buf, "NULL");
 	goto bind;
     }
@@ -2202,7 +2202,7 @@ error:
 	    return SQL_ERROR;
 	}
     } else {
-	len = *p->lenp;
+	len = *p->lenp == SQL_NTS ? strlen(p->param) : *p->lenp;
     }
     if (out) {
 	if (p->max == SQL_NTS || p->max == SQL_SETPARAM_VALUE_MAX) {
@@ -6613,10 +6613,21 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	s->rowp = s->nrows - 1;
 	break;
     case SQL_FETCH_ABSOLUTE:
-	if (offset < 0 || offset >= s->nrows) {
+	if (offset == 0) {
+	    s->rowp = 0;
+	    return SQL_NO_DATA;
+	} else if (offset < 0) {
+	    if (0 - offset <= s->nrows) {
+		s->rowp = s->nrows + offset + 1;
+		break;
+	    }
+	    s->rowp = 0;
+	    return SQL_NO_DATA;
+	} else if (offset > s->nrows) {
+	    s->rowp = s->nrows;
 	    return SQL_NO_DATA;
 	}
-	s->rowp = offset;
+	s->rowp = offset - 1;
 	break;
     default:
 	return SQL_ERROR;
