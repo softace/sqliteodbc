@@ -5306,11 +5306,6 @@ fi
 else
   echo "$ac_t""no" 1>&6
 fi
-if test "$THREAD_FLAGS" != "" ; then
-  case `uname` in
-    Linux) THREAD_FLAGS="$THREAD_FLAGS -DBROKEN_MT_FLOCKING=1" ;;
-  esac
-fi
 
 
 
@@ -5328,7 +5323,7 @@ if test -n "$CORO_DIR" ; then
     { echo "configure: error: CORO directory $CORO_DIR does not exist" 1>&2; exit 1; }
   else
     echo $ac_n "checking for coroutine hdr/lib""... $ac_c" 1>&6
-echo "configure:5332: checking for coroutine hdr/lib" >&5
+echo "configure:5327: checking for coroutine hdr/lib" >&5
     CORO_FLAGS=
     CORO_LIB=
     for i in $CORO_DIR ; do
@@ -5346,8 +5341,9 @@ echo "configure:5332: checking for coroutine hdr/lib" >&5
       CFLAGS="$CFLAGS $CORO_FLAGS"
       saved_LIBS=$LIBS
       LIBS="$LIBS $CORO_LIB"
+      unset ac_cv_lib_coro_co_create || ac_cv_lib_coro_co_create=""
       echo $ac_n "checking for co_create in -lcoro""... $ac_c" 1>&6
-echo "configure:5351: checking for co_create in -lcoro" >&5
+echo "configure:5347: checking for co_create in -lcoro" >&5
 ac_lib_var=`echo coro'_'co_create | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -5355,7 +5351,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lcoro  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 5359 "configure"
+#line 5355 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -5366,7 +5362,7 @@ int main() {
 co_create()
 ; return 0; }
 EOF
-if { (eval echo configure:5370: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:5366: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -5388,8 +5384,55 @@ CORO_GOOD=0
 fi
 
       if test $CORO_GOOD = 0 ; then
-        CORO_FLAGS=
-        CORO_LIB=
+        LIBS="$LIBS -lpthread"
+        unset ac_cv_lib_coro_co_create || ac_cv_lib_coro_co_create=""
+        echo $ac_n "checking for co_create in -lcoro""... $ac_c" 1>&6
+echo "configure:5391: checking for co_create in -lcoro" >&5
+ac_lib_var=`echo coro'_'co_create | sed 'y%./+-%__p_%'`
+if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
+  echo $ac_n "(cached) $ac_c" 1>&6
+else
+  ac_save_LIBS="$LIBS"
+LIBS="-lcoro  $LIBS"
+cat > conftest.$ac_ext <<EOF
+#line 5399 "configure"
+#include "confdefs.h"
+/* Override any gcc2 internal prototype to avoid an error.  */
+/* We use char because int might match the return type of a gcc2
+    builtin and then its argument prototype would still apply.  */
+char co_create();
+
+int main() {
+co_create()
+; return 0; }
+EOF
+if { (eval echo configure:5410: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=yes"
+else
+  echo "configure: failed program was:" >&5
+  cat conftest.$ac_ext >&5
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=no"
+fi
+rm -f conftest*
+LIBS="$ac_save_LIBS"
+
+fi
+if eval "test \"`echo '$ac_cv_lib_'$ac_lib_var`\" = yes"; then
+  echo "$ac_t""yes" 1>&6
+  CORO_GOOD=1
+else
+  echo "$ac_t""no" 1>&6
+CORO_GOOD=0
+fi
+
+        if test $CORO_GOOD = 1 ; then
+          CORO_LIBS="$CORO_LIBS -lpthread"
+        else
+          CORO_FLAGS=
+          CORO_LIB=
+        fi
       fi
       CFLAGS="$saved_CFLAGS"
       LIBS="$saved_LIBS"

@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.2.x
+# VC++ 6.0 Makefile for SQLite 2.7.x
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -53,13 +53,12 @@ TCCXD = $(TCCX) -D_DLL
 LIBOBJ = btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
          main.obj os.obj pager.obj parse.obj printf.obj random.obj select.obj \
 	 table.obj func.obj tokenize.obj update.obj util.obj vdbe.obj \
-	 where.obj encode.obj trigger.obj
+	 where.obj encode.obj trigger.obj opcodes.obj
 
 # All of the source code files.
 
 SRC = \
   $(TOP)/src/btree.c \
-  $(TOP)/src/btree.h \
   $(TOP)/src/build.c \
   $(TOP)/src/delete.c \
   $(TOP)/src/expr.c \
@@ -94,7 +93,9 @@ SRC = \
 HDR = \
    sqlite.h  \
    $(TOP)/src/btree.h \
+   config.h \
    $(TOP)/src/hash.h \
+   opcodes.h \
    $(TOP)/src/os.h \
    $(TOP)/src/sqliteInt.h  \
    $(TOP)/src/vdbe.h  \
@@ -103,7 +104,7 @@ HDR = \
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 
-all:	sqlite.h sqlite.dll libsqlite.lib sqlite.exe
+all:	sqlite.h config.h sqlite.dll libsqlite.lib sqlite.exe
 
 sqlite.dll:	$(LIBOBJ) sqlite.def
 	echo #include "sqlite.h" > version.c
@@ -115,7 +116,7 @@ sqlite.dll:	$(LIBOBJ) sqlite.def
 	echo #endif >> version.c
 	$(TCCX) -c version.c
 	link -release -nodefaultlib -dll msvcrt.lib kernel32.lib \
-	    -def:.\sqlite.def -out:$@ $(LIBOBJ)
+	    -def:$(TOP)\sqlite.def -out:$@ $(LIBOBJ)
 	lib sqlite.lib version.obj
 
 libsqlite.lib:	$(LIBOBJ)
@@ -157,6 +158,18 @@ parse.c:	$(TOP)/src/parse.y lemon
 sqlite.h:	$(TOP)/src/sqlite.h.in
 	..\fixup < $(TOP)\src\sqlite.h.in > sqlite.h \
 	    --VERS-- @$(TOP)\VERSION --ENCODING-- $(ENCODING)
+
+config.h:
+	echo #include "stdio.h" >temp.c
+	echo int main(){printf( >>temp.c
+	echo "#define SQLITE_PTR_SZ %d\n",sizeof(char*)); >>temp.c
+	echo exit(0);} >>temp.c
+	$(BCC) -o temp temp.c
+	.\temp >config.h
+	@del temp.*
+
+opcodes.h:	$(TOP)/src/vdbe.c
+	..\mkopc <$(TOP)/src/vdbe.c
 
 tokenize.obj:	$(TOP)/src/tokenize.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/tokenize.c
@@ -206,6 +219,9 @@ encode.obj:	$(TOP)/src/encode.c $(HDR)
 trigger.obj:	$(TOP)/src/trigger.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/trigger.c
 
+opcodes.obj:	$(TOP)/opcodes.c $(HDR)
+	$(TCCXD) -c $(TOP)/opcodes.c
+
 sqlite.def:
 	echo LIBRARY SQLITE > sqlite.def
 	echo DESCRIPTION 'SQLite Library' >> sqlite.def
@@ -231,6 +247,7 @@ sqlite.def:
 	echo sqlite_libencoding >> sqlite.def
 	echo sqlite_create_function >> sqlite.def
 	echo sqlite_create_aggregate >> sqlite.def
+	echo sqlite_function_type >> sqlite.def
 	echo sqlite_set_result_string >> sqlite.def
 	echo sqlite_set_result_int >> sqlite.def
 	echo sqlite_set_result_double >> sqlite.def

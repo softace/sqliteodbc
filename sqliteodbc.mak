@@ -28,6 +28,9 @@ inst.exe:	inst.c
 fixup.exe:	fixup.c
 		$(CC) $(CFLAGSEXE) fixup.c
 
+mkopc.exe:	mkopc.c
+		$(CC) $(CFLAGSEXE) mkopc.c
+
 sqliteodbc.c:	resource.h
 
 sqliteodbc.res:	sqliteodbc.rc resource.h
@@ -41,7 +44,7 @@ resource.h:	resource.h.in fixup.exe
 		.\fixup < resource.h.in > resource.h \
 		    --VERS-- @VERSION
 
-sqlite\libsqlite.lib:	fixup.exe
+sqlite\libsqlite.lib:	fixup.exe mkopc.exe
 		cd sqlite
 		nmake -f ..\sqlite.mak
 		cd ..

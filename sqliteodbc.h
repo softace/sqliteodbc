@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.17 2002/09/14 05:53:54 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.18 2003/01/02 07:21:27 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -41,20 +41,10 @@
 
 #ifdef _WIN32
 #define ASYNC 1
-#define ASYNC_FULL 1
 #else
 #ifdef HAVE_PTHREAD
 #include <pthread.h>
 #define ASYNC 1
-
-/**
- * For systems (eg all Linux kernels up to 2.4) which do not implement
- * a proper file locking among the threads of one process, a work
- * around is provided which is enabled by defining BROKEN_MT_FLOCKING.
- */
-#ifndef BROKEN_MT_FLOCKING
-#define ASYNC_FULL 1
-#endif
 #endif
 #ifdef HAVE_CORO
 #ifdef HAVE_PTHREAD
@@ -66,7 +56,6 @@
 #endif
 #include <coro.h>
 #define ASYNC 1
-#define ASYNC_FULL 1
 #endif
 #endif
 

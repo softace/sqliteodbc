@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.38 2002/09/14 05:54:34 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.39 2003/01/02 07:21:27 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -1403,12 +1403,6 @@ dbopen(DBC *d, char *name, char *dsn, char *tflag, char *busy)
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
     }
-#ifdef ASYNC_FULL
-    if (d->sqlite2) {
-	sqlite_close(d->sqlite2);
-	d->sqlite2 = NULL;
-    }
-#endif
     d->sqlite = sqlite_open(name, 0, &errp);
     if (d->sqlite == NULL) {
 connfail:
@@ -1419,14 +1413,6 @@ connfail:
     freep(&errp);
 #ifdef ASYNC
     d->thread_enable = getbool(tflag);
-#ifdef ASYNC_FULL
-    if (d->thread_enable) {
-	d->sqlite2 = sqlite_open(name, 0, NULL);
-	if (d->sqlite2 == NULL) {
-	    d->thread_enable = 0;
-	}
-    }
-#endif
     d->curtype = d->thread_enable ?
 	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
 #endif
@@ -1439,22 +1425,10 @@ connfail:
     }
     d->timeout = busyto;
     if (setsqliteopts(d->sqlite, d) != SQLITE_OK) {
-#ifdef ASYNC_FULL
-connfail2:
-#endif
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
 	goto connfail;
     }
-#ifdef ASYNC_FULL
-    if (d->sqlite2) {
-	if (setsqliteopts(d->sqlite2, d) != SQLITE_OK) {
-	    sqlite_close(d->sqlite2);
-	    d->sqlite2 = NULL;
-	    goto connfail2;
-	}
-    }
-#endif
     freep(&d->dbname);
     d->dbname = xstrdup(name);
     freep(&d->dsn);
@@ -1738,9 +1712,6 @@ async_exec(void *arg)
 
     ca.s = ta.s;
     ca.rowcount = 0;
-#ifdef ASYNC_FULL
-    ca.sqlite = d->sqlite2;
-#else
     ca.sqlite = sqlite_open(d->dbname, 0, &errp);
     if (!ca.sqlite) {
 	goto fail2;
@@ -1752,15 +1723,12 @@ async_exec(void *arg)
 	goto fail;
     }
     d->sqlite2 = ca.sqlite;
-#endif
     ret = sqlite_exec_vprintf(ca.sqlite, ta.s->query,
 			      async_cb, &ca, &errp, (char *) ta.params);
-#ifndef ASYNC_FULL
     d->sqlite2 = NULL;
 fail:
     sqlite_close(ca.sqlite);
 fail2:
-#endif
     freep(&ta.params);
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&d->mut);
@@ -4960,12 +4928,6 @@ SQLDisconnect(SQLHDBC dbc)
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
     }
-#ifdef ASYNC_FULL
-    if (d->sqlite2) {
-	sqlite_close(d->sqlite2);
-	d->sqlite2 = NULL;
-    }
-#endif
     freep(&d->dbname);
     freep(&d->dsn);
     return SQL_SUCCESS;

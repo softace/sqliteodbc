@@ -142,11 +142,6 @@ if test "$USE_THREADS" = "yes" ; then
 else
   AC_MSG_RESULT(no)
 fi
-if test "$THREAD_FLAGS" != "" ; then
-  case `uname` in
-    Linux) THREAD_FLAGS="$THREAD_FLAGS -DBROKEN_MT_FLOCKING=1" ;;
-  esac
-fi
 AC_SUBST(THREAD_LIB)
 AC_SUBST(THREAD_FLAGS)
 
