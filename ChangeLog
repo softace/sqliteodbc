@@ -1,6 +1,19 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Mar 21 2004 version 0.56 released
+
+	* update to SQLite 2.8.13
+	* fixes in UTF to unicode conversion
+	* fixes in handling of length indicator in SQLBindParameter()
+	* added SQL_{COLUMN,DESC}_{PRECISION,SCALE} to SQLColAttribute()
+	* some unixODBC tweaks related to SQLError()/SQLGetDiagRec()
+	* corrections in SQLError()/SQLGetDiagRec() handling,
+	* fixed bugs in SQLColAttribute() which crashed OpenOffice.org
+	* added SQL_FETCH_RELATIVE support as requested by Jorge Mason
+	* fix in SQLFreeStmt(...SQL_CLOSE): don't unbind bound columns
+	  thanks to Martin Saturka
+
 Sat Jan 25 2004 version 0.55 released
 
 	* update to SQLite 2.8.11

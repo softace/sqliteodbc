@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.52 2004/01/25 06:34:44 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.54 2004/03/21 17:08:19 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -356,7 +356,7 @@ uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
 	    } else if (c < 0xf0) {
 		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x0f) << 12) |
-			((str[1] << 6) & 0x3f) | (str[2] & 0x3f);
+			((str[1] & 0x3f) << 6) | (str[2] & 0x3f);
 
 		    uc[i++] = t;
 		    str += 3;
@@ -368,7 +368,7 @@ uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
 		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 &&
 		    (str[3] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x03) << 18) |
-			((str[1] << 12) & 0x3f) | ((str[2] << 6) & 0x3f) |
+			((str[1] & 0x3f) << 12) | ((str[2] & 0x3f) << 6) |
 			(str[4] & 0x3f);
 
 		    uc[i++] = t;
@@ -381,8 +381,8 @@ uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
 		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 &&
 		    (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x01) << 24) |
-			((str[1] << 18) & 0x3f) | ((str[2] << 12) & 0x3f) |
-			((str[4] << 6) & 0x3f) | (str[5] & 0x3f);
+			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
+			((str[4] & 0x3f) << 6) | (str[5] & 0x3f);
 
 		    uc[i++] = t;
 		    str += 5;
@@ -1027,7 +1027,7 @@ getmd(char *typename, int sqltype, int *mp, int *dp)
  * @param type input C type
  * @param stype input SQL type
  * @param nosign 0=signed, 0>unsigned, 0<undefined
- * @param nowchar, for SQLITE_UTF8 don't use WCHAR
+ * @param nowchar when compiled with SQLITE_UTF8 don't use WCHAR
  * @result C type
  */
 
@@ -2902,10 +2902,32 @@ outofmem:
     p->lenp = (int *) len;
     p->offs = 0;
     p->len = 0;
+    if (p->lenp) {
+#ifdef SQLITE_UTF8
+	if (buftype == SQL_C_WCHAR) {
+	    if (*p->lenp == SQL_NTS) {
+		p->max = buflen = uc_strlen(data);
+	    } else if (*p->lenp >= 0) {
+		p->max = buflen = *p->lenp;
+	    }
+	} else
+#endif
+	if (buftype == SQL_C_CHAR) {
+	    if (*p->lenp == SQL_NTS) {
+		p->len = p->max = buflen = strlen(data);
+	    } else if (*p->lenp >= 0) {
+		p->len = p->max = buflen = *p->lenp;
+	    }
+	}
+    }
     if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
 	p->param = NULL;
 	p->ind = data;
 	p->need = 1;
+    } else if (p->lenp && *p->lenp == SQL_NULL_DATA) {
+	p->param = NULL;
+	p->ind = NULL;
+	p->need = 0;
     } else {
 #ifdef SQLITE_UTF8
 	if (buftype == SQL_C_WCHAR) {
@@ -4524,6 +4546,18 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     if (handle == SQL_NULL_HANDLE) {
 	return SQL_INVALID_HANDLE;
     }
+    if (sqlstate) {
+	sqlstate[0] = '\0';
+    }
+    if (msg && buflen > 0) {
+	msg[0] = '\0';
+    }
+    if (msglen) {
+	*msglen = 0;
+    }
+    if (nativeerr) {
+	*nativeerr = 0;
+    }
     switch (htype) {
     case SQL_HANDLE_ENV:
     case SQL_HANDLE_DESC:
@@ -4560,15 +4594,15 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     if (msglen) {
 	*msglen = len;
     }
-    if (len > buflen) {
+    if (len >= buflen) {
 	if (msg && buflen > 0) {
 	    strncpy(msg, logmsg, buflen);
 	    msg[buflen - 1] = '\0';
+	    logmsg[0] = '\0';
 	}
-	return SQL_SUCCESS_WITH_INFO;
-    }
-    if (msg) {
+    } else if (msg) {
 	strcpy(msg, logmsg);
+	logmsg[0] = '\0';
     }
     return SQL_SUCCESS;
 }
@@ -5269,6 +5303,12 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
+#ifdef SQL_CREATE_VIEW
+    case SQL_CREATE_VIEW:
+	*((SQLUINTEGER *) val) = 0;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+#endif
     case SQL_DATA_SOURCE_NAME:
 	strmak(val, (d->dsn ? d->dsn : ""), valMax, valLen);
 	break;
@@ -5827,7 +5867,14 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	SET_EXISTS(SQL_API_SQLSETENVATTR);
 	SET_EXISTS(SQL_API_SQLCLOSECURSOR);
 	SET_EXISTS(SQL_API_SQLBINDPARAM);
+#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+	/*
+	 * Some unixODBC versions have problems with
+	 * SQLError() vs. SQLGetDiagRec() with loss
+	 * of error/warning messages.
+	 */
 	SET_EXISTS(SQL_API_SQLGETDIAGREC);
+#endif
 	SET_EXISTS(SQL_API_SQLFETCHSCROLL);
 	SET_EXISTS(SQL_API_SQLENDTRAN);
     } else {
@@ -5845,7 +5892,14 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	    case SQL_API_SQLSETENVATTR:
 	    case SQL_API_SQLCLOSECURSOR:
 	    case SQL_API_SQLBINDPARAM:
+#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+	    /*
+	     * Some unixODBC versions have problems with
+	     * SQLError() vs. SQLGetDiagRec() with loss
+	     * of error/warning messages.
+	     */
 	    case SQL_API_SQLGETDIAGREC:
+#endif
 	    case SQL_API_SQLFETCHSCROLL:
 	    case SQL_API_SQLENDTRAN:
 		*flags = SQL_TRUE;
@@ -6997,7 +7051,7 @@ drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 #ifdef ASYNC
 	async_end_if(s);
 #endif
-	freeresult(s, 1);
+	freeresult(s, -1);
 	break;
     case SQL_DROP:
 #ifdef ASYNC
@@ -9140,6 +9194,21 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	}
 	s->rowp = offset - 1;
 	break;
+    case SQL_FETCH_RELATIVE:
+	if (offset >= 0) {
+	    s->rowp += offset;
+	    if (s->rowp + offset > s->nrows) {
+		s->rowp = s->nrows;
+		return SQL_NO_DATA;
+	    }
+	} else {
+	    if (s->rowp + offset < 0) {
+		s->rowp = 0;
+		return SQL_NO_DATA;
+	    }
+	    s->rowp += offset;
+	}
+	break;
     case SQL_FETCH_BOOKMARK:
 	if (s->bkmrk) {
 	    if (offset < 0 || offset >= s->nrows) {
@@ -9597,6 +9666,7 @@ checkLen:
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_NULLABLE:
+    case SQL_DESC_NULLABLE:
 	if (val2) {
 	    *val2 = SQL_NULLABLE;
 	}
@@ -9783,7 +9853,7 @@ drvcolattribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	    valc[valMax - 1] = '\0';
 	}
 	if (valLen) {
-	    *valLen = strlen(val);
+	    *valLen = strlen(c->db);
 checkLen:
 	    if (*valLen >= valMax) {
 		setstat(s, "data right truncated", "01004");
@@ -9799,10 +9869,10 @@ checkLen:
     case SQL_DESC_NAME:
 	if (valc && valMax > 0) {
 	    strncpy(valc, c->column, valMax);
-	    valc[valMax] = '\0';
+	    valc[valMax - 1] = '\0';
 	}
 	if (valLen) {
-	    *valLen = strlen(val);
+	    *valLen = strlen(c->column);
 	    goto checkLen;
 	}
 	break;
@@ -9815,7 +9885,7 @@ checkLen:
 	    valc[valMax - 1] = '\0';
 	}
 	if (valLen) {
-	    *valLen = strlen(val);
+	    *valLen = strlen(c->table);
 	    goto checkLen;
 	}
 	break;
@@ -9900,6 +9970,21 @@ checkLen:
 	break;
     case SQL_COLUMN_SEARCHABLE:
 	v = SQL_SEARCHABLE;
+	break;
+    case SQL_COLUMN_SCALE:
+    case SQL_DESC_SCALE:
+	v = c->scale;
+	break;
+    case SQL_COLUMN_PRECISION:
+    case SQL_DESC_PRECISION:
+	v = c->prec;
+	break;
+    case SQL_COLUMN_MONEY:
+    case SQL_COLUMN_AUTO_INCREMENT:
+	v = SQL_FALSE;
+	break;
+    case SQL_DESC_NULLABLE:
+	v = SQL_NULLABLE;
 	break;
     default:
 	setstat(s, "unsupported column attribute %d", "HY091", id);
@@ -10018,16 +10103,24 @@ drverror(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 	stmt == SQL_NULL_HSTMT) {
 	return SQL_INVALID_HANDLE;
     }
-    if (!sqlState) {
+    if (sqlState) {
+	sqlState[0] = '\0';
+    } else {
 	sqlState = dummy0;
     }
     if (!nativeErr) {
 	nativeErr = &dummy1;
     }
+    *nativeErr = 0;
     if (!errlen) {
 	errlen = &dummy2;
     }
-    if (!errmsg) {
+    *errlen = 0;
+    if (errmsg) {
+	if (errmax > 0) {
+	    errmsg[0] = '\0';
+	}
+    } else {
 	errmsg = dummy0;
 	errmax = 0;
     }

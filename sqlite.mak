@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.11
+# VC++ 6.0 Makefile for SQLite 2.8.13
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -169,6 +169,9 @@ main.obj:	$(TOP)/src/main.c $(HDR)
 pager.obj:	$(TOP)/src/pager.c $(HDR) $(TOP)/src/pager.h
 	$(TCCXD) -c $(TOP)/src/pager.c
 
+pragma.obj:	$(TOP)/src/pragma.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/pragma.c
+
 os.obj:	$(TOP)/src/os.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/os.c
 
@@ -260,7 +263,7 @@ opcodes.obj:	$(TOP)/opcodes.c $(HDR)
 vacuum.obj:	$(TOP)/src/vacuum.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/vacuum.c
 
-sqlite.def:
+sqlite.def:	sqlite.h
 	echo LIBRARY SQLITE > sqlite.def
 	echo DESCRIPTION 'SQLite Library' >> sqlite.def
 	echo EXPORTS >> sqlite.def
