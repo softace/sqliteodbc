@@ -1,0 +1,9 @@
+SQLite ODBC Driver
+------------------
+
+Tue Jun 04 2002 version 0.42 released
+
+	* now use doxygen for docs
+	* added ChangeLog
+	* added BSD type license
+

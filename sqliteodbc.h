@@ -1,30 +1,48 @@
 #ifndef _SQLITEODBC_H
 #define _SQLITEODBC_H
 
-/*
- * SQLite ODBC Driver
+/**
+ * @mainpage
+ * @section readme README
+ * @verbinclude README
+ * @section changelog ChangeLog
+ * @verbinclude ChangeLog
+ * @section copying License Terms
+ * @verbinclude license.terms
+ */
+
+/**
+ * @file sqliteodbc.h
+ * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.9 2002/05/25 09:04:20 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.10 2002/06/04 10:07:44 chw Exp chw $
+ *
+ * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
+ *
+ * See the file "license.terms" for information on usage
+ * and redistribution of this file and for a
+ * DISCLAIMER OF ALL WARRANTIES.
  */
 
 #ifdef _WIN32
 #include <windows.h>
-#include <string.h>
-#include <sql.h>
-#include <sqlext.h>
-#define ASYNC 1
 #else
 #include <stdio.h>
 #include <stdlib.h>
+#endif
 #include <string.h>
 #include <sql.h>
 #include <sqlext.h>
+#include <ctype.h>
+
+#ifdef _WIN32
+#define ASYNC 1
+#else
 #ifdef HAVE_PTHREAD
 #include <pthread.h>
 #define ASYNC 1
 #endif
 #endif
-#include <ctype.h>
 
 #include "sqlite.h"
 #ifdef HAVE_IODBC
@@ -41,103 +59,139 @@
 struct dbc;
 struct stmt;
 
+/**
+ * @typedef ENV
+ * @struct ENV
+ * Driver internal structure for environment (HENV).
+ */
+
 typedef struct {
-    int magic;			/* magic cookie */
-    struct dbc *dbcs;		/* pointer to first DBC */
+    int magic;			/**< Magic cookie */
+    struct dbc *dbcs;		/**< Pointer to first DBC */
 } ENV;
 
+/**
+ * @typedef DBC
+ * @struct dbc
+ * Driver internal structure for database connection (HDBC).
+ */
+
 typedef struct dbc {
-    int magic;			/* magic cookie */
-    ENV *env;			/* pointer to environment */
-    struct dbc *next;		/* pointer to next DBC */
-    sqlite *sqlite;		/* SQLITE database handle */
+    int magic;			/**< Magic cookie */
+    ENV *env;			/**< Pointer to environment */
+    struct dbc *next;		/**< Pointer to next DBC */
+    sqlite *sqlite;		/**< SQLITE database handle */
 #ifdef ASYNC
-    sqlite *sqlite2;		/* ditto for thread */
+    sqlite *sqlite2;		/**< SQLITE handle for thread */
 #endif
-    char *dbname;		/* SQLITE database name */
-    char *dsn;			/* ODBC data source name */
-    int autocommit;		/* Auto commit state */
-    int intrans;		/* True when transaction started */
-    struct stmt *stmt;		/* STMT list of this DBC */
-    char sqlstate[6];		/* SQL state for SQLError() */
-    SQLCHAR logmsg[1024];	/* message for SQLError() */
+    char *dbname;		/**< SQLITE database name */
+    char *dsn;			/**< ODBC data source name */
+    int autocommit;		/**< Auto commit state */
+    int intrans;		/**< True when transaction started */
+    struct stmt *stmt;		/**< STMT list of this DBC */
+    char sqlstate[6];		/**< SQL state for SQLError() */
+    SQLCHAR logmsg[1024];	/**< Message for SQLError() */
 #ifdef ASYNC
-    int curtype;		/* default cursor type */
-    int thread_enable;		/* true when threading enabled */
-    struct stmt *async_stmt;	/* async executing STMT */
-    int async_run;		/* true when thread running */
-    int async_stop;		/* true for thread stop requested */
-    int async_done;		/* true when thread done */
-    char *async_errp;		/* thread's sqlite error message */
-    char **async_rows;		/* thread's one row result */
-    int async_ncols;		/* ditto */
-    int async_rownum;		/* current row number */
+    int curtype;		/**< Default cursor type */
+    int thread_enable;		/**< True when threading enabled */
+    struct stmt *async_stmt;	/**< Async executing STMT */
+    int async_run;		/**< True when thread running */
+    int async_stop;		/**< True for thread stop requested */
+    int async_done;		/**< True when thread done */
+    char *async_errp;		/**< Thread's sqlite error message */
+    char **async_rows;		/**< Thread's one row result */
+    int async_ncols;		/**< Thread's one row result (# cols) */
+    int async_rownum;		/**< Current row number */
 #ifdef HAVE_PTHREAD
-    int async_cont;		/* true when thread should continue */
-    pthread_t thr;		/* thread identifier */
-    pthread_mutex_t mut;	/* mutex for condition */
-    pthread_cond_t cond;	/* condition */
+    int async_cont;		/**< True when thread should continue */
+    pthread_t thr;		/**< Thread identifier */
+    pthread_mutex_t mut;	/**< Mutex for condition */
+    pthread_cond_t cond;	/**< Condition */
 #endif
 #ifdef _WIN32
-    HANDLE thr;			/* thread identifier */
-    HANDLE ev_res;		/* signal set when result available */
-    HANDLE ev_cont;		/* signal set when thread should continue */
+    HANDLE thr;			/**< Thread identifier */
+    HANDLE ev_res;		/**< Signal set when result available */
+    HANDLE ev_cont;		/**< Signal set when thread should continue */
 #endif
 #endif
 } DBC;
 
+/**
+ * @typedef COL
+ * @struct COL
+ * Internal structure to describe a column in a result set.
+ */
+
 typedef struct {
-    char *db;			/* database name */
-    char *table;		/* table name */
-    char *column;		/* column name */
-    int type;			/* data type of column */
-    int size;			/* size of column */
-    int index;			/* index of column in result */
-    int nosign;			/* unsigned type */
-    int scale;			/* scale of column */
-    int prec;			/* precision of column */
-    char *typename;		/* column type name or NULL */
+    char *db;			/**< Database name */
+    char *table;		/**< Table name */
+    char *column;		/**< Column name */
+    int type;			/**< Data type of column */
+    int size;			/**< Size of column */
+    int index;			/**< Index of column in result */
+    int nosign;			/**< Unsigned type */
+    int scale;			/**< Scale of column */
+    int prec;			/**< Precision of column */
+    char *typename;		/**< Column type name or NULL */
 } COL;
 
+/**
+ * @typedef BINDCOL
+ * @struct BINDCOL
+ * Internal structure for bound column (SQLBindCol).
+ */
+
 typedef struct {
-    SQLSMALLINT type;		/* ODBC type */
-    SQLINTEGER max;		/* max size of value buffer */
-    SQLINTEGER *lenp;		/* value return, actual size of value buffer */
-    SQLPOINTER valp;		/* value buffer */
-    int index;			/* index of column in result */
-    int offs;			/* byte offset for SQLGetData() */
+    SQLSMALLINT type;	/**< ODBC type */
+    SQLINTEGER max;	/**< Max. size of value buffer */
+    SQLINTEGER *lenp;	/**< Value return, actual size of value buffer */
+    SQLPOINTER valp;	/**< Value buffer */
+    int index;		/**< Index of column in result */
+    int offs;		/**< Byte offset for SQLGetData() */
 } BINDCOL;
 
+/**
+ * @typedef BINDPARM
+ * @struct BINDPARM
+ * Internal structure for bound parameter (SQLBindParam).
+ */
+
 typedef struct {
-    int type, stype;		/* ODBC and SQL types */
-    int max, *lenp;		/* max size, actual size of parameter buffer */
-    void *param;		/* parameter buffer */
+    int type, stype;	/**< ODBC and SQL types */
+    int max, *lenp;	/**< Max. size, actual size of parameter buffer */
+    void *param;	/**< Parameter buffer */
 } BINDPARM;
 
+/**
+ * @typedef STMT
+ * @struct stmt
+ * Driver internal structure representing SQL statement (HSTMT).
+ */
+
 typedef struct stmt {
-    struct stmt *next;		/* linkage for STMT list in DBC */
-    HDBC dbc;			/* pointer to DBC */
-    SQLCHAR cursorname[32];	/* cursor name */
-    SQLCHAR *query;		/* current query, raw string */
-    int isselect;		/* true if query is a SELECT statement */
-    int ncols;			/* number of result columns */
-    COL *cols;			/* result column array */
-    COL *dyncols;		/* ditto, but malloc()ed */
-    int dcols;			/* number of entries in dyncols */
-    BINDCOL *bindcols;		/* array of bound columns */
-    int nbindparms;		/* number bound parameters */
-    BINDPARM *bindparms;	/* array of bound parameters */
-    int nparams;		/* number of parameters in query */
-    int nrows;			/* number of result rows */
-    int rowp;			/* current result row */
-    char **rows;		/* 2 dim array, result set */
-    void (*rowfree)();		/* free function for rows */
-    char sqlstate[6];		/* SQL state for SQLError() */
-    SQLCHAR logmsg[1024];	/* message for SQLError() */ 
+    struct stmt *next;		/**< Linkage for STMT list in DBC */
+    HDBC dbc;			/**< Pointer to DBC */
+    SQLCHAR cursorname[32];	/**< Cursor name */
+    SQLCHAR *query;		/**< Current query, raw string */
+    int isselect;		/**< True if query is a SELECT statement */
+    int ncols;			/**< Number of result columns */
+    COL *cols;			/**< Result column array */
+    COL *dyncols;		/**< Column array, but malloc()ed */
+    int dcols;			/**< Number of entries in dyncols */
+    BINDCOL *bindcols;		/**< Array of bound columns */
+    int nbindparms;		/**< Number bound parameters */
+    BINDPARM *bindparms;	/**< Array of bound parameters */
+    int nparams;		/**< Number of parameters in query */
+    int nrows;			/**< Number of result rows */
+    int rowp;			/**< Current result row */
+    char **rows;		/**< 2-dim array, result set */
+    void (*rowfree)();		/**< Free function for rows */
+    char sqlstate[6];		/**< SQL state for SQLError() */
+    SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
 #ifdef ASYNC
-    int curtype;		/* cursor type */
-    int *async_run;		/* true when async STMT running */
-    int async_enable;		/* true when SQL_ASYNC_ENABLE */
+    int curtype;		/**< Cursor type */
+    int *async_run;		/**< True when async STMT running */
+    int async_enable;		/**< True when SQL_ASYNC_ENABLE */
 #endif
 } STMT;
 

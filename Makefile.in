@@ -24,6 +24,9 @@ sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 install:	libsqliteodbc.la
 		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
 
+doxy:
+		doxygen doxygen.conf
+
 clean:
 		rm -f *.lo *.la *.o libsqliteodbc.la *~ core
 		rm -rf .libs .deps

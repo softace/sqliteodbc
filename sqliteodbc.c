@@ -1,7 +1,14 @@
-/*
- * SQLite ODBC Driver
+/**
+ * @file sqliteodbc.c
+ * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.21 2002/05/25 09:05:30 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.22 2002/06/04 10:07:44 chw Exp chw $
+ *
+ * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
+ *
+ * See the file "license.terms" for information on usage
+ * and redistribution of this file and for a
+ * DISCLAIMER OF ALL WARRANTIES.
  */
 
 #include "sqliteodbc.h"
@@ -156,12 +163,68 @@ xstrdup_(char *str, char *file, int line)
 
 #endif
 
+/**
+ * Reset bound columns to unbound state.
+ * @param s statement pointer
+ */
+
 static void unbindcols(STMT *s);
+
+/**
+ * Clear and re-allocate space for bound columns.
+ * @param s statement pointer
+ */
+
 static void mkbindcols(STMT *s);
+
+/**
+ * Free statement's result.
+ * @param s statement pointer
+ * @param clrcols boolean flag
+ *
+ * The result rows are free'd using the rowfree function pointer.
+ * If clrcols is true, then column bindings and dynamic column
+ * descriptions are free'd, too.
+ */
+
 static void freeresult(STMT *s, int clrcols);
+
+/**
+ * Internal free function for HSTMT.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
 static SQLRETURN freestmt(HSTMT stmt);
+
+/**
+ * Substitute parameter for statement.
+ * @param s statement pointer
+ * @param pnum parameter number
+ * @param out output buffer or NULL
+ * @param size size indicator or NULL
+ * @result ODBC error code
+ *
+ * If no output buffer is given, the function computes and
+ * reports the space needed for the parameter. Otherwise
+ * the parameter is converted to its string representation
+ * in order to be presented to sqlite_exec_vprintf() et.al.
+ */
+
 static SQLRETURN substparam(STMT *s, int pnum, char **out, int *size);
+
+/**
+ * Free dynamically allocated column descriptions of STMT.
+ * @param s statement pointer
+ */
+
 static void freedyncols(STMT *s);
+
+/**
+ * Duplicate string using xmalloc().
+ * @param str string to be duplicated
+ * @result pointer to new string or NULL
+ */
 
 static char *
 strdup_(const char *str)
@@ -177,6 +240,12 @@ strdup_(const char *str)
     return p;
 }
 
+/**
+ * Report IM001 (not implemented) SQL error code for HDBC.
+ * @param dbc database connection handle
+ * @result ODBC error code
+ */
+
 static SQLRETURN
 drvunimpldbc(HDBC dbc)
 {
@@ -190,6 +259,12 @@ drvunimpldbc(HDBC dbc)
     strcpy(d->sqlstate, "IM001");
     return SQL_ERROR;
 }
+
+/**
+ * Report IM001 (not implemented) SQL error code for HSTMT.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvunimplstmt(HSTMT stmt)
@@ -205,6 +280,11 @@ drvunimplstmt(HSTMT stmt)
     return SQL_ERROR;
 }
 
+/**
+ * Free memory given pointer to memory pointer.
+ * @param x pointer to pointer to memory to be free'd
+ */
+
 static void
 freep(void *x)
 {
@@ -214,6 +294,12 @@ freep(void *x)
     }
 }
 
+/**
+ * Report S1000 (out of memory) SQL error given STMT.
+ * @param s statement pointer
+ * @result ODBC error code
+ */
+
 static SQLRETURN
 nomem(STMT *s)
 {
@@ -221,6 +307,12 @@ nomem(STMT *s)
     strcpy(s->sqlstate, "S1000");
     return SQL_ERROR;
 }
+
+/**
+ * Report S1000 (not connected) SQL error given STMT.
+ * @param s statement pointer
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 noconn(STMT *s)
@@ -230,6 +322,17 @@ noconn(STMT *s)
     return SQL_ERROR;
 }
 
+/**
+ * Set SQLite options (PRAGMAs) given SQLite handle.
+ * @param x SQLite database handle
+ *
+ * "full_column_names" is always turned on to get the table
+ * names in column labels. "count_changes" is always turned
+ * on to get the number of affected rows for INSERTs et.al.
+ * "empty_result_callbacks" is always turned on to get
+ * column labels even when no rows are returned.
+ */
+
 static void
 setsqliteopts(sqlite *x)
 {
@@ -237,6 +340,15 @@ setsqliteopts(sqlite *x)
     sqlite_exec(x, "PRAGMA count_changes = on;", NULL, NULL, NULL);
     sqlite_exec(x, "PRAGMA empty_result_callbacks = on;", NULL, NULL, NULL);
 }
+
+/**
+ * Free counted array of char pointers.
+ * @param rowp pointer to char pointer array
+ *
+ * The -1-th element of the array holds the array size.
+ * All non-NULL pointers of the array and then the array
+ * itself are free'd.
+ */
 
 static void
 freerows(char **rowp)
@@ -253,6 +365,13 @@ freerows(char **rowp)
     }
     freep(&rowp);
 }
+
+/**
+ * Map SQL field type from string to ODBC integer type code.
+ * @param typename field type string
+ * @param nosign pointer to indicator for unsigned field or NULL
+ * @result SQL data type
+ */
 
 static int
 mapsqltype(char *typename, int *nosign)
@@ -309,6 +428,15 @@ mapsqltype(char *typename, int *nosign)
     return result;
 }
 
+/**
+ * Get maximum display size and number of decimal points
+ * from field type specification.
+ * @param typename field type specification
+ * @param sqltype target SQL data type
+ * @param mp pointer to maximum display size or NULL
+ * @param dp pointer to number of decimal points or NULL
+ */
+
 static void
 getmd(char *typename, int sqltype, int *mp, int *dp)
 {
@@ -345,6 +473,16 @@ getmd(char *typename, int sqltype, int *mp, int *dp)
 	*dp = d;
     }
 }
+
+/**
+ * Fixup query string with optional parameter markers.
+ * @param sql original query string
+ * @param sqlLen length of query string or SQL_NTS
+ * @param nparam output number of parameters
+ * @param isselect output indicator for SELECT statement
+ * @param errmsg output error message
+ * @result newly allocated string containing query string for SQLite or NULL
+ */
 
 static char *
 fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg)
@@ -473,6 +611,16 @@ errout:
     return out;
 }
 
+/**
+ * Fixup column information for a running statement.
+ * @param s statement to get fresh column information
+ * @param sqlite SQLite database handle
+ *
+ * The "dyncols" field of STMT is filled with column
+ * information obtained by SQLite "PRAGMA table_info"
+ * for each column whose table name is known.
+ */
+
 static void
 fixupdyncols(STMT *s, sqlite *sqlite)
 {
@@ -526,6 +674,16 @@ found:
 	sqlite_free_table(rowp);
     }
 }
+
+/**
+ * Convert string to ODBC DATE_STRUCT.
+ * @param str string to be converted
+ * @param ds output DATE_STRUCT
+ * @result 0 on success, -1 on error
+ *
+ * Strings of the format 'YYYYMMDD' or 'YYYY-MM-DD' or
+ * 'YYYY/MM/DD' are converted to a DATE_STRUCT.
+ */
 
 static int
 str2date(char *str, DATE_STRUCT *ds)
@@ -587,6 +745,16 @@ str2date(char *str, DATE_STRUCT *ds)
     return 0;
 }
 
+/**
+ * Convert string to ODBC TIME_STRUCT.
+ * @param str string to be converted
+ * @param ts output TIME_STRUCT
+ * @result 0 on success, -1 on error
+ *
+ * Strings of the format 'HHMMSS' or 'HH:MM:SS'
+ * are converted to a TIME_STRUCT.
+ */
+
 static int
 str2time(char *str, TIME_STRUCT *ts)
 {
@@ -646,6 +814,17 @@ str2time(char *str, TIME_STRUCT *ts)
     }
     return 0;
 }
+
+/**
+ * Convert string to ODBC TIMESTAMP_STRUCT.
+ * @param str string to be converted
+ * @param tss output TIMESTAMP_STRUCT
+ * @result 0 on success, -1 on error
+ *
+ * Strings of the format 'YYYYMMDDhhmmssff' or 'YYYY-MM-DD hh:mm:ss ff'
+ * or 'YYYY/MM/DD hh:mm:ss ff' or 'hh:mm:ss ff YYYY-MM-DD' are
+ * converted to a TIMESTAMP_STRUCT.
+ */
 
 static int
 str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
@@ -802,14 +981,26 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 
 #ifdef ASYNC
 
+/**
+ * Get boolean flag from string.
+ * @param string string to be inspected
+ * @result true or false
+ */
+
 static int
 getbool(char *string)
 {
     if (string) {
-	return  strchr("Yy123456789Tt", string[0]) != NULL;
+	return strchr("Yy123456789Tt", string[0]) != NULL;
     }
     return 0;
 }
+
+/**
+ * Wait for a new row of data from thread executing a SELECT statement.
+ * @param s statement pointer
+ * @result ODBC error code, error message in statement, if any
+ */
 
 static SQLRETURN
 waitfordata(STMT *s)
@@ -871,10 +1062,25 @@ waitfordata(STMT *s)
     return ret;
 }
 
+/**
+ * @struct cbarg
+ * Callback argument for SQLite callback function used in
+ * thread for SELECT statements.
+ */
+
 struct cbarg {
-    STMT *s;
-    int colcount;
+    STMT *s;		/**< Executing statement. */
+    int rowcount;	/**< Current # of row being processed. */
 };
+
+/**
+ * SQLite callback function used by thread.
+ * @param arg user data, actually a cbarg pointer
+ * @param ncols number of columns
+ * @param values value string array
+ * @param cols column name string array
+ * @result 1 to abort sqlite_exec(), 0 to continue
+ */
 
 static int
 async_cb(void *arg, int ncols, char **values, char **cols)
@@ -886,7 +1092,7 @@ async_cb(void *arg, int ncols, char **values, char **cols)
     int i;
 
     ++d->async_rownum;
-    if (++ca->colcount <= 1) {
+    if (++ca->rowcount <= 1) {
 	int size;
 	char *p;
 	COL *dyncols;
@@ -998,11 +1204,21 @@ contsig:
     return d->async_stop;
 }
 
+/**
+ * @struct thrarg
+ * Thread startup arguments for thread executing SQLite SELECT statement.
+ */
+
 struct thrarg {
-    DBC *d;
-    STMT *s;
-    char **params;
+    DBC *d;		/**< Connection handle. */
+    STMT *s;		/**< Statement handle. */
+    char **params;	/**< Parameters for SELECT statement. */
 };
+
+/**
+ * Thread function to execute SELECT in parallel.
+ * @param arg thread start argument, actually a thrarg pointer
+ */
 
 #ifdef HAVE_PTHREAD
 static void *
@@ -1020,7 +1236,7 @@ async_exec(void *arg)
     struct cbarg ca;
 
     ca.s = ta.s;
-    ca.colcount = 0;
+    ca.rowcount = 0;
     ret = sqlite_exec_vprintf(d->sqlite2, ta.s->query,
 			      async_cb, &ca, &errp, (char *) ta.params);
     freep(&ta.params);
@@ -1039,6 +1255,11 @@ async_exec(void *arg)
 #endif
     return 0;
 }
+
+/**
+ * Stop thread executing SELECT.
+ * @param s statement pointer
+ */
 
 static void
 async_end(STMT *s)
@@ -1080,6 +1301,11 @@ async_end(STMT *s)
     d->async_ncols = 0;
 }
 
+/**
+ * Conditionally stop executing thread.
+ * @param s statement pointer
+ */
+
 static void
 async_end_if(STMT *s)
 {
@@ -1089,6 +1315,13 @@ async_end_if(STMT *s)
 	async_end(s);
     }
 }
+
+/**
+ * Start thread for execution of SELECT statement.
+ * @param s statement pointer
+ * @param params string array of statement parameters
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 async_start(STMT *s, char **params)
@@ -1147,11 +1380,19 @@ async_start(STMT *s, char **params)
 
 #endif
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLBulkOperations(SQLHSTMT stmt, SQLSMALLINT oper)
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLDataSources(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *srvname,
@@ -1164,6 +1405,10 @@ SQLDataSources(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *srvname,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLDrivers(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *drvdesc,
 	   SQLSMALLINT descmax, SQLSMALLINT *desclenp,
@@ -1175,6 +1420,10 @@ SQLDrivers(SQLHENV env, SQLUSMALLINT dir, SQLCHAR *drvdesc,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLBrowseConnect(SQLHDBC dbc, SQLCHAR *connin, SQLSMALLINT conninLen,
 		 SQLCHAR *connout, SQLSMALLINT connoutMax,
@@ -1183,11 +1432,20 @@ SQLBrowseConnect(SQLHDBC dbc, SQLCHAR *connin, SQLSMALLINT conninLen,
     return drvunimpldbc(dbc);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLPutData(SQLHSTMT stmt, SQLPOINTER data, SQLINTEGER len)
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Clear out parameter bindings, if any.
+ * @param s statement pointer
+ */
 
 static SQLRETURN
 freeparams(STMT *s)
@@ -1201,6 +1459,8 @@ freeparams(STMT *s)
     }
     return SQL_SUCCESS;
 }
+
+/* see doc on top */
 
 static SQLRETURN
 substparam(STMT *s, int pnum, char **out, int *size)
@@ -1337,6 +1597,21 @@ error:
     return SQL_ERROR;
 }
 
+/**
+ * Internal bind parameter on HSTMT.
+ * @param stmt statement handle
+ * @param pnum parameter number, starting at 1
+ * @param iotype input/output type of parameter
+ * @param buftype type of host variable
+ * @param ptype
+ * @param coldef
+ * @param scale
+ * @param data pointer to host variable
+ * @param buflen length of host variable
+ * @param len output length pointer
+ * @result ODBC error code
+ */
+
 static SQLRETURN
 drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	     SQLSMALLINT buftype, SQLSMALLINT ptype, SQLUINTEGER coldef,
@@ -1392,6 +1667,21 @@ outofmem:
     return SQL_SUCCESS;
 }
 
+/**
+ * Bind parameter on HSTMT.
+ * @param stmt statement handle
+ * @param pnum parameter number, starting at 1
+ * @param iotype input/output type of parameter
+ * @param buftype type of host variable
+ * @param ptype
+ * @param coldef
+ * @param scale
+ * @param data pointer to host variable
+ * @param buflen length of host variable
+ * @param len output length pointer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLBindParameter(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 		 SQLSMALLINT buftype, SQLSMALLINT ptype, SQLUINTEGER coldef,
@@ -1402,6 +1692,19 @@ SQLBindParameter(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 			scale, data, buflen, len);
 }
 
+/**
+ * Bind parameter on HSTMT.
+ * @param stmt statement handle
+ * @param pnum parameter number, starting at 1
+ * @param vtype input/output type of parameter
+ * @param ptype
+ * @param lenprec
+ * @param scale
+ * @param val pointer to host variable
+ * @param lenp output length pointer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLBindParam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT vtype,
 	     SQLSMALLINT ptype, SQLUINTEGER lenprec,
@@ -1411,6 +1714,13 @@ SQLBindParam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT vtype,
     return drvbindparam(stmt, pnum, SQL_PARAM_INPUT, vtype, ptype,
 			lenprec, scale, val, 0, lenp);
 }
+
+/**
+ * Return number of parameters.
+ * @param stmt statement handle
+ * @param nparam output parameter count
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLNumParams(SQLHSTMT stmt, SQLSMALLINT *nparam)
@@ -1429,11 +1739,26 @@ SQLNumParams(SQLHSTMT stmt, SQLSMALLINT *nparam)
     return SQL_SUCCESS;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLParamData(SQLHSTMT stmt, SQLPOINTER *p)
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Return information about parameter.
+ * @param stmt statement handle
+ * @param pnum parameter number, starting at 1
+ * @param dtype output type indicator
+ * @param size output size indicator
+ * @param decdigits output number of digits
+ * @param nullable output NULL allowed indicator
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLDescribeParam(SQLHSTMT stmt, UWORD pnum, SWORD *dtype, UDWORD *size,
@@ -1474,6 +1799,19 @@ SQLDescribeParam(SQLHSTMT stmt, UWORD pnum, SWORD *dtype, UDWORD *size,
     return SQL_SUCCESS;
 }
 
+/**
+ * Set information on parameter.
+ * @param stmt statement handle
+ * @param par parameter number, starting at 1
+ * @param type type of host variable
+ * @param sqltype
+ * @param coldef
+ * @param scale
+ * @param val pointer to host variable
+ * @param len output length pointer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLSetParam(SQLHSTMT stmt, SQLUSMALLINT par, SQLSMALLINT type,
 	    SQLSMALLINT sqltype, SQLUINTEGER coldef,
@@ -1484,11 +1822,19 @@ SQLSetParam(SQLHSTMT stmt, SQLUSMALLINT par, SQLSMALLINT type,
 			SQL_SETPARAM_VALUE_MAX, nval);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLParamOptions(SQLHSTMT stmt, UDWORD rows, UDWORD *rowp)
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLGetDescField(SQLHDESC handle, SQLSMALLINT recno,
@@ -1498,6 +1844,10 @@ SQLGetDescField(SQLHDESC handle, SQLSMALLINT recno,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLSetDescField(SQLHDESC handle, SQLSMALLINT recno,
 		SQLSMALLINT fieldid, SQLPOINTER value,
@@ -1505,6 +1855,10 @@ SQLSetDescField(SQLHDESC handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLGetDescRec(SQLHDESC handle, SQLSMALLINT recno,
@@ -1517,6 +1871,10 @@ SQLGetDescRec(SQLHDESC handle, SQLSMALLINT recno,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLSetDescRec(SQLHDESC handle, SQLSMALLINT recno,
 	      SQLSMALLINT type, SQLSMALLINT subtype,
@@ -1527,6 +1885,10 @@ SQLSetDescRec(SQLHDESC handle, SQLSMALLINT recno,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLTablePrivileges(SQLHSTMT stmt,
 		   SQLCHAR *catalog, SQLSMALLINT catalogLen,
@@ -1535,6 +1897,10 @@ SQLTablePrivileges(SQLHSTMT stmt,
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLColumnPrivileges(SQLHSTMT stmt,
@@ -1546,6 +1912,10 @@ SQLColumnPrivileges(SQLHSTMT stmt,
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Columns for result set of SQLPrimaryKeys().
+ */
+
 static COL pkeySpec[] = {
     { "SYSTEM", "PRIMARYKEY", "TABLE_QUALIFIER", SQL_VARCHAR, 50 },
     { "SYSTEM", "PRIMARYKEY", "TABLE_OWNER", SQL_VARCHAR, 50 },
@@ -1554,6 +1924,18 @@ static COL pkeySpec[] = {
     { "SYSTEM", "PRIMARYKEY", "KEY_SEQ", SQL_SMALLINT, 50 },
     { "SYSTEM", "PRIMARYKEY", "PK_NAME", SQL_VARCHAR, 50 }
 };
+
+/**
+ * Retrieve information about indexed columns.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLPrimaryKeys(SQLHSTMT stmt,
@@ -1705,6 +2087,10 @@ nodata:
     return SQL_SUCCESS;
 }
 
+/**
+ * Columns for result set of SQLSpecialColumns().
+ */
+
 static COL scolSpec[] = {
     { "SYSTEM", "COLUMN", "SCOPE", SQL_SMALLINT, 1 },
     { "SYSTEM", "COLUMN", "COLUMN_NAME", SQL_VARCHAR, 255 },
@@ -1715,6 +2101,20 @@ static COL scolSpec[] = {
     { "SYSTEM", "COLUMN", "DECIMAL_DIGITS", SQL_INTEGER, 50 },
     { "SYSTEM", "COLUMN", "PSEUDO_COLUMN", SQL_SMALLINT, 1 }
 };
+
+/**
+ * Retrieve information about indexed columns.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @param scope
+ * @param nullable
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLSpecialColumns(SQLHSTMT stmt, SQLUSMALLINT id,
@@ -1912,6 +2312,10 @@ nodata:
     return SQL_SUCCESS;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLForeignKeys(SQLHSTMT stmt,
 	       SQLCHAR *PKcatalog, SQLSMALLINT PKcatalogLen,
@@ -1923,6 +2327,13 @@ SQLForeignKeys(SQLHSTMT stmt,
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Internal commit or rollback transaction.
+ * @param d database connection pointer
+ * @param comptype type of transaction's end, SQL_COMMIT or SQL_ROLLBACK
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 endtran(DBC *d, SQLSMALLINT comptype)
@@ -1971,6 +2382,14 @@ endtran(DBC *d, SQLSMALLINT comptype)
     return SQL_ERROR;
 }
 
+/**
+ * Internal commit or rollback transaction.
+ * @param type type of handle
+ * @param handle HDBC, HENV, or HSTMT handle
+ * @param comptype SQL_COMMIT or SQL_ROLLBACK
+ * @result ODBC error code
+ */
+
 static SQLRETURN
 drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 {
@@ -2004,11 +2423,27 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
     return SQL_INVALID_HANDLE;
 }
 
+/**
+ * Commit or rollback transaction.
+ * @param type type of handle
+ * @param handle HDBC, HENV, or HSTMT handle
+ * @param comptype SQL_COMMIT or SQL_ROLLBACK
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLEndTran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 {
     return drvendtran(type, handle, comptype);
 }
+
+/**
+ * Commit or rollback transaction.
+ * @param env environment handle or NULL
+ * @param dbc database connection handle or NULL
+ * @param type SQL_COMMIT or SQL_ROLLBACK
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLTransact(SQLHENV env, SQLHDBC dbc, UWORD type)
@@ -2019,11 +2454,19 @@ SQLTransact(SQLHENV env, SQLHDBC dbc, UWORD type)
     return drvendtran(SQL_HANDLE_DBC, (SQLHANDLE) dbc, type);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLCopyDesc(SQLHDESC source, SQLHDESC target)
 {
     return SQL_ERROR;
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLNativeSql(SQLHSTMT stmt, SQLCHAR *sqlin, SQLINTEGER sqlinLen,
@@ -2031,6 +2474,10 @@ SQLNativeSql(SQLHSTMT stmt, SQLCHAR *sqlin, SQLINTEGER sqlinLen,
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLProcedures(SQLHSTMT stmt,
@@ -2041,6 +2488,10 @@ SQLProcedures(SQLHSTMT stmt,
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLProcedureColumns(SQLHSTMT stmt,
 		    SQLCHAR *catalog, SQLSMALLINT catalogLen,
@@ -2050,6 +2501,16 @@ SQLProcedureColumns(SQLHSTMT stmt,
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Get information of HENV.
+ * @param env environment handle
+ * @param attr attribute to be retrieved
+ * @param val output buffer
+ * @param len length of output buffer
+ * @param lenp output length
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
@@ -2076,11 +2537,28 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
     return SQL_ERROR;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 {
     return SQL_ERROR;
 }
+
+/**
+ * Get error message given handle (HENV, HDBC, or HSTMT).
+ * @param htype handle type
+ * @param handle HENV, HDBC, or HSTMT
+ * @param recno
+ * @param sqlstate output buffer for SQL state
+ * @param nativeerr output buffer of native error code
+ * @param msg output buffer for error message
+ * @param buflen length of output buffer
+ * @param msglen output length
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
@@ -2141,6 +2619,10 @@ SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     return SQL_SUCCESS;
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLGetDiagField(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 		SQLSMALLINT id, SQLPOINTER info, 
@@ -2148,6 +2630,16 @@ SQLGetDiagField(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 {
     return SQL_ERROR;
 }
+
+/**
+ * Get option of HSTMT.
+ * @param stmt statement handle
+ * @param attr attribute to be retrieved
+ * @param val output buffer
+ * @param bufmax length of output buffer
+ * @param buflen output length
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLGetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
@@ -2207,6 +2699,15 @@ SQLGetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Set option on HSTMT.
+ * @param stmt statement handle
+ * @param attr attribute to be set
+ * @param val input buffer (attribute value)
+ * @param buflen length of input buffer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLSetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER buflen)
@@ -2258,6 +2759,14 @@ SQLSetStmtAttr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Get option of HSTMT.
+ * @param stmt statement handle
+ * @param opt option to be retrieved
+ * @param param output buffer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLGetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
@@ -2304,6 +2813,14 @@ SQLGetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Set option on HSTMT.
+ * @param stmt statement handle
+ * @param opt option to be set
+ * @param param input buffer (option value)
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 {
@@ -2345,11 +2862,19 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
     return drvunimplstmt(stmt);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLSetPos(SQLHSTMT stmt, SQLUSMALLINT row, SQLUSMALLINT op, SQLUSMALLINT lock)
 {
     return drvunimplstmt(stmt);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLSetScrollOptions(SQLHSTMT stmt, SQLUSMALLINT concur, SQLINTEGER rowkeyset,
@@ -2364,6 +2889,16 @@ SQLSetScrollOptions(SQLHSTMT stmt, SQLUSMALLINT concur, SQLINTEGER rowkeyset,
     strncpy(dst, src, cnt); \
     *lenp = (cnt > len) ? len : cnt; \
 }
+
+/**
+ * Return information about what this ODBC driver supports.
+ * @param dbc database connection handle
+ * @param type type of information to be retrieved
+ * @param val output buffer
+ * @param valMax length of output buffer
+ * @param valLen output length
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
@@ -2717,6 +3252,14 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     return SQL_SUCCESS;
 }
 
+/**
+ * Return information about supported ODBC API functions.
+ * @param dbc database connection handle
+ * @param func function code to be retrieved
+ * @param flags output indicator
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 		SQLUSMALLINT *flags)
@@ -2810,6 +3353,12 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     return SQL_SUCCESS;
 }
 
+/**
+ * Internal allocate HENV.
+ * @param env pointer to environment handle
+ * @result ODBC error code
+ */
+
 static SQLRETURN
 drvallocenv(SQLHENV *env)
 {
@@ -2829,11 +3378,23 @@ drvallocenv(SQLHENV *env)
     return SQL_SUCCESS;
 }
 
+/**
+ * Allocate HENV.
+ * @param env pointer to environment handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLAllocEnv(SQLHENV *env)
 {
     return drvallocenv(env);
 }
+
+/**
+ * Internal free HENV.
+ * @param env environment handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvfreeenv(SQLHENV env)
@@ -2855,11 +3416,24 @@ drvfreeenv(SQLHENV env)
     return SQL_SUCCESS;
 }
 
+/**
+ * Free HENV.
+ * @param env environment handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLFreeEnv(SQLHENV env)
 {
     return drvfreeenv(env);
 }
+
+/**
+ * Internal allocate HDBC.
+ * @param env environment handle
+ * @param dbc pointer to database connection handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvallocconnect(SQLHENV env, SQLHDBC *dbc)
@@ -2926,11 +3500,24 @@ error:
     return SQL_SUCCESS;
 }
 
+/**
+ * Allocate HDBC.
+ * @param env environment handle
+ * @param dbc pointer to database connection handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLAllocConnect(SQLHENV env, SQLHDBC *dbc)
 {
     return drvallocconnect(env, dbc);
 }
+
+/**
+ * Internal free connection (HDBC).
+ * @param dbc database connection handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvfreeconnect(SQLHDBC dbc)
@@ -2989,11 +3576,21 @@ drvfreeconnect(SQLHDBC dbc)
     return SQL_SUCCESS;
 }
 
+/**
+ * Free connection (HDBC).
+ * @param dbc database connection handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLFreeConnect(SQLHDBC dbc)
 {
     return drvfreeconnect(dbc);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLGetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
@@ -3002,12 +3599,24 @@ SQLGetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     return drvunimpldbc(dbc);
 }
 
+/**
+ * Function not implemented.
+ */
+
 SQLRETURN SQL_API
 SQLSetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 		  SQLINTEGER buflen)
 {
     return drvunimpldbc(dbc);
 }
+
+/**
+ * Internal get connect option of HDBC.
+ * @param dbc database connection handle
+ * @param opt option to be retrieved
+ * @param param output buffer
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
@@ -3090,11 +3699,27 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
     return SQL_SUCCESS;
 }
 
+/**
+ * Get connect option of HDBC.
+ * @param dbc database connection handle
+ * @param opt option to be retrieved
+ * @param param output buffer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLGetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 {
     return drvgetconnectoption(dbc, opt, param);
 }
+
+/**
+ * Internal set option on HDBC.
+ * @param dbc database connection handle
+ * @param opt option to be set
+ * @param param option value
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
@@ -3116,6 +3741,14 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
     return SQL_SUCCESS;
 }
 
+/**
+ * Set option on HDBC.
+ * @param dbc database connection handle
+ * @param opt option to be set
+ * @param param option value
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 {
@@ -3123,6 +3756,17 @@ SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 }
 
 #if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
+
+/**
+ * Handling of SQLConnect() connection attributes
+ * for standalone operation without driver manager.
+ * @param dsn DSN/driver connection string
+ * @param attr attribute string to be retrieved
+ * @param out output buffer
+ * @param outLen length of output buffer
+ * @result true or false
+ */
+
 static int
 getdsnattr(char *dsn, char *attr, char *out, int outLen)
 {
@@ -3160,6 +3804,18 @@ getdsnattr(char *dsn, char *attr, char *out, int outLen)
     return 0;
 }
 #endif
+
+/**
+ * Connect to SQLite database.
+ * @param dbc database connection handle
+ * @param dsn DSN string
+ * @param dsnLen length of DSN string or SQL_NTS
+ * @param uid user id string or NULL
+ * @param uidLen length of user id string or SQL_NTS
+ * @param pass password string or NULL
+ * @param passLen length of password string or SQL_NTS
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
@@ -3267,6 +3923,12 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
     return SQL_SUCCESS;
 }
 
+/**
+ * Disconnect given HDBC.
+ * @param dbc database connection handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLDisconnect(SQLHDBC dbc)
 {
@@ -3305,6 +3967,20 @@ SQLDisconnect(SQLHDBC dbc)
 }
 
 #if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
+
+/**
+ * Standalone (w/o driver manager) database connect.
+ * @param dbc database connection handle
+ * @param hwnd dummy window handle or NULL
+ * @param connIn driver connect input string
+ * @param connInLen length of driver connect input string or SQL_NTS
+ * @param connOut driver connect output string
+ * @param connOutMax length of driver connect output string
+ * @param connOutLen output length of driver connect output string
+ * @param drvcompl completion type
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 		 SQLCHAR *connIn, SQLSMALLINT connInLen,
@@ -3429,6 +4105,8 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 }
 #endif
 
+/* see doc on top */
+
 static SQLRETURN
 freestmt(SQLHSTMT stmt)
 {
@@ -3466,6 +4144,13 @@ freestmt(SQLHSTMT stmt)
     xfree(s);
     return SQL_SUCCESS;
 }
+
+/**
+ * Allocate HSTMT given HDBC (driver internal version).
+ * @param dbc database connection handle
+ * @param stmt pointer to statement handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
@@ -3507,11 +4192,25 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     return SQL_SUCCESS;
 }
 
+/**
+ * Allocate HSTMT given HDBC.
+ * @param dbc database connection handle
+ * @param stmt pointer to statement handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLAllocStmt(SQLHDBC dbc, SQLHSTMT *stmt)
 {
     return drvallocstmt(dbc, stmt);
 }
+
+/**
+ * Internal function to perform certain kinds of free/close on STMT.
+ * @param stmt statement handle
+ * @param opt SQL_RESET_PARAMS, SQL_UNBIND, SQL_CLOSE, or SQL_DROP
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
@@ -3548,17 +4247,39 @@ drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
     return SQL_SUCCESS;
 }
 
+/**
+ * Free HSTMT.
+ * @param stmt statement handle
+ * @param opt SQL_RESET_PARAMS, SQL_UNBIND, SQL_CLOSE, or SQL_DROP
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLFreeStmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 {
     return drvfreestmt(stmt, opt);
 }
 
+/**
+ * Cancel HSTMT closing cursor.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLCancel(SQLHSTMT stmt)
 {
     return drvfreestmt(stmt, SQL_CLOSE);
 }
+
+/**
+ * Internal function to get cursor name of STMT.
+ * @param stmt statement handle
+ * @param cursor output buffer
+ * @param buflen length of output buffer
+ * @param lenp output length
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvgetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
@@ -3583,12 +4304,29 @@ drvgetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
     return SQL_SUCCESS;
 }
 
+/**
+ * Get cursor name of STMT.
+ * @param stmt statement handle
+ * @param cursor output buffer
+ * @param buflen length of output buffer
+ * @param lenp output length
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLGetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
 		 SQLSMALLINT *lenp)
 {
     return drvgetcursorname(stmt, cursor, buflen, lenp);
 }
+
+/**
+ * Internal function to set cursor name on STMT.
+ * @param stmt statement handle
+ * @param cursor new cursor name
+ * @param len length of cursor name or SQL_NTS
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
@@ -3616,11 +4354,23 @@ drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
     return SQL_SUCCESS;
 }
 
+/**
+ * Set cursor name on STMT.
+ * @param stmt statement handle
+ * @param cursor new cursor name
+ * @param len length of cursor name or SQL_NTS
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLSetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
 {
     return drvsetcursorname(stmt, cursor, len);
 }
+
+/**
+ * Function not implemented.
+ */
 
 SQLRETURN SQL_API
 SQLCloseCursor(SQLHSTMT stmt)
@@ -3629,6 +4379,15 @@ SQLCloseCursor(SQLHSTMT stmt)
 }
 
 #if defined(WITHOUT_DRIVERMGR) || !defined(HAVE_IODBC)
+
+/**
+ * Allocate a HENV, HDBC, or HSTMT handle.
+ * @param type handle type
+ * @param input input handle (HENV, HDBC)
+ * @param output pointer to output handle (HENV, HDBC, HSTMT)
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLAllocHandle(SQLSMALLINT type, SQLHANDLE input, SQLHANDLE *output)
 {
@@ -3645,6 +4404,14 @@ SQLAllocHandle(SQLSMALLINT type, SQLHANDLE input, SQLHANDLE *output)
 #endif
 
 #if defined(WITHOUT_DRIVERMGR) || !defined(HAVE_IODBC)
+
+/**
+ * Free a HENV, HDBC, or HSTMT handle.
+ * @param type handle type
+ * @param h handle (HENV, HDBC, or HSTMT)
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLFreeHandle(SQLSMALLINT type, SQLHANDLE h)
 {
@@ -3659,6 +4426,11 @@ SQLFreeHandle(SQLSMALLINT type, SQLHANDLE h)
     return SQL_ERROR;
 }
 #endif
+
+/**
+ * Free dynamically allocated column information in STMT.
+ * @param s statement pointer
+ */
 
 static void
 freedyncols(STMT *s)
@@ -3677,6 +4449,8 @@ freedyncols(STMT *s)
     }
     s->dcols = 0;
 }
+
+/* see doc on top */
 
 static void
 freeresult(STMT *s, int clrcols)
@@ -3697,6 +4471,8 @@ freeresult(STMT *s, int clrcols)
     }
 }
 
+/* see doc on top */
+
 static void
 unbindcols(STMT *s)
 {
@@ -3712,6 +4488,8 @@ unbindcols(STMT *s)
     }
 }
 
+/* see doc on top */
+
 static void
 mkbindcols(STMT *s)
 {
@@ -3721,6 +4499,19 @@ mkbindcols(STMT *s)
 	unbindcols(s);
     }
 }
+
+/**
+ * Internal function to retrieve row data, used by SQLFetch() and
+ * friends and SQLGetData().
+ * @param s statement pointer
+ * @param col column number, 0 based
+ * @param type output data type
+ * @param val output buffer
+ * @param len length of output buffer
+ * @param lenp output length
+ * @param partial flag for partial data retrieval
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
@@ -3938,6 +4729,17 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
     return SQL_SUCCESS;
 }
 
+/**
+ * Bind C variable to column of result set.
+ * @param stmt statement handle
+ * @param col column number, starting at 1
+ * @param type output type
+ * @param val output buffer
+ * @param max length of output buffer
+ * @param lenp output length pointer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	   SQLPOINTER val, SQLINTEGER max, SQLINTEGER *lenp)
@@ -3997,6 +4799,10 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     return SQL_SUCCESS; 
 }
 
+/**
+ * Columns for result set of SQLTables().
+ */
+
 static COL tableSpec[] = {
     { "SYSTEM", "COLUMN", "TABLE_QUALIFIER", SQL_VARCHAR, 50 },
     { "SYSTEM", "COLUMN", "TABLE_OWNER", SQL_VARCHAR, 50 },
@@ -4004,6 +4810,20 @@ static COL tableSpec[] = {
     { "SYSTEM", "COLUMN", "TABLE_TYPE", SQL_VARCHAR, 50 },
     { "SYSTEM", "COLUMN", "REMARKS", SQL_VARCHAR, 50 }
 };
+
+/**
+ * Retrieve information on tables and/or views.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @param type types of tables string or NULL
+ * @param typeLen length of types of tables string or SQL_NTS
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLTables(SQLHSTMT stmt,
@@ -4151,6 +4971,10 @@ noconn:
     return SQL_SUCCESS;
 }
 
+/**
+ * Columns for result set of SQLColumns().
+ */
+
 static COL colSpec[] = {
     { "SYSTEM", "COLUMN", "TABLE_QUALIFIER", SQL_VARCHAR, 50 },
     { "SYSTEM", "COLUMN", "TABLE_OWNER", SQL_VARCHAR, 50 },
@@ -4171,6 +4995,20 @@ static COL colSpec[] = {
     { "SYSTEM", "COLUMN", "ORDINAL_POSITION", SQL_SMALLINT, 50 },
     { "SYSTEM", "COLUMN", "IS_NULLABLE", SQL_VARCHAR, 50 }
 };
+
+/**
+ * Retrieve column information on table.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @param col column name/pattern or NULL
+ * @param colLen length of column name/pattern or SQL_NTS
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLColumns(SQLHSTMT stmt,
@@ -4311,6 +5149,10 @@ noconn:
     return SQL_SUCCESS;
 }
 
+/**
+ * Columns for result set of SQLGetTypeInfo().
+ */
+
 static COL typeSpec[] = {
     { "SYSTEM", "TYPE", "TYPE_NAME", SQL_VARCHAR, 50 },
     { "SYSTEM", "TYPE", "DATA_TYPE", SQL_SMALLINT, 2 },
@@ -4328,6 +5170,15 @@ static COL typeSpec[] = {
     { "SYSTEM", "TYPE", "MINIMUM_SCALE", SQL_SMALLINT, 2 },
     { "SYSTEM", "TYPE", "MAXIMUM_SCALE", SQL_SMALLINT, 2 }
 };
+
+/**
+ * Internal function to build up data type information as row in result set.
+ * @param s statement pointer
+ * @param row row number
+ * @param typename name of type
+ * @param type integer SQL type
+ * @param sqltype string SQL type
+ */
 
 static void
 mktypeinfo(STMT *s, int row, char *typename, int type, char *sqltype)
@@ -4390,6 +5241,13 @@ mktypeinfo(STMT *s, int row, char *typename, int type, char *sqltype)
     s->rows[offs + 13] = "0";
     s->rows[offs + 14] = "0";
 }
+
+/**
+ * Return data type information.
+ * @param stmt statement handle
+ * @param sqltype which type to retrieve
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLGetTypeInfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
@@ -4490,6 +5348,10 @@ noconn:
     return SQL_SUCCESS;
 }
 
+/**
+ * Columns for result set of SQLStatistics().
+ */
+
 static COL statSpec[] = {
     { "SYSTEM", "STATISTICS", "TABLE_QUALIFIER", SQL_VARCHAR, 50 },
     { "SYSTEM", "STATISTICS", "TABLE_OWNER", SQL_VARCHAR, 50 },
@@ -4505,6 +5367,20 @@ static COL statSpec[] = {
     { "SYSTEM", "STATISTICS", "PAGES", SQL_INTEGER, 50 },
     { "SYSTEM", "STATISTICS", "FILTER_CONDITION", SQL_VARCHAR, 255 }
 };
+
+/**
+ * Return statistic information on table indices.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @param itype type of index information
+ * @param resv reserved
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLStatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
@@ -4663,6 +5539,17 @@ nodata:
     return SQL_SUCCESS;
 }
 
+/**
+ * Retrieve row data after fetch.
+ * @param stmt statement handle
+ * @param col column number, starting at 1
+ * @param type output type
+ * @param val output buffer
+ * @param len length of output buffer
+ * @param lenp output length
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLGetData(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	   SQLPOINTER val, SQLINTEGER len, SQLINTEGER *lenp)
@@ -4681,6 +5568,12 @@ SQLGetData(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     --col;
     return getrowdata(s, col, type, val, len, lenp, 1);
 }
+
+/**
+ * Fetch next result row.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLFetch(SQLHSTMT stmt)
@@ -4729,6 +5622,14 @@ dofetch:
     }
     return SQL_SUCCESS;
 }
+
+/**
+ * Internal fetch function for SQLFetchScroll() and SQLExtendedFetch().
+ * @param stmt statement handle
+ * @param orient fetch direction
+ * @param offset offset for fetch direction
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
@@ -4812,11 +5713,29 @@ dofetch:
     return SQL_SUCCESS;
 }
 
+/**
+ * Fetch result row with scrolling.
+ * @param stmt statement handle
+ * @param orient fetch direction
+ * @param offset offset for fetch direction
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLFetchScroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 {
     return drvfetchscroll(stmt, orient, offset);
 }
+
+/**
+ * Fetch result row with scrolling and row status.
+ * @param stmt statement handle
+ * @param orient fetch direction
+ * @param offset offset for fetch direction
+ * @param rowcount output number of fetched rows
+ * @param rowstatus array for row stati
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
@@ -4857,6 +5776,13 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
     return ret;
 }
 
+/**
+ * Return number of affected rows of HSTMT.
+ * @param stmt statement handle
+ * @param nrows output number of rows
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLRowCount(SQLHSTMT stmt, SQLINTEGER *nrows)
 {
@@ -4872,6 +5798,13 @@ SQLRowCount(SQLHSTMT stmt, SQLINTEGER *nrows)
     return SQL_SUCCESS;
 }
 
+/**
+ * Return number of columns of result set given HSTMT.
+ * @param stmt statement handle
+ * @param ncols output number of columns
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLNumResultCols(SQLHSTMT stmt, SQLSMALLINT *ncols)
 {
@@ -4886,6 +5819,19 @@ SQLNumResultCols(SQLHSTMT stmt, SQLSMALLINT *ncols)
     }
     return SQL_SUCCESS;
 }
+
+/**
+ * Describe column information.
+ * @param stmt statement handle
+ * @param col column number, starting at 1
+ * @param name buffer for column name
+ * @param nameLen output length of column name
+ * @param type output SQL type
+ * @param size output column size
+ * @param digits output number of digits
+ * @param nullable output NULL allowed indicator
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLDescribeCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
@@ -4938,6 +5884,18 @@ SQLDescribeCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     }
     return SQL_SUCCESS;
 }
+
+/**
+ * Retrieve column attributes.
+ * @param stmt statement handle
+ * @param col column number, starting at 1
+ * @param id attribute id
+ * @param val output buffer
+ * @param valMax length of output buffer
+ * @param valLen output length
+ * @param val2 integer output buffer
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
@@ -5100,6 +6058,18 @@ SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     return SQL_ERROR;
 }
 
+/**
+ * Retrieve column attributes.
+ * @param stmt statement handle
+ * @param col column number, starting at 1
+ * @param id attribute id
+ * @param val output buffer
+ * @param valMax length of output buffer
+ * @param valLen output length
+ * @param val2 integer output buffer
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
@@ -5199,6 +6169,19 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     return SQL_SUCCESS;
 }
 
+/**
+ * Return last HDBC or HSTMT error message.
+ * @param env environment handle or NULL
+ * @param dbc database connection handle or NULL
+ * @param stmt statement handle or NULL
+ * @param sqlState output buffer for SQL state
+ * @param nativeErr output buffer for native error code
+ * @param errmsg output buffer for error message
+ * @param errmax length of output buffer for error message
+ * @param errlen output length of error message
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLError(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 	 SQLCHAR *sqlState, SQLINTEGER *nativeErr,
@@ -5277,6 +6260,12 @@ noerr:
     return SQL_NO_DATA_FOUND;
 }
 
+/**
+ * Return information for more result sets.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLMoreResults(SQLHSTMT stmt)
 {
@@ -5288,6 +6277,15 @@ SQLMoreResults(SQLHSTMT stmt)
     s = (STMT *) stmt;
     return (s->rowp < 0 && s->nrows > 0) ? SQL_SUCCESS : SQL_NO_DATA;
 }
+
+/**
+ * SQLite callback during drvprepare(), used to collect column information.
+ * @param arg user data, actually a statement pointer
+ * @param ncols number of columns
+ * @param values value string array
+ * @param cols column name string array
+ * @result always 1 to abort sqlite_exec()
+ */
 
 static int
 selcb(void *arg, int ncols, char **values, char **cols)
@@ -5348,6 +6346,14 @@ selcb(void *arg, int ncols, char **values, char **cols)
     s->ncols = ncols;
     return 1;
 }
+
+/**
+ * Internal query preparation used by SQLPrepare() and SQLExecDirect().
+ * @param stmt statement handle
+ * @param query query string
+ * @param queryLen length of query string or SQL_NTS
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvprepare(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
@@ -5419,6 +6425,12 @@ noconn:
     mkbindcols(s);
     return SQL_SUCCESS;
 }
+
+/**
+ * Internal query execution used by SQLExecute() and SQLExecDirect().
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvexecute(SQLHSTMT stmt)
@@ -5602,17 +6614,39 @@ done2:
     return SQL_SUCCESS;
 }
 
+/**
+ * Prepare HSTMT.
+ * @param stmt statement handle
+ * @param query query string
+ * @param queryLen length of query string or SQL_NTS
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLPrepare(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
 {
     return drvprepare(stmt, query, queryLen);
 }
 
+/**
+ * Execute query.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
 SQLRETURN SQL_API
 SQLExecute(SQLHSTMT stmt)
 {
     return drvexecute(stmt);
 }
+
+/**
+ * Execute query directly.
+ * @param stmt statement handle
+ * @param query query string
+ * @param queryLen length of query string or SQL_NTS
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLExecDirect(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
@@ -5691,6 +6725,12 @@ static struct {
     { NULL, 0 }
 };
 
+/**
+ * Setup dialog data from datasource attributes.
+ * @param attribs attribute string
+ * @param setupdlg pointer to dialog data
+ */
+
 static void
 ParseAttributes(LPCSTR attribs, SETUPDLG *setupdlg)
 {
@@ -5733,6 +6773,13 @@ ParseAttributes(LPCSTR attribs, SETUPDLG *setupdlg)
 	}
     }
 }
+
+/**
+ * Set datasource attributes in registry.
+ * @param parent handle of parent window
+ * @param setupdlg pointer to dialog data
+ * @result true or false
+ */
 
 static BOOL
 SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
@@ -5782,6 +6829,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
     return TRUE;
 }
 
+/**
+ * Get datasource attributes from registry.
+ * @param setupdlg pointer to dialog data
+ */
+
 static void
 GetAttributes(SETUPDLG *setupdlg)
 {
@@ -5815,6 +6867,11 @@ GetAttributes(SETUPDLG *setupdlg)
 #endif
 }
 
+/**
+ * Open file dialog for selection of SQLite database file.
+ * @param hdlg handle of originating dialog window
+ */
+
 static void
 GetDBFile(HWND hdlg)
 {
@@ -5834,6 +6891,15 @@ GetDBFile(HWND hdlg)
 	setupdlg->attr[KEY_DBNAME].supplied = TRUE;
     }
 }
+
+/**
+ * Dialog procedure for ConfigDSN().
+ * @param hdlg handle of dialog window
+ * @param wmsg type of message
+ * @param wparam wparam of message
+ * @param lparam lparam of message
+ * @result true or false
+ */
 
 static BOOL CALLBACK
 ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
@@ -5915,6 +6981,15 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     return FALSE;
 }
 
+/**
+ * ODBC INSTAPI procedure for DSN configuration.
+ * @param hwnd parent window handle
+ * @param request type of request
+ * @param driver driver name
+ * @param attribs attribute string of DSN
+ * @result true or false
+ */
+
 BOOL INSTAPI
 ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
 {
@@ -5959,6 +7034,15 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
     xfree(setupdlg);
     return success;
 }
+
+/**
+ * Dialog procedure for SQLDriverConnect().
+ * @param hdlg handle of dialog window
+ * @param wmsg type of message
+ * @param wparam wparam of message
+ * @param lparam lparam of message
+ * @result true or false
+ */
 
 static BOOL CALLBACK
 DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
@@ -6016,6 +7100,19 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     }
     return FALSE;
 }
+
+/**
+ * Connect using a driver connection string.
+ * @param dbc database connection handle
+ * @param hwnd parent window handle
+ * @param connIn driver connect input string
+ * @param connInLen length of driver connect input string or SQL_NTS
+ * @param connOut driver connect output string
+ * @param connOutMax length of driver connect output string
+ * @param connOutLen output length of driver connect output string
+ * @param drvcompl completion type
+ * @result ODBC error code
+ */
 
 SQLRETURN SQL_API
 SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
@@ -6155,6 +7252,14 @@ retry:
     return SQL_SUCCESS;
 }
 
+/**
+ * DLL initializer for WIN32.
+ * @param hinst instance handle
+ * @param reason reason code for entry point
+ * @param reserved
+ * @result always true
+ */
+
 BOOL APIENTRY
 LibMain(HANDLE hinst, DWORD reason, LPVOID reserved)
 {
@@ -6176,6 +7281,14 @@ LibMain(HANDLE hinst, DWORD reason, LPVOID reserved)
   }
   return TRUE;
 }
+
+/**
+ * DLL entry point for WIN32.
+ * @param hinst instance handle
+ * @param reason reason code for entry point
+ * @param reserved
+ * @result always true
+ */
 
 int __stdcall
 DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)

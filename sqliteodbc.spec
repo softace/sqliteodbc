@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.41
+%define version 0.42
 %define release 1
 
 Name: %{name}
@@ -9,7 +9,7 @@ Release: %{release}
 Source: %{name}-%{version}.tar.gz
 Group: System/Libraries
 URL: http://www.ch-werner.de/sqliteodbc
-License: Public Domain
+License: BSD
 BuildRoot: %{_tmppath}/%{name}-%{version}-root
 
 %description
@@ -33,6 +33,6 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-, root, root)
-%doc README
+%doc README license.terms
 %{_libdir}/*.so*
 

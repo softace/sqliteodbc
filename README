@@ -166,7 +166,7 @@ Python sample usage with eGenix mx-Extension
 Build instructions for MS Visual C++ 6.0:
 
 1. Extract the source tarball sqliteodbc.tar.gz
-2. Extract the official SQLite 2.4.8 sources in the sqliteodbc
+2. Extract the official SQLite 2.4.12 sources in the sqliteodbc
    directory which resulted from step 1
 3. Setup your MSVC++ environment, ie PATH/INCLUDE/LIB, then
    open a command window, cd to the sqliteodbc directory and enter:
@@ -180,13 +180,11 @@ Build instructions for MS Visual C++ 6.0:
 
 TODO:
 
-- proper changelog and revision handling
 - improve documentation
-- ??? InstallShield setup for Win32 ???
-- ??? UTF-8 and ODBC wide-char functions ???
+- ??? UTF-8 support and ODBC wide-char functions ???
 
 
-May, 25th, 2002
+June, 4th, 2002
 Christian Werner
 mailto:chw@ch-werner.de
 

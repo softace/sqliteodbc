@@ -1,7 +1,14 @@
-/*
- * SQLite ODBC Driver installer/uninstaller
+/**
+ * @file inst.c
+ * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.1 2001/10/02 15:43:41 chw Exp chw $
+ * $Id: inst.c,v 1.2 2002/06/04 10:07:02 chw Exp chw $
+ *
+ * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
+ *
+ * See the file "license.terms" for information on usage
+ * and redistribution of this file and for a
+ * DISCLAIMER OF ALL WARRANTIES.
  */
 
 #include <windows.h>
@@ -15,6 +22,11 @@
 static char *DriverName	="SQLite ODBC Driver";
 static char *DSName = "SQLite Datasource";
 static char *DriverDLL = "sqliteodbc.dll";
+
+/**
+ * Handler for ODBC installation error messages.
+ * @param name name of API function for which to show error messages
+ */
 
 static BOOL
 ProcessErrorMessages(char *name)
@@ -39,13 +51,20 @@ ProcessErrorMessages(char *name)
     return ret;
 }
 
+/**
+ * Main function of installer/uninstaller.
+ * This is the Win32 GUI main entry point.
+ * It (un)registers the ODBC driver and deletes or
+ * copies the driver DLL to the system folder.
+ */
+
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpszCmdLine, int nCmdShow)
 {
     char path[301], driver[300], attr[300], inst[400], *p;
     WORD pathmax = sizeof (path) - 1, pathlen;
-    DWORD usecnt, remove;
+    DWORD usecnt, remove, mincnt;
 
     GetModuleFileName(NULL, path, sizeof (path));
     p = path;
@@ -80,6 +99,12 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	    ++p;
 	}
 	sprintf(inst, "%s\\%s", path, DriverDLL);
+	mincnt = remove ? 1 : 0;
+	while (usecnt != mincnt) {
+	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
+		break;
+	    }
+	}
 	if (remove) {
 	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
 		ProcessErrorMessages("SQLRemoveDriver");
