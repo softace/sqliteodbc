@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.19 2003/03/02 21:51:52 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.21 2003/05/15 07:53:06 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -33,6 +33,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #endif
+#if defined(HAVE_LOCALECONV) || defined(_WIN32)
+#include <locale.h>
+#endif
 #include <stdarg.h>
 #include <string.h>
 #include <sql.h>
@@ -46,15 +49,15 @@
 #include <pthread.h>
 #define ASYNC 1
 #endif
-#ifdef HAVE_CORO
+#ifdef HAVE_PTH_UCTX
 #ifdef HAVE_PTHREAD
 #error "Conflict in configure"
 #error "Please reconfigure using the switches"
 #error "   --enable-threads     for pthreads"
 #error "or"
-#error "   --with-coro=DIR      for coro"
+#error "   --enable-pth         for GNU pth"
 #endif
-#include <coro.h>
+#include <pth.h>
 #define ASYNC 1
 #endif
 #endif
@@ -82,6 +85,7 @@ struct stmt;
 
 typedef struct {
     int magic;			/**< Magic cookie */
+    int ov3;			/**< True for SQL_OV_ODBC3 */
     struct dbc *dbcs;		/**< Pointer to first DBC */
 } ENV;
 
@@ -104,11 +108,14 @@ typedef struct dbc {
     char *dsn;			/**< ODBC data source name */
     int timeout;		/**< Lock timeout value */
     long t0;			/**< Start time for SQLITE busy handler */
+    int *ov3;			/**< True for SQL_OV_ODBC3 */
+    int ov3val;			/**< True for SQL_OV_ODBC3 */
     int autocommit;		/**< Auto commit state */
     int intrans;		/**< True when transaction started */
     struct stmt *stmt;		/**< STMT list of this DBC */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
+    int nowchar;		/**< Don't try to use WCHAR */
 #ifdef ASYNC
     int curtype;		/**< Default cursor type */
     int thread_enable;		/**< True when threading enabled */
@@ -126,9 +133,9 @@ typedef struct dbc {
     pthread_mutex_t mut;	/**< Mutex for condition */
     pthread_cond_t cond;	/**< Condition */
 #endif
-#ifdef HAVE_CORO
+#ifdef HAVE_PTH_UCTX
     int async_cont;		/**< True when coroutine should continue */
-    struct coroutine *corout;	/**< Coroutine handle */
+    volatile pth_uctx_t uctx[2];	/**< GNU pth contexts */
 #endif
 #ifdef _WIN32
     HANDLE thr;			/**< Thread identifier */
@@ -198,6 +205,7 @@ typedef struct stmt {
     HDBC dbc;			/**< Pointer to DBC */
     SQLCHAR cursorname[32];	/**< Cursor name */
     SQLCHAR *query;		/**< Current query, raw string */
+    int *ov3;			/**< True for SQL_OV_ODBC3 */
     int isselect;		/**< True if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
     COL *cols;			/**< Result column array */
@@ -214,6 +222,11 @@ typedef struct stmt {
     void (*rowfree)();		/**< Free function for rows */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
+    int nowchar;		/**< Don't try to use WCHAR */
+    SQLUSMALLINT *row_status;	/**< Row status pointer */
+    SQLUSMALLINT row_status0;	/**< Row status array */
+    SQLUINTEGER *row_count;	/**< Row count pointer */
+    SQLUINTEGER row_count0;	/**< Row count */
 #ifdef ASYNC
     int curtype;		/**< Cursor type */
     int *async_run;		/**< True when async STMT running */

@@ -1,6 +1,21 @@
 SQLite ODBC Driver
 ------------------
 
+Thu May 15 2003 version 0.51 released
+
+	* added support for SQLITE_UTF8 by SQL*W unicode entries,
+	  partially tested on Win32 only!
+	* added ODBC v2/3 handling on SQLAllocHandle etc.
+	* use localeconv() to fixup floating point formatting
+	* eliminated unnecessary odbcver.h and ctl3d.h from
+	  *.rc and *.c files, thanks to Roberto Artigas Jr
+	* added ODBC version 3 SQL_TYPE_* features
+	* fixes in configure.in for Solaris, thanks to
+	  Gene Shkolnik
+	* fixed bug in drvbindparam() thanks to Alex Clement
+	* switched coroutine handling to use pth_uctx_*() from
+	  GNU pth package, configure option --enable-pth
+
 Sat Mar 08 2003 version 0.50 released
 
 	* changed freeresult() behaviour in order to allow

@@ -91,6 +91,16 @@ SQLConnect/SQLDriverConnect DSN strings. The keyword in ODBC.INI
 for that option is "Threaded=1". In the Win32 DSN config dialog
 a check button is provided for that option.
 
+Since May 15th, 2003, (version 0.51), there are two versions
+of the driver for Win32 platforms: the first (sqliteodbc.dll)
+linked against ISO8859-1 SQLite library exporting ODBC/SQL ANSI
+functions, and the second (sqliteodbcu.dll) linked against UTF-8
+SQLite library exporting ODBC/SQL UNICODE functions.
+
+The UNICODE version is rather experimental and allows to turn
+of wide character SQL data types by its configuration dialog
+(checkmark labelled "No WCHAR"). So far it has been only
+marginally tested on Win32.
 
 To setup a SQLite data source using unixODBC (www.unixodbc.org):
 
@@ -177,16 +187,19 @@ Build instructions for MS Visual C++ 6.0:
    This compiles the SQLite sources first, creates a link library
    of the necessary object files, then compiles and links the ODBC
    driver and the (un)install program.
+4. If you'd like to create the UNICODE version of the driver, enter:
+
+	nmake -f sqliteodbc.mak clean
+	nmake -f sqliteodbc.mak ENCODING=UTF8
 
 
 TODO:
 
 - improve documentation
-- ??? UTF-8 support and ODBC wide-char functions ???
 - ??? SQLForeignKeys() ???
 
 
-March, 8th, 2003
+May, 15th, 2003
 Christian Werner
 mailto:chw@ch-werner.de
 

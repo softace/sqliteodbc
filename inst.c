@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.2 2002/06/04 10:07:02 chw Exp chw $
+ * $Id: inst.c,v 1.3 2003/05/15 07:49:40 chw Exp chw $
  *
- * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -17,11 +17,15 @@
 #include <odbcinst.h>
 #include <winver.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdio.h>
 
-static char *DriverName	="SQLite ODBC Driver";
-static char *DSName = "SQLite Datasource";
-static char *DriverDLL = "sqliteodbc.dll";
+static char *DriverName[2] =
+    { "SQLite ODBC Driver", "SQLite ODBC (UTF-8) Driver" };
+static char *DSName[2] =
+    { "SQLite Datasource", "SQLite UTF-8 Datasource" };
+static char *DriverDLL[2] =
+    { "sqliteodbc.dll", "sqliteodbcu.dll" };
 
 /**
  * Handler for ODBC installation error messages.
@@ -52,32 +56,25 @@ ProcessErrorMessages(char *name)
 }
 
 /**
- * Main function of installer/uninstaller.
- * This is the Win32 GUI main entry point.
- * It (un)registers the ODBC driver and deletes or
- * copies the driver DLL to the system folder.
+ * Driver installer/uninstaller.
+ * @param remove true for uninstall
+ * @param drivername print name of driver
+ * @param dllname file name of driver DLL
+ * @param dsname name for data source
  */
 
-int APIENTRY
-WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-	LPSTR lpszCmdLine, int nCmdShow)
+static BOOL
+InUn(int remove, char *drivername, char *dllname, char *dsname)
 {
     char path[301], driver[300], attr[300], inst[400], *p;
     WORD pathmax = sizeof (path) - 1, pathlen;
-    DWORD usecnt, remove, mincnt;
+    DWORD usecnt, mincnt;
 
-    GetModuleFileName(NULL, path, sizeof (path));
-    p = path;
-    while (*p) {
-	*p = tolower(*p);
-	++p;
-    }
-    remove = strstr(path, "uninst") != NULL;
     if (SQLInstallDriverManager(path, pathmax, &pathlen)) {
 	char *p;
 
 	sprintf(driver, "%s;Driver=%s;Setup=%s;",
-		DriverName, DriverDLL, DriverDLL);
+		drivername, dllname, dllname);
 	p = driver;
 	while (*p) {
 	    if (*p == ';') {
@@ -89,7 +86,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	SQLInstallDriverEx(driver, NULL, path, pathmax, &pathlen,
 			   ODBC_INSTALL_INQUIRY, &usecnt);
 	sprintf(driver, "%s;Driver=%s\\%s;Setup=%s\\%s;",
-		DriverName, path, DriverDLL, path, DriverDLL);
+		drivername, path, dllname, path, dllname);
 	p = driver;
 	while (*p) {
 	    if (*p == ';') {
@@ -98,7 +95,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	    }
 	    ++p;
 	}
-	sprintf(inst, "%s\\%s", path, DriverDLL);
+	sprintf(inst, "%s\\%s", path, dllname);
 	mincnt = remove ? 1 : 0;
 	while (usecnt != mincnt) {
 	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
@@ -108,15 +105,18 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	if (remove) {
 	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
 		ProcessErrorMessages("SQLRemoveDriver");
-		exit(1);
+		return FALSE;
 	    }
 	    if (!usecnt) {
+		char buf[512];
+
 		DeleteFile(inst);
-		MessageBox(NULL, "SQLite ODBC Driver uninstalled.", "Info",
+		sprintf(buf, "%s uninstalled.", drivername);
+		MessageBox(NULL, buf, "Info",
 			   MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
 			   MB_SETFOREGROUND);
 	    }
-	    sprintf(attr, "DSN=%s;Database=sqlite.db;", DSName);
+	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -125,23 +125,26 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		}
 		++p;
 	    }
-	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, DriverName, attr);
-	    exit(0);
+	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
+	    return TRUE;
 	}
-	if (!CopyFile(DriverDLL, inst, 0)) {
+	if (GetFileAttributes(dllname) == 0xFFFFFFFF) {
+	    return FALSE;
+	}
+	if (!CopyFile(dllname, inst, 0)) {
 	    char buf[512];
 
-	    sprintf(buf, "Copy %s to %s failed", DriverDLL, inst);
+	    sprintf(buf, "Copy %s to %s failed", dllname, inst);
 	    MessageBox(NULL, buf, "CopyFile",
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
-	    exit(1);
+	    return FALSE;
 	}
 	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,
 				ODBC_INSTALL_COMPLETE, &usecnt)) {
 	    ProcessErrorMessages("SQLInstallDriverEx");
-	    exit(1);
+	    return FALSE;
 	}
-	sprintf(attr, "DSN=%s;Database=sqlite.db;", DSName);
+	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {
@@ -150,17 +153,47 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	    }
 	    ++p;
 	}
-	SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, DriverName, attr);
-	if (!SQLConfigDataSource(NULL, ODBC_ADD_SYS_DSN, DriverName, attr)) {
+	SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
+	if (!SQLConfigDataSource(NULL, ODBC_ADD_SYS_DSN, drivername, attr)) {
 	    ProcessErrorMessages("SQLConfigDataSource");
-	    exit(1);
+	    return FALSE;
 	}
     } else {
 	ProcessErrorMessages("SQLInstallDriverManager");
-	exit(1);
+	return FALSE;
     }
-    MessageBox(NULL, "SQLite ODBC Driver installed.", "Info",
-	       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+    return TRUE;
+}
+
+/**
+ * Main function of installer/uninstaller.
+ * This is the Win32 GUI main entry point.
+ * It (un)registers the ODBC driver(s) and deletes or
+ * copies the driver DLL(s) to the system folder.
+ */
+
+int APIENTRY
+WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+	LPSTR lpszCmdLine, int nCmdShow)
+{
+    char path[300], *p;
+    int i, remove;
+    BOOL ret[2];
+
+    GetModuleFileName(NULL, path, sizeof (path));
+    p = path;
+    while (*p) {
+	*p = tolower(*p);
+	++p;
+    }
+    remove = strstr(path, "uninst") != NULL;
+    for (i = 0; i < 2; i++) {
+	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], DSName[i]);
+    }
+    if (!remove && (ret[0] || ret[1])) {
+	MessageBox(NULL, "SQLite ODBC Driver(s) installed.", "Info",
+		   MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+    }
     exit(0);
 }
 

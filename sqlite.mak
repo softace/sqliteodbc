@@ -36,8 +36,9 @@ TCC = cl -Gs -GX -D_WIN32 -nologo -Zi
 
 #### Should the database engine assume text is coded as UTF-8 or iso8859?
 
-# ENCODING  = UTF8
+!IF "$(ENCODING)" != "UTF8"
 ENCODING = ISO8859
+!ENDIF
 
 # You should not have to change anything below this line
 ###############################################################################
@@ -275,3 +276,5 @@ clean:
 	del *.dll
 	del *.lib
 	del *.exe
+	del sqlite.h
+	del config.h
