@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.0
+# VC++ 6.0 Makefile for SQLite 2.8.3
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -51,17 +51,22 @@ TCCXD = $(TCCX) -D_DLL
 
 # Object files for the SQLite library.
 
-LIBOBJ = auth.obj btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
-         main.obj os.obj pager.obj parse.obj printf.obj random.obj select.obj \
+LIBOBJ = attach.obj auth.obj btree.obj btree_rb.obj build.obj copy.obj \
+         delete.obj expr.obj hash.obj insert.obj \
+         main.obj os.obj pager.obj parse.obj pragma.obj printf.obj \
+         random.obj select.obj \
 	 table.obj func.obj tokenize.obj update.obj util.obj vdbe.obj \
-	 where.obj encode.obj trigger.obj opcodes.obj
+	 where.obj encode.obj trigger.obj opcodes.obj vacuum.obj
 
 # All of the source code files.
 
 SRC = \
+  $(TOP)/src/attach.c \
   $(TOP)/src/auth.c \
   $(TOP)/src/btree.c \
+  $(TOP)/src/btree_rb.c \
   $(TOP)/src/build.c \
+  $(TOP)/src/copy.c \
   $(TOP)/src/delete.c \
   $(TOP)/src/expr.c \
   $(TOP)/src/hash.c \
@@ -72,6 +77,7 @@ SRC = \
   $(TOP)/src/pager.c \
   $(TOP)/src/pager.h \
   $(TOP)/src/parse.y \
+  $(TOP)/src/pragma.c \
   $(TOP)/src/printf.c \
   $(TOP)/src/random.c \
   $(TOP)/src/select.c \
@@ -88,7 +94,8 @@ SRC = \
   $(TOP)/src/vdbe.h \
   $(TOP)/src/where.c \
   $(TOP)/src/encode.c \
-  $(TOP)/src/trigger.c
+  $(TOP)/src/trigger.c \
+  $(TOP)/src/vacuum.c
 
 # Header files used by all library source files.
 
@@ -133,14 +140,23 @@ lemon:	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
 	$(BCC) -o lemon $(TOP)/tool/lemon.c
 	copy $(TOP)\tool\lempar.c .
 
+attach.obj:	$(TOP)/src/attach.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/attach.c
+
 auth.obj:	$(TOP)/src/auth.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/auth.c
 
 btree.obj:	$(TOP)/src/btree.c $(HDR) $(TOP)/src/pager.h
 	$(TCCXD) -c $(TOP)/src/btree.c
 
+btree_rb.obj:	$(TOP)/src/btree_rb.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/btree_rb.c
+
 build.obj:	$(TOP)/src/build.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/build.c
+
+copy.obj:	$(TOP)/src/copy.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/copy.c
 
 main.obj:	$(TOP)/src/main.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/main.c
@@ -172,6 +188,9 @@ config.h:
 	$(BCC) -o temp temp.c
 	.\temp >config.h
 	@del temp.*
+
+pragma.obj:	$(TOP)/src/pragma.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/pragma.c
 
 opcodes.h:	$(TOP)/src/vdbe.c
 	..\mkopc <$(TOP)/src/vdbe.c
@@ -227,6 +246,9 @@ trigger.obj:	$(TOP)/src/trigger.c $(HDR)
 opcodes.obj:	$(TOP)/opcodes.c $(HDR)
 	$(TCCXD) -c $(TOP)/opcodes.c
 
+vacuum.obj:	$(TOP)/src/vacuum.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/vacuum.c
+
 sqlite.def:
 	echo LIBRARY SQLITE > sqlite.def
 	echo DESCRIPTION 'SQLite Library' >> sqlite.def
@@ -261,7 +283,6 @@ sqlite.def:
 	echo sqlite_aggregate_context >> sqlite.def
 	echo sqlite_aggregate_count >> sqlite.def
 	echo sqlite_mprintf >> sqlite.def
-	echo sqlite_open_aux_file >> sqlite.def
 	echo sqliteStrICmp >> sqlite.def
 	echo sqlite_set_authorizer >> sqlite.def
 	echo sqlite_trace >> sqlite.def
@@ -269,6 +290,9 @@ sqlite.def:
 	echo sqlite_step >> sqlite.def
 	echo sqlite_finalize >> sqlite.def
 	echo sqlite_vmprintf >> sqlite.def
+	echo sqliteOsFileExists >> sqlite.def
+	echo sqliteIsNumber >> sqlite.def
+	echo sqliteStrNICmp >> sqlite.def
 
 clean:	
 	del *.obj

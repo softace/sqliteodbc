@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.21 2003/05/15 07:53:06 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.22 2003/06/03 14:01:21 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -227,6 +227,11 @@ typedef struct stmt {
     SQLUSMALLINT row_status0;	/**< Row status array */
     SQLUINTEGER *row_count;	/**< Row count pointer */
     SQLUINTEGER row_count0;	/**< Row count */
+    /* Dummies to make ADO happy */
+    SQLUINTEGER *bind_offs;	/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
+    SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
+    SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
+    SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
 #ifdef ASYNC
     int curtype;		/**< Cursor type */
     int *async_run;		/**< True when async STMT running */

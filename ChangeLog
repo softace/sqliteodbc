@@ -1,6 +1,15 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jun 15 2003 version 0.52 released
+
+	* update to SQLite 2.8.3
+	* fixed potential crash in dbopen() thanks to Gene Shkolnik
+	* some improvements and hacks for WIN32 ADO
+	* for SQL type "float" report SQL_DOUBLE instead of SQL_FLOAT
+	* WIN32: export more ODBC V2 symbols
+	* fixes in unicode conversions in SQLGetData() and drvbindparam().
+
 Thu May 15 2003 version 0.51 released
 
 	* added support for SQLITE_UTF8 by SQL*W unicode entries,

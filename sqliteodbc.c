@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.44 2003/05/15 07:54:01 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.46 2003/06/15 07:44:32 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -903,7 +903,7 @@ mapsqltype(char *typename, int *nosign, int ov3, int nowchar)
 	testsign = 1;
 	result = SQL_SMALLINT;
     } else if (strncmp(p, "float", 5) == 0) {
-	result = SQL_FLOAT;
+	result = SQL_DOUBLE;
     } else if (strncmp(p, "double", 6) == 0 ||
 	strncmp(p, "real", 4) == 0) {
 	result = SQL_DOUBLE;
@@ -1823,7 +1823,7 @@ getbool(char *string)
 static SQLRETURN
 dbopen(DBC *d, char *name, char *dsn, char *tflag, char *busy)
 {
-    char *errp = NULL;
+    char *errp = NULL, *endp = NULL;
     int tmp, busyto = 1000;
 
     if (d->sqlite) {
@@ -1849,8 +1849,8 @@ connfail:
     d->curtype = d->thread_enable ?
 	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
 #endif
-    tmp = strtol(busy, &errp, 0);
-    if (errp && *errp == '\0' && errp != busy) {
+    tmp = strtol(busy, &endp, 0);
+    if (endp && *endp == '\0' && endp != busy) {
 	busyto = tmp;
     }
     if (busyto < 1 || busyto > 1000000) {
@@ -2877,6 +2877,8 @@ outofmem:
     p->stype = ptype; 
     p->max = buflen; 
     p->lenp = (int *) len;
+    p->offs = 0;
+    p->len = 0;
     if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
 	p->param = NULL;
 	p->ind = data;
@@ -2889,6 +2891,7 @@ outofmem:
 		goto outofmem;
 	    }
 	    p->param = p->ind;
+	    p->len = strlen(p->param);
 	} else {
 	    p->param = data;
 	    p->ind = NULL;
@@ -2899,8 +2902,6 @@ outofmem:
 #endif
 	p->need = 0;
     }
-    p->offs = 0;
-    p->len = 0;
     return SQL_SUCCESS;
 }
 
@@ -4405,7 +4406,7 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_NO_DATA;
     case SQL_ATTR_OUTPUT_NTS:
 	if (val) {
-	    *(SQLINTEGER *) val = SQL_TRUE;
+	    *((SQLINTEGER *) val) = SQL_TRUE;
 	}
 	if (lenp) {
 	    *lenp = sizeof (SQLINTEGER);
@@ -4413,7 +4414,7 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     case SQL_ATTR_ODBC_VERSION:
 	if (val) {
-	    *(SQLINTEGER *) val = e->ov3 ? SQL_OV_ODBC3 : SQL_OV_ODBC2;
+	    *((SQLINTEGER *) val) = e->ov3 ? SQL_OV_ODBC3 : SQL_OV_ODBC2;
 	}
 	if (lenp) {
 	    *lenp = sizeof (SQLINTEGER);
@@ -4754,6 +4755,25 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_ROWS_FETCHED_PTR:
 	*((SQLUINTEGER **) val) = s->row_count;
 	return SQL_SUCCESS;
+
+    case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
+	*((SQLUINTEGER **) val) = s->bind_offs;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_BIND_TYPE:
+	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_OPERATION_PTR:
+	*((SQLUSMALLINT **) val) = s->parm_oper;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_STATUS_PTR:
+	*((SQLUSMALLINT **) val) = s->parm_status;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAMS_PROCESSED_PTR:
+	*((SQLUINTEGER **) val) = s->parm_proc;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAMSET_SIZE:
+	*((SQLUINTEGER *) val) = 1;
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -4839,7 +4859,8 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_QUERY_TIMEOUT:
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
-	if ((SQLUINTEGER) val != SQL_RD_ON) {
+	if ((SQLUINTEGER) val != SQL_RD_ON &&
+	    (SQLUINTEGER) val != SQL_RD_OFF) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
@@ -4857,6 +4878,30 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_ROWS_FETCHED_PTR:
 	s->row_count = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
+
+    case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
+	s->bind_offs = (SQLUINTEGER *) val;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_BIND_TYPE:
+	if ((SQLUINTEGER) val != SQL_PARAM_BIND_BY_COLUMN) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_OPERATION_PTR:
+	s->parm_oper = (SQLUSMALLINT *) val;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAM_STATUS_PTR:
+	s->parm_status = (SQLUSMALLINT *) val;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAMS_PROCESSED_PTR:
+	s->parm_proc = (SQLUINTEGER *) val;
+	return SQL_SUCCESS;
+    case SQL_ATTR_PARAMSET_SIZE:
+	if ((SQLUINTEGER) val != 1) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
+
     }
     return drvunimplstmt(stmt);
 }
@@ -4951,7 +4996,6 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Get option of HSTMT.
  * @param stmt statement handle
@@ -4965,7 +5009,6 @@ SQLGetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
     return drvgetstmtoption(stmt, opt, param);
 }
-#endif
 
 #ifdef SQLITE_UTF8
 /**
@@ -5015,7 +5058,7 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
     case SQL_QUERY_TIMEOUT:
 	return SQL_SUCCESS;
     case SQL_RETRIEVE_DATA:
-	if (param != SQL_RD_ON) {
+	if (param != SQL_RD_ON && param != SQL_RD_OFF) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
@@ -5031,7 +5074,6 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
 /**
  * Set option on HSTMT.
  * @param stmt statement handle
@@ -5045,7 +5087,6 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 {
     return drvsetstmtoption(stmt, opt, param);
 }
-#endif
 
 #ifdef SQLITE_UTF8
 /**
@@ -5131,33 +5172,37 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     }
     switch (type) {
     case SQL_MAX_USER_NAME_LEN:
-	*(SQLSMALLINT *) val = 16;
+	*((SQLSMALLINT *) val) = 16;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_USER_NAME:
 	strmak(val, "", valMax, valLen);
 	break;
     case SQL_DRIVER_ODBC_VER:
+#if 0
 	strmak(val, (*d->ov3) ? "03.00" : "02.50", valMax, valLen);
+#else
+	strmak(val, "03.00", valMax, valLen);
+#endif
 	break;
     case SQL_ACTIVE_CONNECTIONS:
     case SQL_ACTIVE_STATEMENTS:
-	*(SQLSMALLINT *) val = 0;
+	*((SQLSMALLINT *) val) = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
 #ifdef SQL_ASYNC_MODE
     case SQL_ASYNC_MODE:
 #ifdef ASYNC
-	*(SQLUINTEGER *) val = SQL_AM_STATEMENT;
+	*((SQLUINTEGER *) val) = SQL_AM_STATEMENT;
 #else
-	*(SQLUINTEGER *) val = SQL_AM_NONE;
+	*((SQLUINTEGER *) val) = SQL_AM_NONE;
 #endif
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
 #ifdef SQL_CREATE_TABLE
     case SQL_CREATE_TABLE:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
@@ -5171,7 +5216,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "02.50", valMax, valLen);
 	break;
     case SQL_FETCH_DIRECTION:
-	*(SQLUINTEGER *) val = SQL_FD_FETCH_NEXT | SQL_FD_FETCH_FIRST |
+	*((SQLUINTEGER *) val) = SQL_FD_FETCH_NEXT | SQL_FD_FETCH_FIRST |
 	    SQL_FD_FETCH_LAST | SQL_FD_FETCH_PRIOR | SQL_FD_FETCH_ABSOLUTE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
@@ -5179,8 +5224,12 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, (*d->ov3) ? "03.00" : "02.50", valMax, valLen);
 	break;
     case SQL_ODBC_SAG_CLI_CONFORMANCE:
-	*(SQLSMALLINT *) val = SQL_OSCC_NOT_COMPLIANT;
+	*((SQLSMALLINT *) val) = SQL_OSCC_NOT_COMPLIANT;
 	*valLen = sizeof (SQLSMALLINT);
+	break;
+    case SQL_STANDARD_CLI_CONFORMANCE:
+	*((SQLUINTEGER *) val) = SQL_SCC_XOPEN_CLI_VERSION1;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SERVER_NAME:
     case SQL_DATABASE_NAME:
@@ -5190,11 +5239,11 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "", valMax, valLen);
 	break;
     case SQL_ODBC_SQL_CONFORMANCE:
-	*(SQLSMALLINT *) val = SQL_OSC_MINIMUM;
+	*((SQLSMALLINT *) val) = SQL_OSC_MINIMUM;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_ODBC_API_CONFORMANCE:
-	*(SQLSMALLINT *) val = SQL_OAC_LEVEL1;
+	*((SQLSMALLINT *) val) = SQL_OAC_LEVEL1;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_DBMS_NAME:
@@ -5226,33 +5275,33 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #ifdef SQL_OJ_CAPABILITIES
     case SQL_OJ_CAPABILITIES:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
 #ifdef SQL_MAX_IDENTIFIER_LEN
     case SQL_MAX_IDENTIFIER_LEN:
-	*(SQLUSMALLINT *) val = 255;
+	*((SQLUSMALLINT *) val) = 255;
 	*valLen = sizeof (SQLUSMALLINT);
 	break;
 #endif
     case SQL_CONCAT_NULL_BEHAVIOR:
-	*(SQLSMALLINT *) val = SQL_CB_NULL;
+	*((SQLSMALLINT *) val) = SQL_CB_NULL;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_CURSOR_COMMIT_BEHAVIOR:
     case SQL_CURSOR_ROLLBACK_BEHAVIOR:
-	*(SQLSMALLINT *) val = SQL_CB_PRESERVE;
+	*((SQLSMALLINT *) val) = SQL_CB_PRESERVE;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
 #ifdef SQL_CURSOR_SENSITIVITY
     case SQL_CURSOR_SENSITIVITY:
-	*(SQLUINTEGER *) val = SQL_UNSPECIFIED;
+	*((SQLUINTEGER *) val) = SQL_UNSPECIFIED;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
     case SQL_DEFAULT_TXN_ISOLATION:
-	*(SQLUINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLUINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #ifdef SQL_DESCRIBE_PARAMETER
@@ -5261,11 +5310,11 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_TXN_ISOLATION_OPTION:
-	*(SQLUINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLUINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_IDENTIFIER_CASE:
-	*(SQLSMALLINT *) val = SQL_IC_SENSITIVE;
+	*((SQLSMALLINT *) val) = SQL_IC_SENSITIVE;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_IDENTIFIER_QUOTE_CHAR:
@@ -5273,19 +5322,19 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_MAX_TABLE_NAME_LEN:
     case SQL_MAX_COLUMN_NAME_LEN:
-	*(SQLSMALLINT *) val = 255;
+	*((SQLSMALLINT *) val) = 255;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_CURSOR_NAME_LEN:
-	*(SWORD *) val = 255;
+	*((SWORD *) val) = 255;
 	*valLen = sizeof (SWORD);
 	break;
     case SQL_MAX_PROCEDURE_NAME_LEN:
-	*(SQLSMALLINT *) val = 0;
+	*((SQLSMALLINT *) val) = 0;
 	break;
     case SQL_MAX_QUALIFIER_NAME_LEN:
     case SQL_MAX_OWNER_NAME_LEN:
-	*(SQLSMALLINT *) val = 255;
+	*((SQLSMALLINT *) val) = 255;
 	break;
     case SQL_OWNER_TERM:
 	strmak(val, "owner", valMax, valLen);
@@ -5300,34 +5349,34 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "database", valMax, valLen);
 	break;
     case SQL_QUALIFIER_USAGE:
-	*(SQLUINTEGER *) val = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION
+	*((SQLUINTEGER *) val) = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION
 			       | SQL_QU_INDEX_DEFINITION;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
-	*(SQLUINTEGER *) val = SQL_SCCO_READ_ONLY;
+	*((SQLUINTEGER *) val) = SQL_SCCO_READ_ONLY;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_OPTIONS:
-	*(SQLUINTEGER *) val = SQL_SO_STATIC | SQL_SO_FORWARD_ONLY;
+	*((SQLUINTEGER *) val) = SQL_SO_STATIC | SQL_SO_FORWARD_ONLY;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_TABLE_TERM:
 	strmak(val, "table", valMax, valLen);
 	break;
     case SQL_TXN_CAPABLE:
-	*(SQLSMALLINT *) val = SQL_TC_ALL;
+	*((SQLSMALLINT *) val) = SQL_TC_ALL;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_CONVERT_FUNCTIONS:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
        break;
     case SQL_SYSTEM_FUNCTIONS:
     case SQL_NUMERIC_FUNCTIONS:
     case SQL_STRING_FUNCTIONS:
     case SQL_TIMEDATE_FUNCTIONS:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_CONVERT_BIGINT:
@@ -5346,7 +5395,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_CONVERT_TIMESTAMP:
     case SQL_CONVERT_TINYINT:
     case SQL_CONVERT_VARCHAR:
-	*(SQLUINTEGER *) val = 
+	*((SQLUINTEGER *) val) = 
 	    SQL_CVT_CHAR | SQL_CVT_NUMERIC | SQL_CVT_DECIMAL |
 	    SQL_CVT_INTEGER | SQL_CVT_SMALLINT | SQL_CVT_FLOAT | SQL_CVT_REAL |
 	    SQL_CVT_DOUBLE | SQL_CVT_VARCHAR | SQL_CVT_LONGVARCHAR |
@@ -5365,31 +5414,31 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_UNION:
     case SQL_TIMEDATE_ADD_INTERVALS:
     case SQL_TIMEDATE_DIFF_INTERVALS:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_QUOTED_IDENTIFIER_CASE:
-	*(SQLUSMALLINT *) val = SQL_IC_SENSITIVE;
+	*((SQLUSMALLINT *) val) = SQL_IC_SENSITIVE;
 	*valLen = sizeof (SQLUSMALLINT);
 	break;
     case SQL_POS_OPERATIONS:
-	*(SQLUINTEGER *) val = SQL_POS_POSITION;
+	*((SQLUINTEGER *) val) = SQL_POS_POSITION;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ALTER_TABLE:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_CORRELATION_NAME:
-	*(SQLSMALLINT *) val = SQL_CN_DIFFERENT;
+	*((SQLSMALLINT *) val) = SQL_CN_DIFFERENT;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_NON_NULLABLE_COLUMNS:
-	*(SQLSMALLINT *) val = SQL_NNC_NON_NULL;
+	*((SQLSMALLINT *) val) = SQL_NNC_NON_NULL;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_NULL_COLLATION:
-	*(SQLSMALLINT *) val = SQL_NC_START;
+	*((SQLSMALLINT *) val) = SQL_NC_START;
 	*valLen = sizeof(SQLSMALLINT);
 	break;
     case SQL_MAX_COLUMNS_IN_GROUP_BY:
@@ -5397,51 +5446,51 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_MAX_COLUMNS_IN_SELECT:
     case SQL_MAX_COLUMNS_IN_TABLE:
     case SQL_MAX_ROW_SIZE:
-	*(SQLSMALLINT *) val = 0;
+	*((SQLSMALLINT *) val) = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_TABLES_IN_SELECT:
-	*(SQLSMALLINT *) val = 1;
+	*((SQLSMALLINT *) val) = 1;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_BINARY_LITERAL_LEN:
     case SQL_MAX_CHAR_LITERAL_LEN:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_MAX_COLUMNS_IN_INDEX:
-	*(SQLSMALLINT *) val = 0;
+	*((SQLSMALLINT *) val) = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_INDEX_SIZE:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof(SQLUINTEGER);
 	break;
 #ifdef SQL_MAX_IDENTIFIER_LENGTH
     case SQL_MAX_IDENTIFIER_LENGTH:
-	*(SQLUINTEGER *) val = 255;
+	*((SQLUINTEGER *) val) = 255;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
     case SQL_MAX_STATEMENT_LEN:
-	*(SQLUINTEGER *) val = 16384;
+	*((SQLUINTEGER *) val) = 16384;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_QUALIFIER_LOCATION:
-	*(SQLSMALLINT *) val = SQL_QL_START;
+	*((SQLSMALLINT *) val) = SQL_QL_START;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GETDATA_EXTENSIONS:
     case SQL_STATIC_SENSITIVITY:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FILE_USAGE:
-	*(SQLSMALLINT *) val = SQL_FILE_NOT_SUPPORTED;
+	*((SQLSMALLINT *) val) = SQL_FILE_NOT_SUPPORTED;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GROUP_BY:
-	*(SQLSMALLINT *) val = 0;
+	*((SQLSMALLINT *) val) = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_KEYWORDS:
@@ -5455,23 +5504,27 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_BATCH_SUPPORT:
     case SQL_BATCH_ROW_COUNT:
     case SQL_PARAM_ARRAY_ROW_COUNTS:
-	*(SQLUINTEGER *) val = 0;
+	*((SQLUINTEGER *) val) = 0;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FORWARD_ONLY_CURSOR_ATTRIBUTES1:
-	*(SQLUINTEGER *) val = SQL_CA1_NEXT;
+	*((SQLUINTEGER *) val) = SQL_CA1_NEXT;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_STATIC_CURSOR_ATTRIBUTES1:
     case SQL_KEYSET_CURSOR_ATTRIBUTES1:
-	*(SQLUINTEGER *) val =
-	    SQL_CA1_NEXT | SQL_CA1_ABSOLUTE;
+	*((SQLUINTEGER *) val) =
+	    SQL_CA1_NEXT | SQL_CA1_ABSOLUTE | SQL_CA1_RELATIVE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FORWARD_ONLY_CURSOR_ATTRIBUTES2:
     case SQL_STATIC_CURSOR_ATTRIBUTES2:
     case SQL_KEYSET_CURSOR_ATTRIBUTES2:
-	*(SQLUINTEGER *) val = SQL_CA2_READ_ONLY_CONCURRENCY;
+	*((SQLUINTEGER *) val) = SQL_CA2_READ_ONLY_CONCURRENCY;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+    case SQL_ODBC_INTERFACE_CONFORMANCE:
+	*((SQLUINTEGER *) val) = SQL_OIC_CORE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     default:
@@ -5612,7 +5665,6 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	return SQL_INVALID_HANDLE;
     }
     d = (DBC *) dbc;
-
     for (i = 0; i < array_size(exists); i++) {
 	exists[i] = SQL_FALSE;
     }
@@ -5688,6 +5740,8 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 		flags[i >> 4] |= (1 << (i & 0xF));
 	    }
 	}
+	SET_EXISTS(SQL_API_SQLALLOCHANDLE);
+	SET_EXISTS(SQL_API_SQLFREEHANDLE);
 	SET_EXISTS(SQL_API_SQLGETSTMTATTR);
 	SET_EXISTS(SQL_API_SQLSETSTMTATTR);
 	SET_EXISTS(SQL_API_SQLGETCONNECTATTR);
@@ -5704,6 +5758,8 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	    *flags = exists[func];
 	} else {
 	    switch (func) {
+	    case SQL_API_SQLALLOCHANDLE:
+	    case SQL_API_SQLFREEHANDLE:
 	    case SQL_API_SQLGETSTMTATTR:
 	    case SQL_API_SQLSETSTMTATTR:
 	    case SQL_API_SQLGETCONNECTATTR:
@@ -6000,32 +6056,32 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     }
     switch (attr) {
     case SQL_ATTR_CONNECTION_DEAD:
-	*(SQLINTEGER *) val = d->sqlite ? SQL_CD_FALSE : SQL_CD_TRUE;
+	*((SQLINTEGER *) val) = d->sqlite ? SQL_CD_FALSE : SQL_CD_TRUE;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_ACCESS_MODE:
-	*(SQLINTEGER *) val = SQL_MODE_READ_WRITE;
+	*((SQLINTEGER *) val) = SQL_MODE_READ_WRITE;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_AUTOCOMMIT:
-	*(SQLINTEGER *) val =
+	*((SQLINTEGER *) val) =
 	    d->autocommit ? SQL_AUTOCOMMIT_ON : SQL_AUTOCOMMIT_OFF;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_LOGIN_TIMEOUT:
-	*(SQLINTEGER *) val = 100;
+	*((SQLINTEGER *) val) = 100;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_ODBC_CURSORS:
-	*(SQLINTEGER *) val = SQL_CUR_USE_DRIVER;
+	*((SQLINTEGER *) val) = SQL_CUR_USE_DRIVER;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_PACKET_SIZE:
-	*(SQLINTEGER *) val = 16384;
+	*((SQLINTEGER *) val) = 16384;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_TXN_ISOLATION:
-	*(SQLINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_TRACE:
@@ -6037,48 +6093,48 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_PARAM_BIND_TYPE:
     case SQL_ATTR_ROW_BIND_TYPE:
     case SQL_ATTR_CURRENT_CATALOG:
-	*(SQLINTEGER *) val = 0;
+	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_USE_BOOKMARKS:
-	*(SQLINTEGER *) val = SQL_UB_OFF;
+	*((SQLINTEGER *) val) = SQL_UB_OFF;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_ASYNC_ENABLE:
-	*(SQLINTEGER *) val = SQL_ASYNC_ENABLE_OFF;
+	*((SQLINTEGER *) val) = SQL_ASYNC_ENABLE_OFF;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_NOSCAN:
-	*(SQLINTEGER *) val = SQL_NOSCAN_ON;
+	*((SQLINTEGER *) val) = SQL_NOSCAN_ON;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_CONCURRENCY:
-	*(SQLINTEGER *) val = SQL_CONCUR_ROWVER;
+	*((SQLINTEGER *) val) = SQL_CONCUR_ROWVER;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_SIMULATE_CURSOR:
-	*(SQLINTEGER *) val = SQL_SC_NON_UNIQUE;
+	*((SQLINTEGER *) val) = SQL_SC_NON_UNIQUE;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_MAX_ROWS:
     case SQL_ATTR_MAX_LENGTH:
-	*(SQLINTEGER *) val = 1000000000;
+	*((SQLINTEGER *) val) = 1000000000;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_CURSOR_TYPE:
 #ifdef ASYNC
-	*(SQLINTEGER *) val = d->curtype;
+	*((SQLINTEGER *) val) = d->curtype;
 #else
-	*(SQLINTEGER *) val = SQL_CURSOR_STATIC;
+	*((SQLINTEGER *) val) = SQL_CURSOR_STATIC;
 #endif
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_RETRIEVE_DATA:
-	*(SQLINTEGER *) val = SQL_RD_ON;
+	*((SQLINTEGER *) val) = SQL_RD_ON;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     default:
-	*(SQLINTEGER *) val = 0;
+	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
 	setstatd(d, "unsupported connect attribute %d", "S1C00",
 		 (int) attr);
@@ -6225,23 +6281,23 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
     }
     switch (opt) {
     case SQL_ACCESS_MODE:
-	*(SQLINTEGER *) param = SQL_MODE_READ_WRITE;
+	*((SQLINTEGER *) param) = SQL_MODE_READ_WRITE;
 	break;
     case SQL_AUTOCOMMIT:
-	*(SQLINTEGER *) param =
+	*((SQLINTEGER *) param) =
 	    d->autocommit ? SQL_AUTOCOMMIT_ON : SQL_AUTOCOMMIT_OFF;
 	break;
     case SQL_LOGIN_TIMEOUT:
-	*(SQLINTEGER *) param = 100;
+	*((SQLINTEGER *) param) = 100;
 	break;
     case SQL_ODBC_CURSORS:
-	*(SQLINTEGER *) param = SQL_CUR_USE_DRIVER;
+	*((SQLINTEGER *) param) = SQL_CUR_USE_DRIVER;
 	break;
     case SQL_PACKET_SIZE:
-	*(SQLINTEGER *) param = 16384;
+	*((SQLINTEGER *) param) = 16384;
 	break;
     case SQL_TXN_ISOLATION:
-	*(SQLINTEGER *) param = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLINTEGER *) param) = SQL_TXN_READ_UNCOMMITTED;
 	break;
     case SQL_OPT_TRACE:
     case SQL_OPT_TRACEFILE:
@@ -6252,40 +6308,40 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
     case SQL_QUERY_TIMEOUT:
     case SQL_BIND_TYPE:
     case SQL_CURRENT_QUALIFIER:
-	*(SQLINTEGER *) param = 0;
+	*((SQLINTEGER *) param) = 0;
 	break;
     case SQL_USE_BOOKMARKS:
-	*(SQLINTEGER *) param = SQL_UB_OFF;
+	*((SQLINTEGER *) param) = SQL_UB_OFF;
 	break;
     case SQL_ASYNC_ENABLE:
-	*(SQLINTEGER *) param = SQL_ASYNC_ENABLE_OFF;
+	*((SQLINTEGER *) param) = SQL_ASYNC_ENABLE_OFF;
 	break;
     case SQL_NOSCAN:
-	*(SQLINTEGER *) param = SQL_NOSCAN_ON;
+	*((SQLINTEGER *) param) = SQL_NOSCAN_ON;
 	break;
     case SQL_CONCURRENCY:
-	*(SQLINTEGER *) param = SQL_CONCUR_ROWVER;
+	*((SQLINTEGER *) param) = SQL_CONCUR_ROWVER;
 	break;
     case SQL_SIMULATE_CURSOR:
-	*(SQLINTEGER *) param = SQL_SC_NON_UNIQUE;
+	*((SQLINTEGER *) param) = SQL_SC_NON_UNIQUE;
 	break;
     case SQL_ROWSET_SIZE:
     case SQL_MAX_ROWS:
     case SQL_MAX_LENGTH:
-	*(SQLINTEGER *) param = 1000000000;
+	*((SQLINTEGER *) param) = 1000000000;
 	break;
     case SQL_CURSOR_TYPE:
 #ifdef ASYNC
-	*(SQLINTEGER *) param = d->curtype;
+	*((SQLINTEGER *) param) = d->curtype;
 #else
-	*(SQLINTEGER *) param = SQL_CURSOR_STATIC;
+	*((SQLINTEGER *) param) = SQL_CURSOR_STATIC;
 #endif
 	break;
     case SQL_RETRIEVE_DATA:
-	*(SQLINTEGER *) param = SQL_RD_ON;
+	*((SQLINTEGER *) param) = SQL_RD_ON;
 	break;
     default:
-	*(SQLINTEGER *) param = 0;
+	*((SQLINTEGER *) param) = 0;
 	setstatd(d, "unsupported connect option %d", "S1C00", opt);
 	return SQL_ERROR;
     }
@@ -7093,15 +7149,7 @@ SQLAllocHandle(SQLSMALLINT type, SQLHANDLE input, SQLHANDLE *output)
 	}
 	return ret;
     case SQL_HANDLE_DBC:
-	ret = drvallocconnect((SQLHENV) input, (SQLHDBC *) output);
-	if (ret == SQL_SUCCESS) {
-	    DBC *d = (DBC *) *output;
-
-	    if (d && d->magic == DBC_MAGIC) {
-		*d->ov3 = 1;
-	    }
-	}
-	return ret;
+	return drvallocconnect((SQLHENV) input, (SQLHDBC *) output);
     case SQL_HANDLE_STMT:
 	return drvallocstmt((SQLHDBC) input, (SQLHSTMT *) output);
     }
@@ -7389,7 +7437,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 
 	    doz = (type == SQL_C_CHAR || type == SQL_C_WCHAR) ? 1 : 0;
 	    if (otype == SQL_C_WCHAR) {
-		ucdata = uc_from_utf((char *) data, dlen);
+		ucdata = uc_from_utf(*data, dlen);
 		if (!ucdata) {
 		    return nomem(s);
 		}
@@ -9344,12 +9392,14 @@ drvcolattributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_SCALE:
+    case SQL_DESC_SCALE:
 	if (val2) {
 	    *val2 = c->scale;
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_PRECISION:
+    case SQL_DESC_PRECISION:
 	if (val2) {
 	    *val2 = c->prec;
 	}

@@ -73,4 +73,6 @@ SQLGetStmtAttr
 SQLSetStmtAttr
 SQLAllocStmt
 SQLFreeStmt
+SQLAllocConnect
+SQLFreeConnect
 ConfigDSN
