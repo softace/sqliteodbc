@@ -1,0 +1,129 @@
+This patch makes SQLite 2.8.4 more robust against
+locale (LC_NUMERIC) differences in floating point
+string representation. Apply it on a stock 2.8.4
+SQLite source tree.
+
+diff -ur sqlite.orig/configure.ac sqlite/configure.ac
+--- sqlite.orig/configure.ac	Tue Apr 22 22:29:44 2003
++++ sqlite/configure.ac	Wed Jun  4 16:41:57 2003
+@@ -525,6 +525,11 @@
+ AC_CHECK_FUNC(usleep, [TARGET_CFLAGS="$TARGET_CFLAGS -DHAVE_USLEEP=1"])
+ 
+ #########
++# Figure out whether or not we have a "localeconv()" function.
++#
++AC_CHECK_FUNC(localeconv, [TARGET_CFLAGS="$TARGET_CFLAGS -DHAVE_LOCALECONV=1"])
++
++#########
+ # Generate the output files.
+ #
+ AC_OUTPUT([
+diff -ur sqlite.orig/src/func.c sqlite/src/func.c
+--- sqlite.orig/src/func.c	Tue May 13 03:52:32 2003
++++ sqlite/src/func.c	Wed Jun  4 16:41:57 2003
+@@ -150,6 +150,9 @@
+   if( n<0 ) n = 0;
+   r = atof(argv[0]);
+   sprintf(zBuf,"%.*f",n,r);
++#if OS_WIN || defined(HAVE_LOCALECONV)
++  sqliteFixupFloat(zBuf);
++#endif
+   sqlite_set_result_string(context, zBuf, -1);
+ }
+ 
+diff -ur sqlite.orig/src/sqliteInt.h sqlite/src/sqliteInt.h
+--- sqlite.orig/src/sqliteInt.h	Tue Jun  3 03:47:11 2003
++++ sqlite/src/sqliteInt.h	Wed Jun  4 16:47:01 2003
+@@ -1190,3 +1190,10 @@
+ int sqliteFixExpr(DbFixer*, Expr*);
+ int sqliteFixExprList(DbFixer*, ExprList*);
+ int sqliteFixTriggerStep(DbFixer*, TriggerStep*);
++
++#if OS_WIN || defined(HAVE_LOCALECONV)
++double sqliteAtof(const char*);
++#define atof(x) sqliteAtof(x)
++void sqliteFixupFloat(char*);
++#endif
++
+diff -ur sqlite.orig/src/util.c sqlite/src/util.c
+--- sqlite.orig/src/util.c	Mon Jun  2 13:12:47 2003
++++ sqlite/src/util.c	Wed Jun  4 16:41:57 2003
+@@ -19,6 +19,9 @@
+ #include "sqliteInt.h"
+ #include <stdarg.h>
+ #include <ctype.h>
++#if OS_WIN || defined(HAVE_LOCALECONV)
++#include <locale.h>
++#endif
+ 
+ /*
+ ** If malloc() ever fails, this global variable gets set to 1.
+@@ -1332,3 +1335,55 @@
+   }
+   return 0;
+ }
++
++#if OS_WIN || defined(HAVE_LOCALECONV)
++
++/* Local atof() replacement function to work around LC_NUMERIC
++** differences with respect to decimal point.
++** CAUTION: passed string is temporarily modified !!!
++*/
++
++#undef atof
++
++double sqliteAtof(const char *atext){
++  struct lconv *lc;
++  char *dp = NULL;
++  double value;
++
++  lc = localeconv();
++  if( lc!=0 &&
++      lc->decimal_point!=0 &&
++      lc->decimal_point[0] &&
++      lc->decimal_point[0]!='.' ){
++    dp = strchr(atext,'.');
++    if( dp!=0 ){
++      *dp = lc->decimal_point[0];
++    }
++  }
++  value = atof(atext);
++  if( dp!=0 ){
++    *dp = '.';
++  }
++  return value;
++}
++
++/* Function to restore dot as decimal point after using
++** locale specific sprintf %e, %f, %g formats.
++*/
++
++void sqliteFixupFloat(char *atext){
++  struct lconv *lc;
++  char *p;
++
++  lc = localeconv();
++  if( lc!=0 &&
++      lc->decimal_point!=0 &&
++      lc->decimal_point[0] &&
++      lc->decimal_point[0]!='.' ){
++    p = strchr(atext,lc->decimal_point[0]);
++    if( p ){
++      *p = '.';
++    }
++  }
++}
++#endif
+diff -ur sqlite.orig/src/vdbe.c sqlite/src/vdbe.c
+--- sqlite.orig/src/vdbe.c	Wed Jun  4 14:09:14 2003
++++ sqlite/src/vdbe.c	Wed Jun  4 16:41:57 2003
+@@ -923,6 +923,9 @@
+   int fg = pStack->flags;
+   if( fg & STK_Real ){
+     sprintf(pStack->z,"%.15g",pStack->r);
++#if OS_WIN || defined(HAVE_LOCALECONV)
++    sqliteFixupFloat(pStack->z);
++#endif
+   }else if( fg & STK_Int ){
+     sprintf(pStack->z,"%d",pStack->i);
+   }else{

@@ -14,7 +14,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.3, MS VC++ 6.0 and tested on
+The binaries were made with SQLite 2.8.4, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97, MS Access 97, with
 StarOffice 5.2 and OpenOffice 1.0.
 Unzip the archive into a temporary directory and execute the INST.EXE
@@ -199,7 +199,7 @@ TODO:
 - ??? SQLForeignKeys() ???
 
 
-June, 15th, 2003
+July, 11th, 2003
 Christian Werner
 mailto:chw@ch-werner.de
 

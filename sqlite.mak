@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.3
+# VC++ 6.0 Makefile for SQLite 2.8.4
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -64,6 +64,7 @@ SRC = \
   $(TOP)/src/attach.c \
   $(TOP)/src/auth.c \
   $(TOP)/src/btree.c \
+  $(TOP)/src/btree.h \
   $(TOP)/src/btree_rb.c \
   $(TOP)/src/build.c \
   $(TOP)/src/copy.c \

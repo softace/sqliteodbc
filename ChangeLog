@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Fri Jul 11 2003 version 0.53 released
+
+	* update to SQLite 2.8.4
+	* added missing handling of ODBC V3 data type codes SQL_C_DATE,
+	  SQL_C_TIME, SQL_C_TIMESTAMP in some functions. Thanks to
+	  Justin at cloudmark dot com
+
 Sun Jun 15 2003 version 0.52 released
 
 	* update to SQLite 2.8.3

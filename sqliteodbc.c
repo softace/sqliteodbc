@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.46 2003/06/15 07:44:32 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.47 2003/07/11 04:53:27 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -2541,12 +2541,21 @@ seqerr:
 		case SQL_C_DOUBLE:
 		    size = sizeof (double);
 		    break;
+#ifdef SQL_C_TYPE_DATE
+		case SQL_C_TYPE_DATE:
+#endif
 		case SQL_C_DATE:
 		    size = sizeof (DATE_STRUCT);
 		    break;
+#ifdef SQL_C_TYPE_DATE
+		case SQL_C_TYPE_TIME:
+#endif
 		case SQL_C_TIME:
 		    size = sizeof (TIME_STRUCT);
 		    break;
+#ifdef SQL_C_TYPE_DATE
+		case SQL_C_TYPE_TIMESTAMP:
+#endif
 		case SQL_C_TIMESTAMP:
 		    size = sizeof (TIMESTAMP_STRUCT);
 		    break;
@@ -2733,18 +2742,27 @@ substparam(STMT *s, int pnum, char **out, int *size)
     dodouble:
 	ln_sprintfg(buf, dval);
 	goto bind;
+#ifdef SQL_C_TYPE_DATE
+    case SQL_C_TYPE_DATE:
+#endif
     case SQL_C_DATE:
 	sprintf(buf, "%04d-%02d-%02d",
 		((DATE_STRUCT *) p->param)->year,
 		((DATE_STRUCT *) p->param)->month,
 		((DATE_STRUCT *) p->param)->day);
 	goto bind;
+#ifdef SQL_C_TYPE_TIME
+    case SQL_C_TYPE_TIME:
+#endif
     case SQL_C_TIME:
 	sprintf(buf, "%02d:%02d:%02d",
 		((TIME_STRUCT *) p->param)->hour,
 		((TIME_STRUCT *) p->param)->minute,
 		((TIME_STRUCT *) p->param)->second);
 	goto bind;
+#ifdef SQL_C_TYPE_TIMESTAMP
+    case SQL_C_TYPE_TIMESTAMP:
+#endif
     case SQL_C_TIMESTAMP:
 	sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d.%ld",
 		((TIMESTAMP_STRUCT *) p->param)->year,
@@ -7362,12 +7380,21 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 	    *((char *) val) = '\0';
 #endif
 	    break;
+#ifdef SQL_C_TYPE_DATE
+	case SQL_C_TYPE_DATE:
+#endif
 	case SQL_C_DATE:
 	    memset((DATE_STRUCT *) val, 0, sizeof (DATE_STRUCT));
 	    break;
+#ifdef SQL_C_TYPE_TIME
+	case SQL_C_TYPE_TIME:
+#endif
 	case SQL_C_TIME:
 	    memset((TIME_STRUCT *) val, 0, sizeof (TIME_STRUCT));
 	    break;
+#ifdef SQL_C_TYPE_TIMESTAMP
+	case SQL_C_TYPE_TIMESTAMP:
+#endif
 	case SQL_C_TIMESTAMP:
 	    memset((TIMESTAMP_STRUCT *) val, 0, sizeof (TIMESTAMP_STRUCT));
 	    break;
@@ -7504,6 +7531,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 #endif
 	    break;
 	}
+#ifdef SQL_C_TYPE_DATE
+	case SQL_C_TYPE_DATE:
+#endif
 	case SQL_C_DATE:
 	    if (str2date(*data, (DATE_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
@@ -7511,6 +7541,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		*lenp = sizeof (DATE_STRUCT);
 	    }
 	    break;
+#ifdef SQL_C_TYPE_TIME
+	case SQL_C_TYPE_TIME:
+#endif
 	case SQL_C_TIME:
 	    if (str2time(*data, (TIME_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
@@ -7518,6 +7551,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		*lenp = sizeof (TIME_STRUCT);
 	    }
 	    break;
+#ifdef SQL_C_TYPE_TIMESTAMP
+	case SQL_C_TYPE_TIMESTAMP:
+#endif
 	case SQL_C_TIMESTAMP:
 	    if (str2timestamp(*data, (TIMESTAMP_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
@@ -7578,6 +7614,15 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	case SQL_C_CHAR:
 #ifdef SQLITE_UTF8
 	case SQL_C_WCHAR:
+#endif
+#ifdef SQL_C_TYPE_DATE
+	case SQL_C_TYPE_DATE:
+#endif
+#ifdef SQL_C_TYPE_TIME
+	case SQL_C_TYPE_TIME:
+#endif
+#ifdef SQL_C_TYPE_TIMESTAMP
+	case SQL_C_TYPE_TIMESTAMP:
 #endif
 	    break;
 	default:
