@@ -1,6 +1,25 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Jan 25 2004 version 0.55 released
+
+	* update to SQLite 2.8.11
+	* fixes in error messages
+	* fixed SQL_IDENTIFIER_QUOTE_CHAR to be double-quote, thanks
+	  to Mourad Ben Cheikh
+	* minor fixes in functions related to SQLColAttribute(s)
+	* started support of bookmarks
+	* added SQL_DYNAMIC_CURSOR_ATTRIBUTES1 in drvgetinfo(),
+	  thanks to Jeff Robbins
+	* changed "numeric" in mapsqltype() to return SQL_DOUBLE,
+	  thanks to Cristian Guissani
+	* added add[sys]dsn/rem[sys]dsn utility programs for Win32
+	  as requested by Tom Shafer
+	* fix in ParseAttributes() for proper DSN configuration
+	* don't automatically rollback in drvexecute()
+	* bug fix in UTF8 version for deferred bound parameters
+	  thanks to Kimmo Hamalainen
+
 Sun Jul 27 2003 version 0.54 released
 
 	* update to SQLite 2.8.5

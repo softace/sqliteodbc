@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.4
+# VC++ 6.0 Makefile for SQLite 2.8.11
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -52,11 +52,12 @@ TCCXD = $(TCCX) -D_DLL
 # Object files for the SQLite library.
 
 LIBOBJ = attach.obj auth.obj btree.obj btree_rb.obj build.obj copy.obj \
-         delete.obj expr.obj hash.obj insert.obj \
+         date.obj delete.obj expr.obj func.obj hash.obj insert.obj \
          main.obj os.obj pager.obj parse.obj pragma.obj printf.obj \
          random.obj select.obj \
-	 table.obj func.obj tokenize.obj update.obj util.obj vdbe.obj \
-	 where.obj encode.obj trigger.obj opcodes.obj vacuum.obj
+	 table.obj tokenize.obj trigger.obj update.obj util.obj \
+         vacuum.obj vdbe.obj vdbeaux.obj where.obj \
+	 encode.obj opcodes.obj
 
 # All of the source code files.
 
@@ -68,6 +69,7 @@ SRC = \
   $(TOP)/src/btree_rb.c \
   $(TOP)/src/build.c \
   $(TOP)/src/copy.c \
+  $(TOP)/src/date.c \
   $(TOP)/src/delete.c \
   $(TOP)/src/expr.c \
   $(TOP)/src/hash.c \
@@ -89,14 +91,16 @@ SRC = \
   $(TOP)/src/func.c \
   $(TOP)/src/tclsqlite.c \
   $(TOP)/src/tokenize.c \
+  $(TOP)/src/trigger.c \
   $(TOP)/src/update.c \
   $(TOP)/src/util.c \
+  $(TOP)/src/vacuum.c \
   $(TOP)/src/vdbe.c \
   $(TOP)/src/vdbe.h \
+  $(TOP)/src/vdbeaux.c \
+  $(TOP)/src/vdbeInt.h \
   $(TOP)/src/where.c \
-  $(TOP)/src/encode.c \
-  $(TOP)/src/trigger.c \
-  $(TOP)/src/vacuum.c
+  $(TOP)/src/encode.c
 
 # Header files used by all library source files.
 
@@ -205,8 +209,14 @@ util.obj:	$(TOP)/src/util.c $(HDR)
 vdbe.obj:	$(TOP)/src/vdbe.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/vdbe.c
 
+vdbeaux.obj:	$(TOP)/src/vdbeaux.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/vdbeaux.c
+
 where.obj:	$(TOP)/src/where.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/where.c
+
+date.obj:	$(TOP)/src/date.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/date.c
 
 delete.obj:	$(TOP)/src/delete.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/delete.c

@@ -33,7 +33,8 @@ OBJECTS=	sqliteodbc.obj
 .c.obj:
 		$(CC) $(CFLAGS) /c $<
 
-all:		$(DRVDLL) inst.exe uninst.exe
+all:		$(DRVDLL) inst.exe uninst.exe adddsn.exe remdsn.exe \
+		addsysdsn.exe remsysdsn.exe
 
 clean:
 		del *.obj
@@ -54,6 +55,19 @@ uninst.exe:	inst.exe
 inst.exe:	inst.c
 		$(CC) $(CFLAGSEXE) inst.c odbc32.lib odbccp32.lib \
 		kernel32.lib user32.lib
+
+remdsn.exe:	adddsn.exe
+		copy adddsn.exe remdsn.exe
+
+adddsn.exe:	adddsn.c
+		$(CC) $(CFLAGSEXE) adddsn.c odbc32.lib odbccp32.lib \
+		kernel32.lib user32.lib
+
+remsysdsn.exe:	adddsn.exe
+		copy adddsn.exe remsysdsn.exe
+
+addsysdsn.exe:	adddsn.exe
+		copy adddsn.exe addsysdsn.exe
 
 fixup.exe:	fixup.c
 		$(CC) $(CFLAGSEXE) fixup.c
