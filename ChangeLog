@@ -1,6 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Sep 14 2002 version 0.47 released
+
+	* fixed NULL pointer derefs in getmd() and mapsqltype()
+	* SQLBindCol() now always binds even if no result available
+
 Sat Aug 31 2002 version 0.46 released
 
 	* experimental: configuration option: use coroutine

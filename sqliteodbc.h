@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.16 2002/08/30 05:24:52 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.17 2002/09/14 05:53:54 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -215,6 +215,7 @@ typedef struct stmt {
     COL *dyncols;		/**< Column array, but malloc()ed */
     int dcols;			/**< Number of entries in dyncols */
     BINDCOL *bindcols;		/**< Array of bound columns */
+    int nbindcols;		/**< Number of entries in bindcols */
     int nbindparms;		/**< Number bound parameters */
     BINDPARM *bindparms;	/**< Array of bound parameters */
     int nparams;		/**< Number of parameters in query */

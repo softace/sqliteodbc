@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.37 2002/08/30 05:25:16 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.38 2002/09/14 05:54:34 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -185,11 +185,13 @@ xstrdup_(char *str, char *file, int line)
 static void unbindcols(STMT *s);
 
 /**
- * Clear and re-allocate space for bound columns.
+ * Reallocate space for bound columns.
  * @param s statement pointer
+ * @param ncols number of columns
+ * @result ODBC error code
  */
 
-static void mkbindcols(STMT *s);
+static SQLRETURN mkbindcols(STMT *s, int ncols);
 
 /**
  * Free statement's result.
@@ -545,6 +547,9 @@ mapsqltype(char *typename, int *nosign)
     char *p, *q;
     int testsign = 0, result = SQL_VARCHAR;
 
+    if (!typename) {
+	return result;
+    }
     q = p = xmalloc(strlen(typename) + 1);
     if (!p) {
 	return result;
@@ -624,7 +629,7 @@ getmd(char *typename, int sqltype, int *mp, int *dp)
     case SQL_LONGVARCHAR: m = 65536; d = 0; break;
 #endif
     }
-    if (m) {
+    if (m && typename) {
 	int mm, dd;
 
 	if (sscanf(typename, "%*[^(](%d)", &mm) == 1) {
@@ -1623,7 +1628,7 @@ async_cb(void *arg, int ncols, char **values, char **cols)
 	} else {
 	    fixupdyncols(s, ca->sqlite, NULL);
 	}
-	mkbindcols(s);
+	mkbindcols(s, s->ncols);
 contsig:
 #ifdef HAVE_PTHREAD
 	pthread_mutex_lock(&d->mut);
@@ -2610,10 +2615,10 @@ noconn:
 #ifdef ASYNC
     async_end_if(s);
 #endif
-    freeresult(s, 1);
+    freeresult(s, 0);
     s->ncols = ncols;
     s->cols = colspec;
-    mkbindcols(s);
+    mkbindcols(s, s->ncols);
     s->nrows = 0;
     s->rowp = -1;
     return SQL_SUCCESS;
@@ -5447,6 +5452,7 @@ freeresult(STMT *s, int clrcols)
     s->nrows = -1;
     if (clrcols) {
 	freep(&s->bindcols);
+	s->nbindcols = 0;
 	freedyncols(s);
 	s->cols = NULL;
 	s->ncols = 0;
@@ -5460,7 +5466,7 @@ unbindcols(STMT *s)
 {
     int i;
 
-    for (i = 0; s->bindcols && i < s->ncols; i++) {
+    for (i = 0; s->bindcols && i < s->nbindcols; i++) {
 	s->bindcols[i].type = -1;
 	s->bindcols[i].max = 0;
 	s->bindcols[i].lenp = NULL;
@@ -5472,14 +5478,38 @@ unbindcols(STMT *s)
 
 /* see doc on top */
 
-static void
-mkbindcols(STMT *s)
+static SQLRETURN
+mkbindcols(STMT *s, int ncols)
 {
-    freep(&s->bindcols);
-    if (s->ncols > 0) {
-	s->bindcols = (BINDCOL *) xmalloc(s->ncols * sizeof (BINDCOL));
+    if (s->bindcols) {
+	if (s->nbindcols < ncols) {
+	    int i;
+	    BINDCOL *bindcols =
+		xrealloc(s->bindcols, ncols * sizeof (BINDCOL));
+
+	    if (!bindcols) {
+		return nomem(s);
+	    }
+	    for (i = s->nbindcols; i < ncols; i++) {
+		bindcols[i].type = -1;
+		bindcols[i].max = 0;
+		bindcols[i].lenp = NULL;
+		bindcols[i].valp = NULL;
+		bindcols[i].index = i;
+		bindcols[i].offs = 0;
+	    }
+	    s->bindcols = bindcols;
+	    s->nbindcols = ncols;
+	}
+    } else if (ncols > 0) {
+	s->bindcols = (BINDCOL *) xmalloc(ncols * sizeof (BINDCOL));
+	if (!s->bindcols) {
+	    return nomem(s);
+	}
+	s->nbindcols = ncols;
 	unbindcols(s);
     }
+    return SQL_SUCCESS;
 }
 
 /**
@@ -5699,9 +5729,7 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	return SQL_INVALID_HANDLE;
     }
     s = (STMT *) stmt;
-    if (!s->bindcols ||
-	col < 1 || col > s->ncols) {
-	setstat(s, "invalid column %d of %d", "S1002", col, s->ncols);
+    if (mkbindcols(s, col) != SQL_SUCCESS) {
 	return SQL_ERROR;
     }
     --col;
@@ -7351,7 +7379,7 @@ noconn:
 	    fixupdyncols(s, d->sqlite, NULL);
 	}
     }
-    mkbindcols(s);
+    mkbindcols(s, s->ncols);
     return SQL_SUCCESS;
 }
 
@@ -7532,7 +7560,7 @@ noconn:
 	fixupdyncols(s, d->sqlite, NULL);
     }
 done:
-    mkbindcols(s);
+    mkbindcols(s, s->ncols);
 #ifdef ASYNC
 done2:
 #endif
