@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.47 2003/07/11 04:53:27 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.48 2003/07/27 07:14:57 chw Exp chw $
  *
  * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
  *
@@ -644,7 +644,7 @@ freep(void *x)
 static SQLRETURN
 nomem(STMT *s)
 {
-    setstat(s, "out of memory", "S1000");
+    setstat(s, "out of memory", (*s->ov3) ? "HY000" : "S1000");
     return SQL_ERROR;
 }
 
@@ -657,7 +657,7 @@ nomem(STMT *s)
 static SQLRETURN
 noconn(STMT *s)
 {
-    setstat(s, "not connected", "S1000");
+    setstat(s, "not connected", (*s->ov3) ? "HY000" : "S1000");
     return SQL_ERROR;
 }
 
@@ -1833,7 +1833,8 @@ dbopen(DBC *d, char *name, char *dsn, char *tflag, char *busy)
     d->sqlite = sqlite_open(name, 0, &errp);
     if (d->sqlite == NULL) {
 connfail:
-	setstatd(d, errp ? errp : "connect failed", "S1000");
+	setstatd(d, errp ? errp : "connect failed",
+		 (*d->ov3) ? "HY000" : "S1000");
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -1911,7 +1912,7 @@ waitfordata(STMT *s)
     if (d->async_done) {
 	ret = SQL_NO_DATA;
 	if (d->async_errp) {
-	    setstat(s, d->async_errp, "S1000");
+	    setstat(s, d->async_errp, (*s->ov3) ? "HY000" : "S1000");
 	    freep(&d->async_errp);
 	    ret = SQL_ERROR;
 	}
@@ -2789,7 +2790,7 @@ substparam(STMT *s, int pnum, char **out, int *size)
     } else if (!p->lenp) {
 	if (!(p->max != SQL_NTS || p->max == SQL_SETPARAM_VALUE_MAX)) {
 error:
-	    setstat(s, "invalid parameter", "S1093");
+	    setstat(s, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
 	    return SQL_ERROR;
 	}
     } else {
@@ -2847,7 +2848,7 @@ drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
     }
     s = (STMT *) stmt;
     if (pnum == 0) {
-	setstat(s, "invalid parameter", "S1093");
+	setstat(s, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
     if (!data && (!len || *len != SQL_NULL_DATA ||
@@ -3048,7 +3049,7 @@ SQLDescribeParam(SQLHSTMT stmt, UWORD pnum, SWORD *dtype, UDWORD *size,
     s = (STMT *) stmt;
     --pnum;
     if (pnum >= s->nparams) {
-	setstat(s, "invalid parameter index", "S1000");
+	setstat(s, "invalid parameter index", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (dtype) {
@@ -3427,7 +3428,7 @@ drvprimarykeys(SQLHSTMT stmt,
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
     if (!table || table[0] == '\0' || table[0] == '%') {
-	setstat(s, "need table name", "S1000");
+	setstat(s, "need table name", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (tableLen == SQL_NTS) {
@@ -3441,7 +3442,8 @@ drvprimarykeys(SQLHSTMT stmt,
 				  "PRAGMA index_list('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
-	setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -3671,7 +3673,7 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
     if (!table || table[0] == '\0' || table[0] == '%') {
-	setstat(s, "need table name", "S1000");
+	setstat(s, "need table name", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (tableLen == SQL_NTS) {
@@ -3688,7 +3690,8 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
 				  &rowp, &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
 doerr:
-	setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -4059,7 +4062,7 @@ endtran(DBC *d, SQLSMALLINT comptype)
     char *sql, *errp = NULL;
 
     if (!d->sqlite) {
-	setstatd(d, "not connected", "S1000");
+	setstatd(d, "not connected", (*d->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (d->autocommit || !d->intrans) {
@@ -4077,7 +4080,8 @@ endtran(DBC *d, SQLSMALLINT comptype)
 	ret = sqlite_exec(d->sqlite, sql, NULL, NULL, &errp);
 	if (ret != SQLITE_OK) {
 	    if (!fail) {
-		setstatd(d, "%s", "S1000", errp ? errp : "transaction failed");
+		setstatd(d, "%s", (*d->ov3) ? "HY000" : "S1000",
+			 errp ? errp : "transaction failed");
 		if (errp) {
 		    sqlite_freemem(errp);
 		    errp = NULL;
@@ -4097,7 +4101,7 @@ endtran(DBC *d, SQLSMALLINT comptype)
 	}
 	return SQL_SUCCESS;
     }
-    setstatd(d, "invalid completion type", "S1000");
+    setstatd(d, "invalid completion type", (*d->ov3) ? "HY000" : "S1000");
     return SQL_ERROR;
 }
 
@@ -4537,7 +4541,6 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 	return SQL_ERROR;
     }
     if (recno > 1) {
-	logmsg[0] = '\0';
 	return SQL_NO_DATA;
     }
     len = strlen(logmsg);
@@ -4792,6 +4795,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_PARAMSET_SIZE:
 	*((SQLUINTEGER *) val) = 1;
 	return SQL_SUCCESS;
+    case SQL_ATTR_ROW_BIND_TYPE:
+	*(SQLUINTEGER *) val = SQL_BIND_BY_COLUMN;
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -4919,7 +4925,11 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
-
+    case SQL_ATTR_ROW_BIND_TYPE:
+	if ((SQLUINTEGER) val != SQL_BIND_BY_COLUMN) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -5546,7 +5556,8 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     default:
-	setstatd(d, "unsupported info option %d", "S1C00", type);
+	setstatd(d, "unsupported info option %d",
+		 (*d->ov3) ? "HYC00" : "S1C00", type);
 	return SQL_ERROR;
     }
     return SQL_SUCCESS;
@@ -5991,7 +6002,7 @@ drvfreeconnect(SQLHDBC dbc)
 	return SQL_INVALID_HANDLE;
     }
     if (d->sqlite) {
-	setstatd(d, "not disconnected", "S1000");
+	setstatd(d, "not disconnected", (*d->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     while (d->stmt) {
@@ -6109,10 +6120,13 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_KEYSET_SIZE:
     case SQL_ATTR_QUERY_TIMEOUT:
     case SQL_ATTR_PARAM_BIND_TYPE:
-    case SQL_ATTR_ROW_BIND_TYPE:
     case SQL_ATTR_CURRENT_CATALOG:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_ROW_BIND_TYPE:
+	*(SQLUINTEGER *) val = SQL_BIND_BY_COLUMN;
+	*buflen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ATTR_USE_BOOKMARKS:
 	*((SQLINTEGER *) val) = SQL_UB_OFF;
@@ -6154,8 +6168,8 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     default:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
-	setstatd(d, "unsupported connect attribute %d", "S1C00",
-		 (int) attr);
+	setstatd(d, "unsupported connect attribute %d",
+		 (*d->ov3) ? "HYC00" : "S1C00", (int) attr);
 	return SQL_ERROR;
     }
     return SQL_SUCCESS;
@@ -6360,7 +6374,8 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 	break;
     default:
 	*((SQLINTEGER *) param) = 0;
-	setstatd(d, "unsupported connect option %d", "S1C00", opt);
+	setstatd(d, "unsupported connect option %d",
+		 (*d->ov3) ? "HYC00" : "S1C00", opt);
 	return SQL_ERROR;
     }
     return SQL_SUCCESS;
@@ -6551,7 +6566,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     }
     buf[len] = '\0';
     if (buf[0] == '\0') {
-	setstatd(d, "invalid DSN", "S1090");
+	setstatd(d, "invalid DSN", (*d->ov3) ? "HY090" : "S1090");
 	return SQL_ERROR;
     }
     busy[0] = '\0';
@@ -6625,18 +6640,20 @@ SQLConnectW(SQLHDBC dbc, SQLWCHAR *dsn, SQLSMALLINT dsnLen,
 	    SQLWCHAR *uid, SQLSMALLINT uidLen,
 	    SQLWCHAR *pass, SQLSMALLINT passLen)
 {
-    char *d = NULL;
+    char *dsna = NULL;
     SQLRETURN ret;
 
     if (dsn) {
-	d = uc_to_utf_c(dsn, dsnLen);
-	if (!d) {
-	    setstatd((DBC *) dbc, "out of memory", "S1000");
+	dsna = uc_to_utf_c(dsn, dsnLen);
+	if (!dsna) {
+	    DBC *d = (DBC *) dbc;
+
+	    setstatd(d, "out of memory", (*d->ov3) ? "HY000" : "S1000");
 	    return SQL_ERROR;
 	}
     }
-    ret = drvconnect(dbc, d, SQL_NTS);
-    uc_free(d);
+    ret = drvconnect(dbc, dsna, SQL_NTS);
+    uc_free(dsna);
     return ret;
 }
 #endif
@@ -6727,7 +6744,8 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
     }
     buf[len] = '\0';
     if (!buf[0]) {
-	setstatd(d, "invalid connect attributes", "S1090");
+	setstatd(d, "invalid connect attributes",
+		 (*d->ov3) ? "HY090" : "S1090");
 	return SQL_ERROR;
     }
     dsn[0] = '\0';
@@ -6933,7 +6951,7 @@ drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 #endif
 	return freestmt(stmt);
     default:
-	setstat(s, "unsupported option", "S1C00");
+	setstat(s, "unsupported option", (*s->ov3) ? "HYC00" : "S1C00");
 	return SQL_ERROR;
     }
     return SQL_SUCCESS;
@@ -7072,7 +7090,7 @@ drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
     if (!cursor ||
 	!((cursor[0] >= 'A' && cursor[0] <= 'Z') ||
 	  (cursor[0] >= 'a' && cursor[0] <= 'z'))) {
-	setstat(s, "invalid cursor name", "S1C00");
+	setstat(s, "invalid cursor name", (*s->ov3) ? "HYC00" : "S1C00");
 	return SQL_ERROR;
     }
     if (len == SQL_NTS) {
@@ -7327,7 +7345,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 	return SQL_NO_DATA;
     }
     if (col >= s->ncols) {
-	setstat(s, "invalid column", "S1002");
+	setstat(s, "invalid column", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
     if (s->rowp < 0 || s->rowp >= s->nrows) {
@@ -7518,7 +7536,8 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
 		    s->bindcols[col].offs += len - doz;
-		    setstat(s, "data right truncated", "01004");
+		    setstat(s, "data right truncated",
+			    (*s->ov3) ? "HY004" : "01004");
 #ifdef SQLITE_UTF8
 		    uc_free(ucdata);
 #endif
@@ -8003,7 +8022,7 @@ drvcolumns(SQLHSTMT stmt,
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
     if (!table || table[0] == '\0' || table[0] == '%') {
-	setstat(s, "need table name", "S1000");
+	setstat(s, "need table name", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (tableLen == SQL_NTS) {
@@ -8016,7 +8035,8 @@ drvcolumns(SQLHSTMT stmt,
     ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
-	setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -8612,7 +8632,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
     if (!table || table[0] == '\0' || table[0] == '%') {
-	setstat(s, "need table name", "S1000");
+	setstat(s, "need table name", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (tableLen == SQL_NTS) {
@@ -8626,7 +8646,8 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 				  "PRAGMA index_list('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
-	setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -8843,7 +8864,7 @@ SQLGetData(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     }
     s = (STMT *) stmt;
     if (col < 1 || col > s->ncols) {
-	setstat(s, "invalid column", "S1002");
+	setstat(s, "invalid column", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
     --col;
@@ -9188,11 +9209,11 @@ drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     }
     s = (STMT *) stmt;
     if (!s->cols) {
-	setstat(s, "no columns", "S1002");
+	setstat(s, "no columns", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
     if (col < 1 || col > s->ncols) {
-	setstat(s, "invalid column", "S1002");
+	setstat(s, "invalid column", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
     c = s->cols + col - 1;
@@ -9378,7 +9399,7 @@ drvcolattributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     }
 #endif
     if (col < 1 || col > s->ncols) {
-	setstat(s, "invalid column", "S1002");
+	setstat(s, "invalid column", (*s->ov3) ? "07009": "S1002");
 	return SQL_ERROR;
     }
     c = s->cols + col - 1;
@@ -9640,7 +9661,7 @@ drvcolattribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	return SQL_ERROR;
     }
     if (col < 1 || col > s->ncols) {
-	setstat(s, "invalid column", "S1002");
+	setstat(s, "invalid column", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
     c = s->cols + col - 1;
@@ -10161,7 +10182,7 @@ noconn:
 			d->version);
     if (!s->query) {
 	if (errp) {
-	    setstat(s, errp, "S1000");
+	    setstat(s, errp, (*s->ov3) ? "HY000" : "S1000");
 	    return SQL_ERROR;
 	}
 	return nomem(s);
@@ -10187,7 +10208,8 @@ noconn:
 				  &errp, (char *) params);
 	if (ret != SQLITE_ABORT && ret != SQLITE_OK) {
 	    freep(&params);
-	    setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	    setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
 	    if (errp) {
 		sqlite_freemem(errp);
 		errp = NULL;
@@ -10230,11 +10252,12 @@ noconn:
 	goto noconn;
     }
     if (!s->query) {
-	setstat(s, "no query prepared", "S1000");
+	setstat(s, "no query prepared", (*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
     if (s->nbindparms < s->nparams) {
-	setstat(s, "unbound parameters in query", "S1000");
+	setstat(s, "unbound parameters in query",
+		(*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
 #ifdef ASYNC
@@ -10278,7 +10301,8 @@ noconn:
 	ret = sqlite_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
 	if (ret != SQLITE_OK) {
 	    freep(&params);
-	    setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	    setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
 	    if (errp) {
 		sqlite_freemem(errp);
 		errp = NULL;
@@ -10307,7 +10331,8 @@ noconn:
 				   &s->nrows, &ncols, &errp, (char *) params);
     if (ret != SQLITE_OK) {
 	freep(&params);
-	setstat(s, "%s (%d)", "S1000", errp ? errp : "unknown error", ret);
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -11147,7 +11172,9 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
     if (connIn) {
 	ci = uc_to_utf_c(connIn, connInLen);
 	if (!ci) {
-	    setstatd((DBC *) dbc, "out of memory", "S1000");
+	    DBC *d = (DBC *) dbc;
+
+	    setstatd(d, "out of memory", (*d->ov3) ? "HY000" : "S1000");
 	    return SQL_ERROR;
 	}
     }

@@ -32,7 +32,7 @@ EXE = .exe
 #    will run on the target platform.  This is usually the same
 #    as BCC, unless you are cross-compiling.
 
-TCC = cl -Gs -GX -D_WIN32 -nologo -Zi
+TCC = cl -Gs -GX -D_WIN32 -DOS_WIN=1 -nologo -Zi
 
 #### Should the database engine assume text is coded as UTF-8 or iso8859?
 

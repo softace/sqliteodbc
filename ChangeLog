@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jul 27 2003 version 0.54 released
+
+	* update to SQLite 2.8.5
+	* minor fixes in SQLGetDiagRec()
+	* when ODBC V3 turned on report proper error codes (eg HY000)
+	* added partial support of SQL_ATTR_ROW_BIND_TYPE
+
 Fri Jul 11 2003 version 0.53 released
 
 	* update to SQLite 2.8.4
