@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.23 2002/06/09 08:36:23 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.28 2002/06/16 09:14:09 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -128,6 +128,12 @@ xfree_(void *x, char *file, int line)
     free(p);
 }
 
+static void
+xfree__(void *x)
+{
+    xfree_(x, "unknown location", 0);
+}
+
 static char *
 xstrdup_(char *str, char *file, int line)
 {
@@ -219,6 +225,14 @@ static SQLRETURN substparam(STMT *s, int pnum, char **out, int *size);
  */
 
 static void freedyncols(STMT *s);
+
+/**
+ * Internal query execution used by SQLExecute() and SQLExecDirect().
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
+static SQLRETURN drvexecute(SQLHSTMT stmt);
 
 /**
  * Duplicate string using xmalloc().
@@ -475,6 +489,50 @@ getmd(char *typename, int sqltype, int *mp, int *dp)
 }
 
 /**
+ * Map SQL_C_DEFAULT to proper C type.
+ * @param type input C type
+ * @param stype input SQL type
+ * @param nosign 0=signed, 0>unsigned, 0<undefined
+ * @result C type
+ */
+
+static int
+mapdeftype(int type, int stype, int nosign)
+{
+    if (type == SQL_C_DEFAULT) {
+	switch (stype) {
+	case SQL_INTEGER:
+	    type = nosign > 0 ? SQL_C_ULONG : SQL_C_LONG;
+	    break;
+	case SQL_TINYINT:
+	    type = nosign > 0 ? SQL_C_UTINYINT : SQL_C_TINYINT;
+	    break;
+	case SQL_SMALLINT:
+	    type = nosign > 0 ? SQL_C_USHORT : SQL_C_SHORT;
+	    break;
+	case SQL_FLOAT:
+	    type = SQL_C_FLOAT;
+	    break;
+	case SQL_DOUBLE:
+	    type = SQL_C_DOUBLE;
+	    break;
+	case SQL_TIMESTAMP:
+	    type = SQL_C_TIMESTAMP;
+	    break;
+	case SQL_TIME:
+	    type = SQL_C_TIME;
+	    break;
+	case SQL_DATE:
+	    type = SQL_C_DATE;
+	    break;
+	default:
+	    type = SQL_C_CHAR;
+	}
+    }
+    return type;
+}
+
+/**
  * Fixup query string with optional parameter markers.
  * @param sql original query string
  * @param sqlLen length of query string or SQL_NTS
@@ -657,6 +715,7 @@ found:
 		if (strcmp(rowp[k], "type") == 0) {
 		    char *typename = rowp[r * ncols + k];
 
+		    freep(&s->dyncols[i].typename);
 		    s->dyncols[i].typename = xstrdup(typename);
 		    s->dyncols[i].type =
 			 mapsqltype(typename, &s->dyncols[i].nosign);
@@ -991,7 +1050,7 @@ static int
 getbool(char *string)
 {
     if (string) {
-	return strchr("Yy123456789Tt", string[0]) != NULL;
+	return string[0] && strchr("Yy123456789Tt", string[0]) != NULL;
     }
     return 0;
 }
@@ -1043,12 +1102,15 @@ waitfordata(STMT *s)
 	s->ncols = d->async_ncols;
 	d->async_ncols = 0;
 	d->async_rows = NULL;
-	if (s->rows) {
+	if (s->rows == (char **) -1) {
+	    ret = nomem(s);
+	} else if (s->rows) {
 	    s->rowfree = freerows;
 	    s->nrows = 1;
 	    ret = SQL_SUCCESS;
 	} else {
-	    ret = nomem(s);
+	    s->nrows = 0;
+	    ret = SQL_SUCCESS;
 	}
     }
 #ifdef HAVE_PTHREAD
@@ -1088,7 +1150,7 @@ async_cb(void *arg, int ncols, char **values, char **cols)
     struct cbarg *ca = (struct cbarg *) arg;
     STMT *s = ca->s;
     DBC *d = (DBC *) s->dbc;
-    char **rowd;
+    char **rowd = NULL;
     int i;
 
     ++d->async_rownum;
@@ -1168,20 +1230,24 @@ contsig:
     if (ncols <= 0) {
 	return 1;
     }
-    rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
-    if (rowd) {
-	rowd[0] = (char *) (ncols * 2);
-	++rowd;
-	for (i = 0; i < ncols; i++) {
-	    rowd[i] = NULL;
-	    rowd[i + ncols] = xstrdup(values ? values[i] : NULL);
-	}
-	for (i = 0; i < ncols; i++) {
-	    if (values && values[i] && !rowd[i + ncols]) {
-		freerows(rowd);
-		rowd = NULL;
-		break;
+    if (values) {
+	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
+	if (rowd) {
+	    rowd[0] = (char *) (ncols * 2);
+	    ++rowd;
+	    for (i = 0; i < ncols; i++) {
+		rowd[i] = NULL;
+		rowd[i + ncols] = xstrdup(values[i]);
 	    }
+	    for (i = 0; i < ncols; i++) {
+		if (values[i] && !rowd[i + ncols]) {
+		    freerows(rowd);
+		    rowd = (char **) -1;
+		    break;
+		}
+	    }
+	} else {
+	    rowd = (char **) -1;
 	}
     }
 #ifdef HAVE_PTHREAD
@@ -1434,13 +1500,127 @@ SQLBrowseConnect(SQLHDBC dbc, SQLCHAR *connin, SQLSMALLINT conninLen,
 }
 
 /**
- * Function not implemented.
+ * Put (partial) parameter data into executing statement.
+ * @param stmt statement handle
+ * @param data pointer to data
+ * @param len length of data
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLPutData(SQLHSTMT stmt, SQLPOINTER data, SQLINTEGER len)
 {
-    return drvunimplstmt(stmt);
+    STMT *s;
+    int i, done = 0;
+    BINDPARM *p;
+
+    if (stmt == SQL_NULL_HSTMT) {
+	return SQL_INVALID_HANDLE;
+    }
+    s = (STMT *) stmt;
+    if (!s->query || s->nparams <= 0) {
+seqerr:
+	strcpy(s->logmsg, "sequence error");
+	strcpy(s->logmsg, "HY010");
+	return SQL_ERROR;
+    }
+    for (i = 0; i < s->nparams; i++) {
+	p = &s->bindparms[i];
+	if (p->need) {
+	    int type = mapdeftype(p->type, p->stype, -1);
+
+	    if (len == SQL_NULL_DATA) {
+		freep(&p->param);
+		p->ind = &p->len;
+		p->len = SQL_NULL_DATA;
+		p->need = 0;
+	    } else if (type != SQL_C_CHAR) {
+		int size = 0;
+
+		switch (type) {
+		case SQL_C_TINYINT:
+		case SQL_C_UTINYINT:
+		case SQL_C_STINYINT:
+		    size = sizeof (char);
+		    break;
+		case SQL_C_SHORT:
+		case SQL_C_USHORT:
+		case SQL_C_SSHORT:
+		    size = sizeof (short);
+		    break;
+		case SQL_C_LONG:
+		case SQL_C_ULONG:
+		case SQL_C_SLONG:
+		    size = sizeof (long);
+		    break;
+		case SQL_C_FLOAT:
+		    size = sizeof (float);
+		    break;
+		case SQL_C_DOUBLE:
+		    size = sizeof (double);
+		    break;
+		case SQL_C_DATE:
+		    size = sizeof (DATE_STRUCT);
+		    break;
+		case SQL_C_TIME:
+		    size = sizeof (TIME_STRUCT);
+		    break;
+		case SQL_C_TIMESTAMP:
+		    size = sizeof (TIMESTAMP_STRUCT);
+		    break;
+		}
+		freep(&p->param);
+		p->param = xmalloc(size);
+		if (!p->param) {
+		    return nomem(s);
+		}
+		memcpy(p->param, data, size);
+		p->len = size;
+		p->need = 0;
+	    } else if (len == SQL_NTS) {
+		int dlen = strlen(data);
+
+		freep(&p->param);
+		p->param = xmalloc(dlen + 1);
+		if (!p->param) {
+		    return nomem(s);
+		}
+		strcpy(p->param, data);
+		p->len = dlen;
+		p->need = 0;
+	    } else if (len <= 0) {
+		strcpy(s->logmsg, "invalid length");
+		strcpy(s->sqlstate, "HY090");
+		return SQL_ERROR;
+	    } else {
+		int dlen = min(p->len - p->offs, len);
+
+		if (!p->param) {
+		    strcpy(s->logmsg, "no memory for parameter");
+		    strcpy(s->sqlstate, "HY013");
+		    return SQL_ERROR;
+		}
+		memcpy((char *) p->param + p->offs, data, dlen);
+		p->offs += dlen;
+		if (p->offs >= p->len) {
+		    *((char *) p->param + p->len) = '\0';
+		    p->need = 0;
+		}
+	    }
+	    done = 1;
+	    break;
+	}
+    }
+    if (!done) {
+	goto seqerr;
+    }
+    for (i = 0; i < s->nparams; i++) {
+	p = &s->bindparms[i];
+	if (p->need) {
+	    return SQL_NEED_DATA;
+	}
+    }
+    return drvexecute(stmt);
 }
 
 /**
@@ -1455,6 +1635,9 @@ freeparams(STMT *s)
 	int n;
 
 	for (n = 0; n < s->nbindparms; n++) {
+	    if (s->bindparms[n].ind && s->bindparms[n].param) {
+		freep(&s->bindparms[n].param);
+	    }
 	    memset(&s->bindparms[n], 0, sizeof (BINDPARM));
 	}
     }
@@ -1468,95 +1651,83 @@ substparam(STMT *s, int pnum, char **out, int *size)
 {
     char buf[256];
     int type;
+    BINDPARM *p;
 
     if (!s->bindparms || pnum < 0 || pnum >= s->nbindparms) {
 	goto error;
     }
-    if (!s->bindparms[pnum].param) {
+    p = &s->bindparms[pnum];
+    type = mapdeftype(p->type, p->stype, -1);
+    if (p->need) {
+	if (!p->param) {
+	    p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
+	    if (p->len <= 0 && p->len != SQL_NTS && p->len != SQL_NULL_DATA) {
+		strcpy(s->logmsg, "invalid length");
+		strcpy(s->sqlstate, "HY009");
+		return SQL_ERROR;
+	    }
+	    if (p->len > 0) {
+		p->param = xmalloc(p->len + 1);
+		if (!p->len) {
+		    return nomem(s);
+		}
+	    }
+	}
+	return SQL_NEED_DATA;
+    }
+    if (!p->param) {
 	strcpy(buf, "NULL");
 	goto bind;
-    }
-    type = s->bindparms[pnum].type;
-    if (type == SQL_C_DEFAULT) {
-	switch (s->bindparms[pnum].stype) {
-	case SQL_INTEGER:
-	    type = SQL_C_LONG;
-	    break;
-	case SQL_TINYINT:
-	    type = SQL_C_TINYINT;
-	    break;
-	case SQL_SMALLINT:
-	    type = SQL_C_SHORT;
-	    break;
-	case SQL_FLOAT:
-	    type = SQL_C_FLOAT;
-	    break;
-	case SQL_DOUBLE:
-	    type = SQL_C_DOUBLE;
-	    break;
-	case SQL_TIMESTAMP:
-	    type = SQL_C_TIMESTAMP;
-	    break;
-	case SQL_TIME:
-	    type = SQL_C_TIME;
-	    break;
-	case SQL_DATE:
-	    type = SQL_C_DATE;
-	    break;
-	default:
-	    type = SQL_C_CHAR;
-	    break;
-	}
     }
     switch (type) {
     case SQL_C_CHAR:
 	break;
     case SQL_C_UTINYINT:
-	sprintf(buf, "%d", *(unsigned char *) s->bindparms[pnum].param);
-	break;
+	sprintf(buf, "%d", *((unsigned char *) p->param));
+	goto bind;
     case SQL_C_TINYINT:
     case SQL_C_STINYINT:
-	sprintf(buf, "%d", *(char *) s->bindparms[pnum].param);
-	break;
+	sprintf(buf, "%d", *((char *) p->param));
+	goto bind;
     case SQL_C_USHORT:
-	sprintf(buf, "%d", *(unsigned short *) s->bindparms[pnum].param);
-	break;
+	sprintf(buf, "%d", *((unsigned short *) p->param));
+	goto bind;
     case SQL_C_SHORT:
     case SQL_C_SSHORT:
-	sprintf(buf, "%d", *(short *) s->bindparms[pnum].param);
-	break;
+	sprintf(buf, "%d", *((short *) p->param));
+	goto bind;
     case SQL_C_ULONG:
     case SQL_C_LONG:
     case SQL_C_SLONG:
-	sprintf(buf, "%ld", *(long *) s->bindparms[pnum].param);
+	sprintf(buf, "%ld", *((long *) p->param));
 	goto bind;
     case SQL_C_FLOAT:
-	sprintf(buf, "%g", *(float *) s->bindparms[pnum].param);
+	sprintf(buf, "%g", *((float *) p->param));
 	goto bind;
     case SQL_C_DOUBLE:
-	sprintf(buf, "%g", *(double *) s->bindparms[pnum].param);
+	sprintf(buf, "%g", *((double *) p->param));
 	goto bind;
     case SQL_C_DATE:
 	sprintf(buf, "%04d-%02d-%02d",
-		((DATE_STRUCT *) s->bindparms[pnum].param)->year,
-		((DATE_STRUCT *) s->bindparms[pnum].param)->month,
-		((DATE_STRUCT *) s->bindparms[pnum].param)->day);
+		((DATE_STRUCT *) p->param)->year,
+		((DATE_STRUCT *) p->param)->month,
+		((DATE_STRUCT *) p->param)->day);
 	goto bind;
     case SQL_C_TIME:
 	sprintf(buf, "%02d:%02d:%02d",
-		((TIME_STRUCT *) s->bindparms[pnum].param)->hour,
-		((TIME_STRUCT *) s->bindparms[pnum].param)->minute,
-		((TIME_STRUCT *) s->bindparms[pnum].param)->second);
+		((TIME_STRUCT *) p->param)->hour,
+		((TIME_STRUCT *) p->param)->minute,
+		((TIME_STRUCT *) p->param)->second);
 	goto bind;
     case SQL_C_TIMESTAMP:
 	sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d.%ld",
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->year,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->month,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->day,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->hour,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->minute,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->second,
-		((TIMESTAMP_STRUCT *) s->bindparms[pnum].param)->fraction);
+		((TIMESTAMP_STRUCT *) p->param)->year,
+		((TIMESTAMP_STRUCT *) p->param)->month,
+		((TIMESTAMP_STRUCT *) p->param)->day,
+		((TIMESTAMP_STRUCT *) p->param)->hour,
+		((TIMESTAMP_STRUCT *) p->param)->minute,
+		((TIMESTAMP_STRUCT *) p->param)->second,
+		((TIMESTAMP_STRUCT *) p->param)->fraction);
     bind:
 	if (out) {
 	    strcpy(*out, buf);
@@ -1570,25 +1741,27 @@ substparam(STMT *s, int pnum, char **out, int *size)
 	goto error;
     }
     if (out) {
-	if (s->bindparms[pnum].max == SQL_NTS ||
-	    s->bindparms[pnum].max == SQL_SETPARAM_VALUE_MAX) {
-	    strcpy(*out, s->bindparms[pnum].param);
-	    *out += strlen(s->bindparms[pnum].param) + 1;
+	if (p->max == SQL_NTS || p->max == SQL_SETPARAM_VALUE_MAX) {
+	    strcpy(*out, p->param);
+	    *out += strlen(p->param) + 1;
 	} else {
-	    int len = *s->bindparms[pnum].lenp;
+	    int len = p->ind ? p->len : *p->lenp;
 
-	    memcpy(*out, s->bindparms[pnum].param, len);
-	    *out += len;
+	    if (len > 0) {
+		memcpy(*out, p->param, len);
+		*out += len;
+	    }
 	    **out = '\0';
 	    *out += 1;
 	}
     }
     if (size) {
-	if (s->bindparms[pnum].max == SQL_NTS ||
-	    s->bindparms[pnum].max == SQL_SETPARAM_VALUE_MAX) {
-	    *size += strlen(s->bindparms[pnum].param) + 1;
+	if (p->max == SQL_NTS || p->max == SQL_SETPARAM_VALUE_MAX) {
+	    *size += strlen(p->param) + 1;
 	} else {
-	    *size += *s->bindparms[pnum].lenp + 1;
+	    int len = p->ind ? p->len : *p->lenp;
+	    
+	    *size += len > 0 ? len + 1 : 1;
 	}
     }
     return SQL_SUCCESS;
@@ -1630,6 +1803,21 @@ drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	strcpy(s->sqlstate, "S1093");
 	return SQL_ERROR;
     }
+    if (!data) {
+	strcpy(s->logmsg, "invalid buffer");
+	strcpy(s->sqlstate, "HY003");
+	return SQL_ERROR;
+    }
+    if (!len) {
+badlen:
+	strcpy(s->logmsg, "invalid length reference");
+	strcpy(s->sqlstate, "HY009");
+	return SQL_ERROR;
+    }
+    if (*len < 0 && *len >= SQL_LEN_DATA_AT_EXEC_OFFSET && *len != SQL_NTS &&
+	*len != SQL_NULL_DATA) {
+	goto badlen;
+    }
 #if 0
     if (iotype != SQL_PARAM_INPUT)
 	return SQL_ERROR;
@@ -1664,7 +1852,17 @@ outofmem:
     s->bindparms[pnum].stype = ptype; 
     s->bindparms[pnum].max = buflen; 
     s->bindparms[pnum].lenp = (int *) len;
-    s->bindparms[pnum].param = data;
+    if (*s->bindparms[pnum].lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+	s->bindparms[pnum].param = NULL;
+	s->bindparms[pnum].ind = data;
+	s->bindparms[pnum].need = 1;
+    } else {
+	s->bindparms[pnum].param = data;
+	s->bindparms[pnum].ind = NULL;
+	s->bindparms[pnum].need = 0;
+    }
+    s->bindparms[pnum].offs = 0;
+    s->bindparms[pnum].len = 0;
     return SQL_SUCCESS;
 }
 
@@ -1741,14 +1939,34 @@ SQLNumParams(SQLHSTMT stmt, SQLSMALLINT *nparam)
 }
 
 /**
- * Function not implemented.
+ * Retrieve next parameter for sending data to executing query.
+ * @param stmt statement handle
+ * @param p pointer to output parameter indicator
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLParamData(SQLHSTMT stmt, SQLPOINTER *p)
 {
-    return drvunimplstmt(stmt);
-}
+    STMT *s;
+    int i;
+    SQLPOINTER dummy;
+
+    if (stmt == SQL_NULL_HSTMT) {
+	return SQL_INVALID_HANDLE;
+    }
+    s = (STMT *) stmt;
+    if (!p) {
+	p = &dummy;
+    }
+    for (i = 0; i < s->nparams; i++) {
+	if (s->bindparms[i].need) {
+	    *p = (SQLPOINTER) s->bindparms[i].ind;
+	    return SQL_NEED_DATA;
+	}
+    }
+    return SQL_SUCCESS;
+}    
 
 /**
  * Return information about parameter.
@@ -3031,11 +3249,13 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_DBMS_VER:
 	strmak(val, SQLITE_VERSION, valMax, valLen);
 	break;
+    case SQL_NEED_LONG_DATA_LEN:
+	strmak(val, "Y", valMax, valLen);
+	break;
     case SQL_ROW_UPDATES:
     case SQL_ACCESSIBLE_PROCEDURES:
     case SQL_PROCEDURES:
     case SQL_EXPRESSIONS_IN_ORDERBY:
-    case SQL_NEED_LONG_DATA_LEN:
     case SQL_ODBC_SQL_OPT_IEF:
     case SQL_LIKE_ESCAPE_CLAUSE:
     case SQL_ORDER_BY_COLUMNS_IN_SELECT:
@@ -3741,7 +3961,7 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     default:
 	*(SQLINTEGER *) val = 0;
 	*buflen = sizeof (SQLINTEGER);
-	sprintf(d->logmsg, "unsupported connect attribute %d", attr);
+	sprintf(d->logmsg, "unsupported connect attribute %d", (int) attr);
 	strcpy(d->sqlstate, "S1C00");
 	return SQL_ERROR;
     }
@@ -4372,6 +4592,7 @@ freestmt(SQLHSTMT stmt)
 	    }
 	}
     }
+    freeparams(s);
     freep(&s->bindparms);
     xfree(s);
     return SQL_SUCCESS;
@@ -4694,7 +4915,7 @@ freeresult(STMT *s, int clrcols)
 	}
 	s->rows = NULL;
     }
-    s->nrows = 0;
+    s->nrows = -1;
     if (clrcols) {
 	freep(&s->bindcols);
 	freedyncols(s);
@@ -4764,39 +4985,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	return SQL_NO_DATA;
     }
-    if (type == SQL_C_DEFAULT) {
-	int nosign = s->cols[col].nosign;
-
-	switch (s->cols[col].type) {
-	case SQL_INTEGER:
-	    type = nosign ? SQL_C_ULONG : SQL_C_LONG;
-	    break;
-	case SQL_TINYINT:
-	    type = nosign ? SQL_C_UTINYINT : SQL_C_TINYINT;
-	    break;
-	case SQL_SMALLINT:
-	    type = nosign ? SQL_C_USHORT : SQL_C_SHORT;
-	    break;
-	case SQL_FLOAT:
-	    type = SQL_C_FLOAT;
-	    break;
-	case SQL_DOUBLE:
-	    type = SQL_C_DOUBLE;
-	    break;
-	case SQL_TIMESTAMP:
-	    type = SQL_C_TIMESTAMP;
-	    break;
-	case SQL_TIME:
-	    type = SQL_C_TIME;
-	    break;
-	case SQL_DATE:
-	    type = SQL_C_DATE;
-	    break;
-	default:
-	    type = SQL_C_CHAR;
-	    break;
-	}
-    }
+    type = mapdeftype(type, s->cols[col].type, s->cols[col].nosign ? 1 : 0);
     data = s->rows + s->ncols + (s->rowp * s->ncols) + col;
     if (!lenp) {
 	lenp = &dummy;
@@ -4898,7 +5087,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 	case SQL_C_BINARY:
 	case SQL_C_CHAR: {
 	    int dlen = strlen(*data);
-	    int offs = 0;
+	    int offs = 0, complete = 0;
 
 	    if (partial && len && s->bindcols) {
 		if (dlen && s->bindcols[col].offs >= dlen) {
@@ -4906,6 +5095,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		    return SQL_NO_DATA;
 		}
 		offs = s->bindcols[col].offs;
+		if (len >= dlen && !offs) {
+		    complete = 1;
+		}
 		dlen -= offs;
 	    }
 	    if (val && !valnull) {
@@ -4929,7 +5121,11 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		    strcpy(s->sqlstate, "01004");
 		    return SQL_SUCCESS_WITH_INFO;
 		}
-		s->bindcols[col].offs += *lenp;
+		if (complete) {
+		    s->bindcols[col].offs = 0;
+		} else {
+		    s->bindcols[col].offs += *lenp;
+		}
 	    }
 	    break;
 	}
@@ -4992,7 +5188,7 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     if (type == SQL_C_DEFAULT) {
 	type = s->cols[col].type;
     } else {
-	switch(type) {
+	switch (type) {
 	case SQL_C_LONG:
 	case SQL_C_ULONG:
 	case SQL_C_SLONG:
@@ -5107,7 +5303,7 @@ noconn:
 	s->rows[s->ncols + 7] = "";
 	s->rows[s->ncols + 8] = "VIEW";
 #ifdef MEMORY_DEBUG
-	s->rowfree = xfree;
+	s->rowfree = xfree__;
 #else
 	s->rowfree = free;
 #endif
@@ -5130,7 +5326,7 @@ noconn:
 	s->rows[s->ncols + 2] = d->dbname;
 	s->rows[s->ncols + 3] = "CATALOG";
 #ifdef MEMORY_DEBUG
-	s->rowfree = xfree;
+	s->rowfree = xfree__;
 #else
 	s->rowfree = free;
 #endif
@@ -5152,7 +5348,7 @@ noconn:
 	    s->ncols = array_size(tableSpec);
 	    s->rows[s->ncols + 1] = "";
 #ifdef MEMORY_DEBUG
-	    s->rowfree = xfree;
+	    s->rowfree = xfree__;
 #else
 	    s->rowfree = free;
 #endif
@@ -5559,7 +5755,7 @@ noconn:
 	return nomem(s);
     }
 #ifdef MEMORY_DEBUG
-    s->rowfree = xfree;
+    s->rowfree = xfree__;
 #else
     s->rowfree = free;
 #endif
@@ -5738,7 +5934,7 @@ nodata:
 	char **rowpp;
 	int isuniq;
 
-	isuniq = *rowp[i * ncols + uniquec] != 0 ||
+	isuniq = *rowp[i * ncols + uniquec] != '0' ||
 	    (*rowp[i * ncols + namec] == '(' &&
 	     strstr(rowp[i * ncols + namec], " autoindex "));
 	if ((isuniq || itype == SQL_INDEX_ALL) &&
@@ -5785,14 +5981,14 @@ nodata:
 			int roffs = (offs + m) * s->ncols;
 			int isuniq;
 
-			isuniq = *rowp[i * ncols + uniquec] != 0 ||
+			isuniq = *rowp[i * ncols + uniquec] != '0' ||
 			    (*rowp[i * ncols + namec] == '(' &&
 			     strstr(rowp[i * ncols + namec], " autoindex "));
 			s->rows[roffs + 0] = xstrdup("");
 			s->rows[roffs + 1] = xstrdup("");
 			s->rows[roffs + 2] = xstrdup(tname);
 			s->rows[roffs + 3] = xstrdup(isuniq ? "0" : "1");
-			s->rows[roffs + 4] = xstrdup(rowp[i * ncols + namec]);
+			s->rows[roffs + 4] = xstrdup("");
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
 			s->rows[roffs + 6] =
 			    xstrdup(stringify(SQL_INDEX_OTHER));
@@ -6709,11 +6905,7 @@ noconn:
     return SQL_SUCCESS;
 }
 
-/**
- * Internal query execution used by SQLExecute() and SQLExecDirect().
- * @param stmt statement handle
- * @result ODBC error code
- */
+/* see doc on top */
 
 static SQLRETURN
 drvexecute(SQLHSTMT stmt)
@@ -6791,6 +6983,7 @@ noconn:
     if (s->isselect && !d->intrans &&
 	d->thread_enable &&
 	s->curtype == SQL_CURSOR_FORWARD_ONLY) {
+	s->nrows = -1;
 	ret = async_start(s, params);
 	if (ret == SQL_SUCCESS) {
 	    params = NULL;

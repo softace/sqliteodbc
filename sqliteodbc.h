@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.10 2002/06/04 10:07:44 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.11 2002/06/13 20:26:22 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -160,6 +160,9 @@ typedef struct {
     int type, stype;	/**< ODBC and SQL types */
     int max, *lenp;	/**< Max. size, actual size of parameter buffer */
     void *param;	/**< Parameter buffer */
+    void *ind;		/**< Indicator for SQL_LEN_DATA_AT_EXEC */
+    int need;		/**< True when SQL_LEN_DATA_AT_EXEC */
+    int offs, len;	/**< Offset/length for SQLParamData()/SQLPutData() */
 } BINDPARM;
 
 /**

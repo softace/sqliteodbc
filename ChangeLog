@@ -1,6 +1,19 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jun 16 2002 version 0.44 released
+
+	* fixed getbool() to return false on empty string
+	* added implementation of SQLParamData(), SQLPutData()
+	* fixed values of NON_UNIQUE field in SQLStatistics(),
+	  store empty INDEX_QUALIFIER field in SQLStatistics()
+	* fixes in getrowdata() concerning partial retrieving
+	  of result set
+	* when starting an asynchronous query, set number of
+	  result rows to -1
+	* fixes in SQLBindParameters(), for some datatypes
+	  the binding was not performed
+
 Sun Jun 09 2002 version 0.43 released
 
 	* replaced all %s in PRAGMAs by '%q' to make SQLPrimaryKeys(),

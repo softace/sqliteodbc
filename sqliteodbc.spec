@@ -1,12 +1,12 @@
 %define name sqliteodbc
-%define version 0.43
+%define version 0.44
 %define release 1
 
 Name: %{name}
 Summary: ODBC driver for SQLite
 Version: %{version}
 Release: %{release}
-Source: %{name}-%{version}.tar.gz
+Source: http://www.ch-werner.de/sqliteodbc/%{name}-%{version}.tar.gz
 Group: System/Libraries
 URL: http://www.ch-werner.de/sqliteodbc
 License: BSD
@@ -33,6 +33,6 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-, root, root)
-%doc README license.terms
+%doc README license.terms ChangeLog
 %{_libdir}/*.so*
 
