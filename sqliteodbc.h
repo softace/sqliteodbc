@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.11 2002/06/13 20:26:22 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.13 2002/06/22 13:03:39 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #endif
+#include <stdarg.h>
 #include <string.h>
 #include <sql.h>
 #include <sqlext.h>
@@ -84,6 +85,7 @@ typedef struct dbc {
 #ifdef ASYNC
     sqlite *sqlite2;		/**< SQLITE handle for thread */
 #endif
+    int version;		/**< SQLITE version number */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
     int autocommit;		/**< Auto commit state */

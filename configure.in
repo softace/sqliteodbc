@@ -24,17 +24,20 @@ fi
 AC_MSG_CHECKING([for SQLite header and library])
 SQLITE_INC=UNKNOWN
 SQLITE_LIB=UNKNOWN
+SQLITE_LIBDIR=../sqlite
 for i in $SQLITE_DIR ; do
   if test -r $i/sqlite.h ; then
     if test -r $i/libsqlite.la ; then
       SQLITE_INC="$i"
       SQLITE_LIB="$i/libsqlite.la"
+      SQLITE_LIBDIR=$i
       break
     fi
   elif test -r $i/include/sqlite.h ; then
     if test -r $i/lib/libsqlite.la ; then
       SQLITE_INC="$i"
       SQLITE_LIB="$i/lib/libsqlite.la"
+      SQLITE_LIBDIR=$i
       break
     fi
   fi
@@ -47,6 +50,17 @@ else
 fi
 AC_SUBST(SQLITE_INC)
 AC_SUBST(SQLITE_LIB)
+
+# test for availability of sqlite_libversion()
+
+saved_CFLAGS=$CFLAGS
+CFLAGS="$CFLAGS -I$SQLITE_INC"
+saved_LIBS=$LIBS
+LIBS="$LIBS -L$SQLITE_LIBDIR"
+AC_CHECK_LIB(sqlite,sqlite_libversion,SQLITE_LIBVERSION=1,SQLITE_LIBVERSION=0)
+LIBS=$saved_LIBS
+CFLAGS=$saved_CFLAGS
+AC_SUBST(SQLITE_LIBVERSION)
 
 #########
 # Find ODBC headers and libraries

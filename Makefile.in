@@ -6,6 +6,7 @@ INSTALL =	@INSTALL@
 LIBTOOL =	./libtool
 SQLITE_INC =	@SQLITE_INC@
 SQLITE_LIB =	@SQLITE_LIB@
+SQLITE_FLAGS =	-DHAVE_LIBVERSION=@SQLITE_LIBVERSION@
 ODBC_FLAGS =	@ODBC_FLAGS@
 ODBC_LIB =	@ODBC_LIB@
 VER_INFO =	@VER_INFO@
@@ -19,7 +20,7 @@ libsqliteodbc.la:	sqliteodbc.lo
 
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 		$(LIBTOOL) $(CC) -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
-		    $(THREAD_FLAGS) sqliteodbc.c
+		    $(THREAD_FLAGS) $(SQLITE_FLAGS) sqliteodbc.c
 
 install:	libsqliteodbc.la
 		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib

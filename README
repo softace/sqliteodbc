@@ -1,7 +1,7 @@
 SQLite ODBC Driver
 ------------------
 
-This is an experimental ODBC driver for the wonderful SQLite 2.[0-4]
+This is an experimental ODBC driver for the wonderful SQLite 2.[0-5]
 Database Engine/Library. So far it is more a proof of concept and might
 contain lots of memory leaks and all other kinds of bugs. Thus I highly
 appreciate any feedback.
@@ -14,7 +14,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.4.12, MS VC++ 6.0 and tested on
+The binaries were made with SQLite 2.5.4, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97 and MS Access 97.
 Unzip the archive into a temporary directory and execute the INST.EXE
 program. This installs the SQLite ODBC driver and creates a System DSN.
@@ -166,7 +166,7 @@ Python sample usage with eGenix mx-Extension
 Build instructions for MS Visual C++ 6.0:
 
 1. Extract the source tarball sqliteodbc.tar.gz
-2. Extract the official SQLite 2.4.12 sources in the sqliteodbc
+2. Extract the official SQLite 2.5.4 sources in the sqliteodbc
    directory which resulted from step 1
 3. Setup your MSVC++ environment, ie PATH/INCLUDE/LIB, then
    open a command window, cd to the sqliteodbc directory and enter:
@@ -182,9 +182,10 @@ TODO:
 
 - improve documentation
 - ??? UTF-8 support and ODBC wide-char functions ???
+- ??? SQLForeignKeys() ???
 
 
-June, 16th, 2002
+July, 5th, 2002
 Christian Werner
 mailto:chw@ch-werner.de
 

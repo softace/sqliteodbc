@@ -53,7 +53,7 @@ TCCXD = $(TCCX) -D_DLL
 LIBOBJ = btree.obj build.obj delete.obj expr.obj hash.obj insert.obj \
          main.obj os.obj pager.obj parse.obj printf.obj random.obj select.obj \
 	 table.obj func.obj tokenize.obj update.obj util.obj vdbe.obj \
-	 where.obj encode.obj
+	 where.obj encode.obj trigger.obj
 
 # All of the source code files.
 
@@ -86,7 +86,8 @@ SRC = \
   $(TOP)/src/vdbe.c \
   $(TOP)/src/vdbe.h \
   $(TOP)/src/where.c \
-  $(TOP)/src/encode.c
+  $(TOP)/src/encode.c \
+  $(TOP)/src/trigger.c
 
 # Header files used by all library source files.
 
@@ -202,6 +203,9 @@ printf.obj:	$(TOP)/src/printf.c $(HDR)
 encode.obj:	$(TOP)/src/encode.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/encode.c
 
+trigger.obj:	$(TOP)/src/trigger.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/trigger.c
+
 sqlite.def:
 	echo LIBRARY SQLITE > sqlite.def
 	echo DESCRIPTION 'SQLite Library' >> sqlite.def
@@ -235,8 +239,8 @@ sqlite.def:
 	echo sqlite_aggregate_context >> sqlite.def
 	echo sqlite_aggregate_count >> sqlite.def
 	echo sqlite_mprintf >> sqlite.def
+	echo sqlite_open_aux_file >> sqlite.def
 	echo sqliteStrICmp >> sqlite.def
-	echo sqliteRegisterBuildinFunctions >> sqlite.def
 
 clean:	
 	del *.obj

@@ -4974,17 +4974,20 @@ echo $ac_n "checking for SQLite header and library""... $ac_c" 1>&6
 echo "configure:4975: checking for SQLite header and library" >&5
 SQLITE_INC=UNKNOWN
 SQLITE_LIB=UNKNOWN
+SQLITE_LIBDIR=../sqlite
 for i in $SQLITE_DIR ; do
   if test -r $i/sqlite.h ; then
     if test -r $i/libsqlite.la ; then
       SQLITE_INC="$i"
       SQLITE_LIB="$i/libsqlite.la"
+      SQLITE_LIBDIR=$i
       break
     fi
   elif test -r $i/include/sqlite.h ; then
     if test -r $i/lib/libsqlite.la ; then
       SQLITE_INC="$i"
       SQLITE_LIB="$i/lib/libsqlite.la"
+      SQLITE_LIBDIR=$i
       break
     fi
   fi
@@ -4996,6 +4999,57 @@ else
   echo "$ac_t""yes" 1>&6
 fi
 
+
+
+# test for availability of sqlite_libversion()
+
+saved_CFLAGS=$CFLAGS
+CFLAGS="$CFLAGS -I$SQLITE_INC"
+saved_LIBS=$LIBS
+LIBS="$LIBS -L$SQLITE_LIBDIR"
+echo $ac_n "checking for sqlite_libversion in -lsqlite""... $ac_c" 1>&6
+echo "configure:5012: checking for sqlite_libversion in -lsqlite" >&5
+ac_lib_var=`echo sqlite'_'sqlite_libversion | sed 'y%./+-%__p_%'`
+if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
+  echo $ac_n "(cached) $ac_c" 1>&6
+else
+  ac_save_LIBS="$LIBS"
+LIBS="-lsqlite  $LIBS"
+cat > conftest.$ac_ext <<EOF
+#line 5020 "configure"
+#include "confdefs.h"
+/* Override any gcc2 internal prototype to avoid an error.  */
+/* We use char because int might match the return type of a gcc2
+    builtin and then its argument prototype would still apply.  */
+char sqlite_libversion();
+
+int main() {
+sqlite_libversion()
+; return 0; }
+EOF
+if { (eval echo configure:5031: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=yes"
+else
+  echo "configure: failed program was:" >&5
+  cat conftest.$ac_ext >&5
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=no"
+fi
+rm -f conftest*
+LIBS="$ac_save_LIBS"
+
+fi
+if eval "test \"`echo '$ac_cv_lib_'$ac_lib_var`\" = yes"; then
+  echo "$ac_t""yes" 1>&6
+  SQLITE_LIBVERSION=1
+else
+  echo "$ac_t""no" 1>&6
+SQLITE_LIBVERSION=0
+fi
+
+LIBS=$saved_LIBS
+CFLAGS=$saved_CFLAGS
 
 
 #########
@@ -5016,7 +5070,7 @@ if test -z "$ODBC_DIR" ; then
 fi
 
 echo $ac_n "checking for ODBC headers and libraries""... $ac_c" 1>&6
-echo "configure:5020: checking for ODBC headers and libraries" >&5
+echo "configure:5074: checking for ODBC headers and libraries" >&5
 ODBC_FLAGS=UNKNOWN
 ODBC_LIB=UNKNOWN
 for i in $ODBC_DIR ; do
@@ -5054,7 +5108,7 @@ fi
 # Find pthread header file and library
 #
 echo $ac_n "checking build with threading""... $ac_c" 1>&6
-echo "configure:5058: checking build with threading" >&5
+echo "configure:5112: checking build with threading" >&5
 # Check whether --enable-threads or --disable-threads was given.
 if test "${enable_threads+set}" = set; then
   enableval="$enable_threads"
@@ -5066,7 +5120,7 @@ fi
 if test "$USE_THREADS" = "yes" ; then
   echo "$ac_t""yes" 1>&6
   echo $ac_n "checking for pthread_mutex_init in -lpthread""... $ac_c" 1>&6
-echo "configure:5070: checking for pthread_mutex_init in -lpthread" >&5
+echo "configure:5124: checking for pthread_mutex_init in -lpthread" >&5
 ac_lib_var=`echo pthread'_'pthread_mutex_init | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -5074,7 +5128,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lpthread  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 5078 "configure"
+#line 5132 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -5085,7 +5139,7 @@ int main() {
 pthread_mutex_init()
 ; return 0; }
 EOF
-if { (eval echo configure:5089: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:5143: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -5108,7 +5162,7 @@ fi
 
   if test "$thread_ok" = "no" ; then
     echo $ac_n "checking for __pthread_mutex_init in -lpthread""... $ac_c" 1>&6
-echo "configure:5112: checking for __pthread_mutex_init in -lpthread" >&5
+echo "configure:5166: checking for __pthread_mutex_init in -lpthread" >&5
 ac_lib_var=`echo pthread'_'__pthread_mutex_init | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -5116,7 +5170,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lpthread  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 5120 "configure"
+#line 5174 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -5127,7 +5181,7 @@ int main() {
 __pthread_mutex_init()
 ; return 0; }
 EOF
-if { (eval echo configure:5131: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:5185: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -5154,7 +5208,7 @@ fi
     THREAD_FLAGS="-DHAVE_PTHREAD=1 -D_REENTRANT -D_THREAD_SAFE"
   else
     echo $ac_n "checking for pthread_mutex_init in -lpthreads""... $ac_c" 1>&6
-echo "configure:5158: checking for pthread_mutex_init in -lpthreads" >&5
+echo "configure:5212: checking for pthread_mutex_init in -lpthreads" >&5
 ac_lib_var=`echo pthreads'_'pthread_mutex_init | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -5162,7 +5216,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lpthreads  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 5166 "configure"
+#line 5220 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -5173,7 +5227,7 @@ int main() {
 pthread_mutex_init()
 ; return 0; }
 EOF
-if { (eval echo configure:5177: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:5231: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -5199,7 +5253,7 @@ fi
       THREAD_FLAGS="-DHAVE_PTHREAD=1 -D_REENTRANT -D_THREAD_SAFE"
     else
       echo $ac_n "checking for pthread_mutex_init in -lc""... $ac_c" 1>&6
-echo "configure:5203: checking for pthread_mutex_init in -lc" >&5
+echo "configure:5257: checking for pthread_mutex_init in -lc" >&5
 ac_lib_var=`echo c'_'pthread_mutex_init | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -5207,7 +5261,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lc  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 5211 "configure"
+#line 5265 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -5218,7 +5272,7 @@ int main() {
 pthread_mutex_init()
 ; return 0; }
 EOF
-if { (eval echo configure:5222: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:5276: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -5425,6 +5479,7 @@ s%@INSTALL_SCRIPT@%$INSTALL_SCRIPT%g
 s%@INSTALL_DATA@%$INSTALL_DATA%g
 s%@SQLITE_INC@%$SQLITE_INC%g
 s%@SQLITE_LIB@%$SQLITE_LIB%g
+s%@SQLITE_LIBVERSION@%$SQLITE_LIBVERSION%g
 s%@ODBC_FLAGS@%$ODBC_FLAGS%g
 s%@ODBC_LIB@%$ODBC_LIB%g
 s%@VER_INFO@%$VER_INFO%g
