@@ -1,6 +1,17 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jun 09 2002 version 0.43 released
+
+	* replaced all %s in PRAGMAs by '%q' to make SQLPrimaryKeys(),
+	  SQLStatistics(), SQLSpecialColumns() work on automatic indexes
+	* added NULLABLE column to result set of SQLSpecialColumns()
+	  to support last SQLSpecialColumns() parameter properly
+	* additions in SQLGetInfo()
+	* added implemetation of SQL(Get|Set)ConnectAttr()
+	* improved handling of SQLDriverConnect() for non Win32 OSes
+	* improved handling of arguments in SQLTables()
+
 Tue Jun 04 2002 version 0.42 released
 
 	* now use doxygen for docs

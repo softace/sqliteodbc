@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.22 2002/06/04 10:07:44 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.23 2002/06/09 08:36:23 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -635,7 +635,7 @@ fixupdyncols(STMT *s, sqlite *sqlite)
 	    continue;
 	}
 	if (sqlite_get_table_printf(sqlite,
-				    "PRAGMA table_info(%s)", &rowp,
+				    "PRAGMA table_info('%q')", &rowp,
 				    &nrows, &ncols, NULL,
 				    s->dyncols[i].table) != SQLITE_OK) {
 	    continue;
@@ -1267,11 +1267,12 @@ async_end(STMT *s)
 #ifdef HAVE_PTHREAD
     void *dummy;
 #endif
-    DBC *d = (DBC *) s->dbc;
+    DBC *d;
 
     if (!s || !*s->async_run) {
 	return;
     }
+    d = (DBC *) s->dbc;
     sqlite_interrupt(d->sqlite2);
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&d->mut);
@@ -1983,7 +1984,7 @@ noconn:
     mkbindcols(s);
     s->rowp = -1;
     ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list(%s)", &rowp,
+				  "PRAGMA index_list('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
 	if (errp) {
@@ -2019,7 +2020,7 @@ nodata:
 
 	if (*rowp[i * ncols + uniquec] != '0' &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    size += nnrows;
@@ -2047,7 +2048,7 @@ nodata:
 
 	if (*rowp[i * ncols + uniquec] != '0' &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    int k;
@@ -2099,12 +2100,14 @@ static COL scolSpec[] = {
     { "SYSTEM", "COLUMN", "PRECISION", SQL_INTEGER, 50 },
     { "SYSTEM", "COLUMN", "LENGTH", SQL_INTEGER, 50 },
     { "SYSTEM", "COLUMN", "DECIMAL_DIGITS", SQL_INTEGER, 50 },
-    { "SYSTEM", "COLUMN", "PSEUDO_COLUMN", SQL_SMALLINT, 1 }
+    { "SYSTEM", "COLUMN", "PSEUDO_COLUMN", SQL_SMALLINT, 1 },
+    { "SYSTEM", "COLUMN", "NULLABLE", SQL_SMALLINT, 1 }
 };
 
 /**
  * Retrieve information about indexed columns.
  * @param stmt statement handle
+ * @param id type of information, e.g. best row id
  * @param cat catalog name/pattern or NULL
  * @param catLen length of catalog name/pattern or SQL_NTS
  * @param schema schema name/pattern or NULL
@@ -2127,7 +2130,7 @@ SQLSpecialColumns(SQLHSTMT stmt, SQLUSMALLINT id,
     DBC *d;
     int i, size, ret, nrows, ncols, nnnrows, nnncols, offs;
     int namec = -1, uniquec = -1;
-    int namecc = -1, typecc = -1;
+    int namecc = -1, typecc = -1, notnullcc = -1;
     char *errp, tname[512];
     char **rowp = NULL, **rowppp = NULL;
 
@@ -2164,12 +2167,10 @@ noconn:
     mkbindcols(s);
     s->nrows = 0;
     s->rowp = -1;
-    if (id != SQL_BEST_ROWID ||
-	scope != SQL_SCOPE_CURROW ||
-	nullable == SQL_NO_NULLS) {
+    if (id != SQL_BEST_ROWID) {
 	goto nodata;
     }
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA index_list(%s)",
+    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA index_list('%q')",
 				  &rowp, &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
 	if (errp) {
@@ -2189,7 +2190,7 @@ nodata:
 	sqlite_free_table(rowppp);
 	return SQL_SUCCESS;
     }
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info(%s)",
+    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')",
 				  &rowppp, &nnnrows, &nnncols, &errp, tname);
     if (ret != SQLITE_OK) {
 	sqlite_free_table(rowp);
@@ -2220,6 +2221,8 @@ nodata:
 	    namecc = i;
 	} else if (strcmp(rowppp[i], "type") == 0) {
 	    typecc = i;
+	} else if (strcmp(rowppp[i], "notnull") == 0) {
+	    notnullcc = i;
 	}
     }
     for (i = 1; i <= nrows; i++) {
@@ -2228,7 +2231,7 @@ nodata:
 
 	if (*rowp[i * ncols + uniquec] != '0' &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    size += nnrows;
@@ -2256,7 +2259,7 @@ nodata:
 
 	if (*rowp[i * ncols + uniquec] != '0' &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    int k;
@@ -2280,7 +2283,7 @@ nodata:
 				if (strcmp(rowppp[ii * nnncols + namecc],
 					   rowpp[m * nncols + k]) == 0) {
 				    char *typen = rowppp[ii * nnncols + typecc];
-				    int sqltype, mm, dd;
+				    int sqltype, mm, dd, isnullable = 0;
 				    char buf[32];
 					
 				    s->rows[roffs + 3] = xstrdup(typen);
@@ -2297,6 +2300,14 @@ nodata:
 				    s->rows[roffs + 5] = xstrdup(buf);
 				    sprintf(buf, "%d", dd);
 				    s->rows[roffs + 6] = xstrdup(buf);
+				    if (notnullcc >= 0) {
+					char *inp =
+					   rowppp[ii * nnncols + notnullcc];
+
+					isnullable = inp[0] != '0';
+				    }
+				    sprintf(buf, "%d", isnullable);
+				    s->rows[roffs + 8] = xstrdup(buf);
 				}
 			    }
 			}
@@ -2309,6 +2320,27 @@ nodata:
     }
     sqlite_free_table(rowp);
     sqlite_free_table(rowppp);
+    if (nullable == SQL_NO_NULLS) {
+	for (i = 1; i < s->nrows; i++) {
+	    if (s->rows[i * s->ncols + 8][0] == '0') {
+		int m, i1 = i + 1;
+
+		for (m = 0; m < s->ncols; m++) {
+		    freep(&s->rows[i * s->ncols + m]);
+		}
+		size = s->ncols * sizeof (char *) * (s->nrows - i1);
+		if (size > 0) {
+		    memmove(s->rows + i * s->ncols,
+			    s->rows + i1 * s->ncols,
+			    size);
+		    memset(s->rows + s->nrows * s->ncols, 0,
+			   s->ncols * sizeof (char *));
+		}
+		s->nrows--;
+		--i;
+	    }
+	}
+    }
     return SQL_SUCCESS;
 }
 
@@ -2967,9 +2999,9 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "02.50", valMax, valLen);
 	break;
     case SQL_FETCH_DIRECTION:
-	*(long *) val = SQL_FD_FETCH_NEXT | SQL_FD_FETCH_FIRST |
+	*(SQLUINTEGER *) val = SQL_FD_FETCH_NEXT | SQL_FD_FETCH_FIRST |
 	    SQL_FD_FETCH_LAST | SQL_FD_FETCH_PRIOR | SQL_FD_FETCH_ABSOLUTE;
-	*valLen = sizeof (long);
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ODBC_VER:
 	strmak(val, "02.50", valMax, valLen);
@@ -3046,8 +3078,8 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_DEFAULT_TXN_ISOLATION:
-	*(long *) val = SQL_TXN_READ_UNCOMMITTED;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
 #ifdef SQL_DESCRIBE_PARAMETER
     case SQL_DESCRIBE_PARAMETER:
@@ -3055,8 +3087,8 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_TXN_ISOLATION_OPTION:
-	*(long *) val = SQL_TXN_READ_UNCOMMITTED;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_IDENTIFIER_CASE:
 	*(SQLSMALLINT *) val = SQL_IC_SENSITIVE;
@@ -3094,16 +3126,16 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, "database", valMax, valLen);
 	break;
     case SQL_QUALIFIER_USAGE:
-	*(long *) val = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_QU_DML_STATEMENTS | SQL_QU_TABLE_DEFINITION;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
-	*(long *) val = SQL_SCCO_READ_ONLY;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_SCCO_READ_ONLY;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_OPTIONS:
-	*(long *) val = SQL_SO_STATIC | SQL_SO_FORWARD_ONLY;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_SO_STATIC | SQL_SO_FORWARD_ONLY;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_TABLE_TERM:
 	strmak(val, "table", valMax, valLen);
@@ -3113,15 +3145,15 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_CONVERT_FUNCTIONS:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
        break;
     case SQL_SYSTEM_FUNCTIONS:
     case SQL_NUMERIC_FUNCTIONS:
     case SQL_STRING_FUNCTIONS:
     case SQL_TIMEDATE_FUNCTIONS:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_CONVERT_BIGINT:
     case SQL_CONVERT_BIT:
@@ -3139,12 +3171,13 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_CONVERT_TIMESTAMP:
     case SQL_CONVERT_TINYINT:
     case SQL_CONVERT_VARCHAR:
-	*(long *) val = SQL_CVT_CHAR | SQL_CVT_NUMERIC | SQL_CVT_DECIMAL |
+	*(SQLUINTEGER *) val = 
+	    SQL_CVT_CHAR | SQL_CVT_NUMERIC | SQL_CVT_DECIMAL |
 	    SQL_CVT_INTEGER | SQL_CVT_SMALLINT | SQL_CVT_FLOAT | SQL_CVT_REAL |
 	    SQL_CVT_DOUBLE | SQL_CVT_VARCHAR | SQL_CVT_LONGVARCHAR |
 	    SQL_CVT_BIT | SQL_CVT_TINYINT | SQL_CVT_BIGINT |
 	    SQL_CVT_DATE | SQL_CVT_TIME | SQL_CVT_TIMESTAMP;
-	*valLen = sizeof (long);
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_CONVERT_BINARY:
     case SQL_CONVERT_VARBINARY:
@@ -3157,20 +3190,20 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_UNION:
     case SQL_TIMEDATE_ADD_INTERVALS:
     case SQL_TIMEDATE_DIFF_INTERVALS:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_QUOTED_IDENTIFIER_CASE:
 	*(SQLUSMALLINT *) val = SQL_IC_SENSITIVE;
 	*valLen = sizeof (SQLUSMALLINT);
 	break;
     case SQL_POS_OPERATIONS:
-	*(long *) val = SQL_POS_POSITION;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = SQL_POS_POSITION;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ALTER_TABLE:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_CORRELATION_NAME:
 	*(SQLSMALLINT *) val = SQL_CN_DIFFERENT;
@@ -3198,26 +3231,26 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_MAX_BINARY_LITERAL_LEN:
     case SQL_MAX_CHAR_LITERAL_LEN:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_MAX_COLUMNS_IN_INDEX:
 	*(SQLSMALLINT *) val = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_INDEX_SIZE:
-	*(long *) val = 0;
-	*valLen = sizeof(long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof(SQLUINTEGER);
 	break;
 #ifdef SQL_MAX_IDENTIFIER_LENGTH
     case SQL_MAX_IDENTIFIER_LENGTH:
-	*(long *) val = 255;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 255;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
     case SQL_MAX_STATEMENT_LEN:
-	*(long *) val = 16384;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 16384;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_QUALIFIER_LOCATION:
 	*(SQLSMALLINT *) val = SQL_QL_START;
@@ -3225,8 +3258,8 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_GETDATA_EXTENSIONS:
     case SQL_STATIC_SENSITIVITY:
-	*(long *) val = 0;
-	*valLen = sizeof (long);
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FILE_USAGE:
 	*(SQLSMALLINT *) val = SQL_FILE_NOT_SUPPORTED;
@@ -3244,8 +3277,23 @@ SQLGetInfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_SPECIAL_CHARACTERS:
 	strmak(val, "", valMax, valLen);
 	break;
+    case SQL_BATCH_SUPPORT:
+    case SQL_BATCH_ROW_COUNT:
+    case SQL_PARAM_ARRAY_ROW_COUNTS:
+	*(SQLUINTEGER *) val = 0;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+    case SQL_STATIC_CURSOR_ATTRIBUTES1:
+	*(SQLUINTEGER *) val =
+	    SQL_CA1_NEXT | SQL_CA1_ABSOLUTE | SQL_CA1_RELATIVE;
+	*valLen = sizeof (SQLUINTEGER);
+	break;	
+    case SQL_STATIC_CURSOR_ATTRIBUTES2:
+	*(SQLUINTEGER *) val = SQL_CA2_READ_ONLY_CONCURRENCY;
+	*valLen = sizeof (SQLUINTEGER);
+	break;	
     default:
-	strcpy(d->logmsg, "unsupported option");
+	sprintf(d->logmsg, "unsupported info option %d", type);
 	strcpy(d->sqlstate, "S1C00");
 	return SQL_ERROR;
     }
@@ -3589,25 +3637,184 @@ SQLFreeConnect(SQLHDBC dbc)
 }
 
 /**
- * Function not implemented.
+ * Internal get connect attribute of HDBC.
+ * @param dbc database connection handle
+ * @param attr option to be retrieved
+ * @param val output buffer
+ * @param bufmax size of output buffer
+ * @param buflen output length
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
+		  SQLINTEGER bufmax, SQLINTEGER *buflen)
+{
+    DBC *d;
+    SQLINTEGER dummy;
+
+    if (dbc == SQL_NULL_HDBC) {
+	return SQL_INVALID_HANDLE;
+    }
+    d = (DBC *) dbc;
+    if (!val) {
+	val = (SQLPOINTER) &dummy;
+    }
+    if (!buflen) {
+	buflen = &dummy;
+    }
+    switch (attr) {
+    case SQL_ATTR_ACCESS_MODE:
+	*(SQLINTEGER *) val = SQL_MODE_READ_WRITE;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_AUTOCOMMIT:
+	*(SQLINTEGER *) val =
+	    d->autocommit ? SQL_AUTOCOMMIT_ON : SQL_AUTOCOMMIT_OFF;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_LOGIN_TIMEOUT:
+	*(SQLINTEGER *) val = 100;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_ODBC_CURSORS:
+	*(SQLINTEGER *) val = SQL_CUR_USE_DRIVER;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_PACKET_SIZE:
+	*(SQLINTEGER *) val = 16384;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_TXN_ISOLATION:
+	*(SQLINTEGER *) val = SQL_TXN_READ_UNCOMMITTED;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_TRACE:
+    case SQL_ATTR_TRACEFILE:
+    case SQL_ATTR_QUIET_MODE:
+    case SQL_ATTR_TRANSLATE_OPTION:
+    case SQL_ATTR_KEYSET_SIZE:
+    case SQL_ATTR_QUERY_TIMEOUT:
+    case SQL_ATTR_PARAM_BIND_TYPE:
+    case SQL_ATTR_ROW_BIND_TYPE:
+    case SQL_ATTR_CURRENT_CATALOG:
+	*(SQLINTEGER *) val = 0;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_USE_BOOKMARKS:
+	*(SQLINTEGER *) val = SQL_UB_OFF;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_ASYNC_ENABLE:
+	*(SQLINTEGER *) val = SQL_ASYNC_ENABLE_OFF;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_NOSCAN:
+	*(SQLINTEGER *) val = SQL_NOSCAN_ON;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_CONCURRENCY:
+	*(SQLINTEGER *) val = SQL_CONCUR_ROWVER;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_SIMULATE_CURSOR:
+	*(SQLINTEGER *) val = SQL_SC_NON_UNIQUE;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_MAX_ROWS:
+    case SQL_ATTR_MAX_LENGTH:
+	*(SQLINTEGER *) val = 1000000000;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_CURSOR_TYPE:
+#ifdef ASYNC
+	*(SQLINTEGER *) val = d->curtype;
+#else
+	*(SQLINTEGER *) val = SQL_CURSOR_STATIC;
+#endif
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_RETRIEVE_DATA:
+	*(SQLINTEGER *) val = SQL_RD_ON;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+    default:
+	*(SQLINTEGER *) val = 0;
+	*buflen = sizeof (SQLINTEGER);
+	sprintf(d->logmsg, "unsupported connect attribute %d", attr);
+	strcpy(d->sqlstate, "S1C00");
+	return SQL_ERROR;
+    }
+    return SQL_SUCCESS;
+}
+
+/**
+ * Get connect attribute of HDBC.
+ * @param dbc database connection handle
+ * @param attr option to be retrieved
+ * @param val output buffer
+ * @param bufmax size of output buffer
+ * @param buflen output length
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLGetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 		  SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
-    return drvunimpldbc(dbc);
+    return drvgetconnectattr(dbc, attr, val, bufmax, buflen);
 }
 
 /**
- * Function not implemented.
+ * Internal set connect attribute of HDBC.
+ * @param dbc database connection handle
+ * @param attr option to be set
+ * @param val option value
+ * @param len size of option
+ * @result ODBC error code
+ */
+
+SQLRETURN SQL_API
+drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
+		  SQLINTEGER len)
+{
+    DBC *d;
+
+    if (dbc == SQL_NULL_HDBC) {
+	return SQL_INVALID_HANDLE;
+    }
+    d = (DBC *) dbc;
+    switch (attr) {
+    case SQL_AUTOCOMMIT:
+	if (val && len >= sizeof (SQLINTEGER)) {
+	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
+	    if (d->autocommit && d->intrans) {
+		return endtran(d, SQL_COMMIT);
+#ifdef ASYNC
+	    } else if (!d->autocommit) {
+		async_end(d->async_stmt);
+#endif
+	    }
+	}
+	break;
+    }
+    return SQL_SUCCESS;
+}
+
+/**
+ * Set connect attribute of HDBC.
+ * @param dbc database connection handle
+ * @param attr option to be set
+ * @param val option value
+ * @param len size of option
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLSetConnectAttr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
-		  SQLINTEGER buflen)
+		  SQLINTEGER len)
 {
-    return drvunimpldbc(dbc);
+    return drvsetconnectattr(dbc, attr, val, len);
 }
 
 /**
@@ -3690,11 +3897,13 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 #endif
 	break;
     case SQL_RETRIEVE_DATA:
-       *(SQLINTEGER *) param = SQL_RD_ON;
-       break;
+	*(SQLINTEGER *) param = SQL_RD_ON;
+	break;
     default:
-       *(SQLINTEGER *) param = 0;
-       return drvunimpldbc(dbc);
+	*(SQLINTEGER *) param = 0;
+	sprintf(d->logmsg, "unsupported connect option %d", opt);
+	strcpy(d->sqlstate, "S1C00");
+	return SQL_ERROR;
     }
     return SQL_SUCCESS;
 }
@@ -3735,6 +3944,10 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 	d->autocommit = param == SQL_AUTOCOMMIT_ON;
 	if (d->autocommit && d->intrans) {
 	    return endtran(d, SQL_COMMIT);
+#ifdef ASYNC
+	} else if (!d->autocommit) {
+	    async_end(d->async_stmt);
+#endif
 	}
 	break;
     }
@@ -3947,9 +4160,7 @@ SQLDisconnect(SQLHDBC dbc)
 	return SQL_ERROR;
     }
 #ifdef ASYNC
-    if (d->async_stmt) {
-	async_end(d->async_stmt);
-    }
+    async_end(d->async_stmt);
 #endif
     if (d->sqlite) {
 	sqlite_close(d->sqlite);
@@ -4000,7 +4211,9 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 	return SQL_INVALID_HANDLE;
     }
     if (drvcompl != SQL_DRIVER_COMPLETE &&
-	drvcompl != SQL_DRIVER_COMPLETE_REQUIRED) {
+	drvcompl != SQL_DRIVER_COMPLETE_REQUIRED &&
+	drvcompl != SQL_DRIVER_PROMPT &&
+	drvcompl != SQL_DRIVER_NOPROMPT) {
 	return SQL_NO_DATA;
     }
     d = (DBC *) dbc;
@@ -4019,30 +4232,49 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 	strncpy(buf, connIn, len);
     }
     buf[len] = '\0';
-    if (buf[0] == '\0') {
+    if (!buf[0]) {
 	strcpy(d->logmsg, "invalid connect attributes");
 	strcpy(d->sqlstate, "S1090");
 	return SQL_ERROR;
     }
+    dsn[0] = '\0';
+    getdsnattr(buf, "DSN", dsn, sizeof (dsn));
+
     busy[0] = '\0';
     getdsnattr(buf, "timeout", busy, sizeof (busy));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !busy[0]) {
+	SQLGetPrivateProfileString(dsn, "timeout", "1000",
+				   busy, sizeof (busy), ODBC_INI);
+    }
+#endif
     tmp = strtoul(busy, &errp, 0);
     if (errp && *errp == '\0' && errp != busy) {
 	busyto = tmp;
     }
     dbname[0] = '\0';
     getdsnattr(buf, "database", dbname, sizeof (dbname));
-    dsn[0] = '\0';
-    getdsnattr(buf, "DSN", dsn, sizeof (dsn));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !dbname[0]) {
+	SQLGetPrivateProfileString(dsn, "database", "",
+				   dbname, sizeof (dbname), ODBC_INI);
+    }
+#endif
+#ifdef ASYNC
+    tflag[0] = '\0';
+    getdsnattr(buf, "threaded", tflag, sizeof (tflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !tflag[0]) {
+	SQLGetPrivateProfileString(dsn, "threaded", "",
+				   tflag, sizeof (tflag), ODBC_INI);
+    }
+#endif
+#endif
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
 	strncpy(dbname, buf, sizeof (dbname));
 	dbname[sizeof (dbname) - 1] = '\0';
     }
-#ifdef ASYNC
-    tflag[0] = '\0';
-    getdsnattr(buf, "threaded", tflag, sizeof (tflag));
-#endif
     if (connOut || connOutLen) {
 	char buf2[64];
 
@@ -4683,7 +4915,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT type,
 		*lenp = dlen;
 	    } else {
 		*lenp = min(len - 1, dlen);
-		if (*lenp == len - 1) {
+		if (*lenp == len - 1 && *lenp != dlen) {
 		    *lenp = SQL_NO_TOTAL;
 		}
 	    }
@@ -4851,15 +5083,58 @@ noconn:
     if (!d->sqlite) {
 	goto noconn;
     }
-#ifdef ASYNC
-    async_end_if(s);
-#endif
     freeresult(s, 1);
     s->ncols = array_size(tableSpec);
     s->cols = tableSpec;
     s->nrows = 0;
     mkbindcols(s);
+    if (type && (typeLen > 0 || typeLen == SQL_NTS) && type[0] == '%') {
+	int size = 3 * array_size(tableSpec);
+
+	s->rows = xmalloc(size * sizeof (char *));
+	if (!s->rows) {
+	    s->nrows = 0;
+	    return nomem(s);
+	}
+	memset(s->rows, 0, sizeof (char *) * size);
+	s->ncols = array_size(tableSpec);
+	s->rows[s->ncols + 0] = "";
+	s->rows[s->ncols + 1] = "";
+	s->rows[s->ncols + 2] = "";
+	s->rows[s->ncols + 3] = "TABLE";
+	s->rows[s->ncols + 5] = "";
+	s->rows[s->ncols + 6] = "";
+	s->rows[s->ncols + 7] = "";
+	s->rows[s->ncols + 8] = "VIEW";
+#ifdef MEMORY_DEBUG
+	s->rowfree = xfree;
+#else
+	s->rowfree = free;
+#endif
+	s->nrows = 1;
+	s->rowp = -1;
+	return SQL_SUCCESS;
+    }
     if (cat && (catLen > 0 || catLen == SQL_NTS) && cat[0] == '%') {
+	int size = 2 * array_size(tableSpec);
+
+	s->rows = xmalloc(size * sizeof (char *));
+	if (!s->rows) {
+	    s->nrows = 0;
+	    return nomem(s);
+	}
+	memset(s->rows, 0, sizeof (char *) * size);
+	s->ncols = array_size(tableSpec);
+	s->rows[s->ncols + 0] = "";
+	s->rows[s->ncols + 1] = "";
+	s->rows[s->ncols + 2] = d->dbname;
+	s->rows[s->ncols + 3] = "CATALOG";
+#ifdef MEMORY_DEBUG
+	s->rowfree = xfree;
+#else
+	s->rowfree = free;
+#endif
+	s->nrows = 1;
 	s->rowp = -1;
 	return SQL_SUCCESS;
     }
@@ -5056,7 +5331,7 @@ noconn:
     mkbindcols(s);
     s->nrows = 0;
     s->rowp = -1;
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info(%s)", &rowp,
+    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
 	if (errp) {
@@ -5428,7 +5703,7 @@ noconn:
     mkbindcols(s);
     s->rowp = -1;
     ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list(%s)", &rowp,
+				  "PRAGMA index_list('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
     if (ret != SQLITE_OK) {
 	if (errp) {
@@ -5461,11 +5736,14 @@ nodata:
     for (i = 1; i <= nrows; i++) {
 	int nnrows, nncols;
 	char **rowpp;
+	int isuniq;
 
-	if ((*rowp[i * ncols + uniquec] != '0' ||
-	     itype == SQL_INDEX_ALL) &&
+	isuniq = *rowp[i * ncols + uniquec] != 0 ||
+	    (*rowp[i * ncols + namec] == '(' &&
+	     strstr(rowp[i * ncols + namec], " autoindex "));
+	if ((isuniq || itype == SQL_INDEX_ALL) &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    size += nnrows;
@@ -5494,7 +5772,7 @@ nodata:
 	if ((*rowp[i * ncols + uniquec] != '0' ||
 	     itype == SQL_INDEX_ALL) &&
 	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info(%s)", &rowpp,
+				    "PRAGMA index_info('%q')", &rowpp,
 				    &nnrows, &nncols, NULL,
 				    rowp[i * ncols + namec]) == SQLITE_OK) {
 	    int k;
@@ -5505,15 +5783,19 @@ nodata:
 
 		    for (m = 1; m <= nnrows; m++) {
 			int roffs = (offs + m) * s->ncols;
+			int isuniq;
 
+			isuniq = *rowp[i * ncols + uniquec] != 0 ||
+			    (*rowp[i * ncols + namec] == '(' &&
+			     strstr(rowp[i * ncols + namec], " autoindex "));
 			s->rows[roffs + 0] = xstrdup("");
 			s->rows[roffs + 1] = xstrdup("");
 			s->rows[roffs + 2] = xstrdup(tname);
-			s->rows[roffs + 3] = xstrdup(*rowp[i * ncols + uniquec]
-						     == '0' ? "1" : "0");
+			s->rows[roffs + 3] = xstrdup(isuniq ? "0" : "1");
 			s->rows[roffs + 4] = xstrdup(rowp[i * ncols + namec]);
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
-			s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
+			s->rows[roffs + 6] =
+			    xstrdup(stringify(SQL_INDEX_OTHER));
 			s->rows[roffs + 8] = xstrdup(rowpp[m * nncols + k]);
 			s->rows[roffs + 9] = xstrdup("A");
 		    }
@@ -6099,6 +6381,7 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	    *valLen = strlen(val);
 	}
 	break;
+    case SQL_COLUMN_LENGTH:
     case SQL_DESC_LENGTH:
 	v = c->size;
 	break;
@@ -6505,7 +6788,7 @@ noconn:
 	freep(&errp);
     }
 #ifdef ASYNC
-    if (s->isselect &&
+    if (s->isselect && !d->intrans &&
 	d->thread_enable &&
 	s->curtype == SQL_CURSOR_FORWARD_ONLY) {
 	ret = async_start(s, params);
