@@ -1,10 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
-This is an experimental ODBC driver for the wonderful SQLite 2.8.*
-Database Engine/Library. So far it is more a proof of concept and might
-contain lots of memory leaks and all other kinds of bugs. Thus I highly
-appreciate any feedback.
+This is an experimental open source ODBC driver for the wonderful
+SQLite 2.8.* Database Engine/Library. A pre-alpha version for
+SQLite 3.* is also contained in the source archive. So far it is
+more a proof of concept and might contain lots of memory leaks
+and all other kinds of bugs. Thus I highly appreciate feedback.
 
 The current source can be downloaded from
 
@@ -14,7 +15,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.14, MS VC++ 6.0 and tested on
+The binaries were made with SQLite 2.8.15, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97, with
 StarOffice 5.2 and OpenOffice 1.1.
 Unzip the archive into a temporary directory and execute the INST.EXE
@@ -180,7 +181,9 @@ Build instructions for MS Visual C++ 6.0:
 
 
 Starting with release 0.63 support for SQLite version 3 will be
-added as a separate DLL/shared library.
+added as a separate DLL/shared library. The SQLite 3.* driver
+is named sqlite3odbc.dll on windows and libsqlite3odbc.so on
+Linux.
 
 
 TODO:
@@ -188,7 +191,7 @@ TODO:
 - improve documentation
 
 
-July, 8th, 2004
+September, 5th, 2004
 Christian Werner
 mailto:chw@ch-werner.de
 

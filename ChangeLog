@@ -1,6 +1,17 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Sep 05 2004 version 0.64 released
+
+	* added row-wise binding for rowsets
+	* fixed off-by-one error for SQL_FETCH_PRIOR
+	* another bug fix in fixupsql() concerning quotes thanks to
+	  Justin Foutts
+	* always fallback to _ROWID_ in SQLSpecialColumns(SQL_BEST_ROWID)
+	  even for tables w/o index
+	* update to SQLite 2.8.15
+	* fixes concerning SQL_COLUMN_LABEL in SQLColumnAttribute(s)
+
 Thu Jul 08 2004 version 0.63 released
 
 	* added tracefile DSN option using sqlite_trace() if available

@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.2 2004/07/08 13:25:25 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.3 2004/09/03 05:32:35 chw Exp chw $
  *
  * Copyright (c) 2004 Christian Werner <chw@ch-werner.de>
  *
@@ -198,6 +198,7 @@ typedef struct stmt {
     SQLUINTEGER paramset_size;	/**< SQL_ATTR_PARAMSET_SIZE */
     SQLUINTEGER paramset_count;	/**< Internal for paramset */
     SQLUINTEGER paramset_nrows;	/**< Row count for paramset handling */
+    SQLUINTEGER bind_type;	/**< SQL_ATTR_ROW_BIND_TYPE */
     /* Dummies to make ADO happy */
     SQLUINTEGER *bind_offs;	/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */

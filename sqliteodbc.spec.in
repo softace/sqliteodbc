@@ -47,6 +47,14 @@ EOD
       /usr/bin/odbcinst -q -d -n SQLITE | grep '^\[SQLITE\]' >/dev/null || {
 	 /usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
       }
+      cat > $INST << 'EOD'
+[SQLite Datasource]
+Driver=SQLITE
+EOD
+      /usr/bin/odbcinst -q -s -n "SQLite Datasource" | \
+	 grep '^\[SQLite Datasource\]' >/dev/null || {
+	 /usr/bin/odbcinst -i -l -s -n "SQLite Datasource" -f $INST || true
+      }
    fi
    if [ -r %{_libdir}/libsqlite3odbc.so ] ; then
       cat > $INST << 'EOD'
@@ -59,6 +67,14 @@ EOD
       /usr/bin/odbcinst -q -d -n SQLITE3 | grep '^\[SQLITE3\]' >/dev/null || {
 	 /usr/bin/odbcinst -i -d -n SQLITE3 -f $INST || true
       }
+      cat > $INST << 'EOD'
+[SQLite3 Datasource]
+Driver=SQLITE3
+EOD
+      /usr/bin/odbcinst -q -s -n "SQLite3 Datasource" | \
+	 grep '^\[SQLite3 Datasource\]' >/dev/null || {
+	 /usr/bin/odbcinst -i -l -s -n "SQLite3 Datasource" -f $INST || true
+      }
    fi
    rm -f $INST
 fi
@@ -67,7 +83,9 @@ fi
 if [ "$1" = "0" ] ; then
     test -x /usr/bin/odbcinst && {
 	/usr/bin/odbcinst -u -d -n SQLITE || true
+	/usr/bin/odbcinst -u -l -s -n "SQLite Datasource" || true
 	/usr/bin/odbcinst -u -d -n SQLITE3 || true
+	/usr/bin/odbcinst -u -l -s -n "SQLite3 Datasource" || true
     }
 fi
 
