@@ -1,4 +1,5 @@
 #define VERSION				"--VERS--"
+#define VERSION_C			--VERS_C--
 #define DRIVERCONNECT                   104
 #define CONFIGDSN                       105
 #define IDC_DSNAME                      400

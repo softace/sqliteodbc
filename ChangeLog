@@ -1,6 +1,18 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Oct 07 2004 version 0.65 released
+
+	* first (alpha) version of SQLite3 driver for Win32
+	* fixes in Win32 resources
+	* minor tweaks in SQLGetInfo()
+	* fixes in length return of SQLGetInfoW() concerning UNICODE data
+	* fixed errors in orientation/offset handling of SQLExtendedFetch/
+	  SQLFetchScroll, thanks Lucky Prianata for testing
+	* added handling of SQL_ATTR_ROW_BIND_OFFSET_PTR for statements
+	* added handling of SQL_ATTR_RETRIEVE_DATA for statements
+	  (seems to be needed by ADO)
+
 Sun Sep 05 2004 version 0.64 released
 
 	* added row-wise binding for rowsets

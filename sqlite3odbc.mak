@@ -11,26 +11,17 @@ CDEBUG=		-Zi
 LDEBUG=		/RELEASE
 !ENDIF
 
-!IF "$(ENCODING)" == ""
-ENCODING=	ISO8859
-!ENDIF
-
-CFLAGS=		-I. -Isqlite -Gs -GX -D_WIN32 -D_DLL -nologo $(CDEBUG) \
-		-DHAVE_ENCDEC=1 -DHAVE_LIBVERSION=1 -DHAVE_SQLITEATOF=1 \
-		-DHAVE_SQLITEMPRINTF=1
+CFLAGS=		-I. -Isqlite3 -Gs -GX -D_WIN32 -D_DLL -nologo $(CDEBUG) \
+		-DHAVE_SQLITEATOF=1 
 CFLAGSEXE=	-I. -Gs -GX -D_WIN32 -nologo $(CDEBUG)
 DLLLFLAGS=	/NODEFAULTLIB $(LDEBUG) /NOLOGO /MACHINE:IX86 \
 		/SUBSYSTEM:WINDOWS /DLL
 DLLLIBS=	msvcrt.lib odbccp32.lib kernel32.lib \
-		user32.lib comdlg32.lib sqlite\libsqlite.lib
+		user32.lib comdlg32.lib sqlite3\libsqlite3.lib
 
-!IF "$(ENCODING)" == "UTF8"
-DRVDLL=		sqliteodbcu.dll
-!ELSE
-DRVDLL=		sqliteodbc.dll
-!ENDIF
+DRVDLL=		sqlite3odbc.dll
 
-OBJECTS=	sqliteodbc.obj
+OBJECTS=	sqlite3odbc.obj
 
 .c.obj:
 		$(CC) $(CFLAGS) /c $<
@@ -48,7 +39,7 @@ clean:
 		del resource.h
 		del *.exe
 		cd sqlite
-		nmake -f ..\sqlite.mak clean
+		nmake -f ..\sqlite3.mak clean
 		cd ..
 
 uninst.exe:	inst.exe
@@ -77,18 +68,14 @@ fixup.exe:	fixup.c
 mkopc.exe:	mkopc.c
 		$(CC) $(CFLAGSEXE) mkopc.c
 
-sqliteodbc.c:	resource.h
+sqlite3odbc.c:	resource.h
 
-sqliteodbc.res:	sqliteodbc.rc resource.h
-		$(RC) -I. -Isqlite -fo sqliteodbc.res -r sqliteodbc.rc
+sqlite3odbc.res:	sqlite3odbc.rc resource.h
+		$(RC) -I. -Isqlite3 -fo sqlite3odbc.res -r sqlite3odbc.rc
 
-sqliteodbc.dll:		sqlite\libsqlite.lib $(OBJECTS) sqliteodbc.res
-		$(LN) $(DLLLFLAGS) $(OBJECTS) sqliteodbc.res \
-		-def:sqliteodbc.def -out:$@ $(DLLLIBS)
-
-sqliteodbcu.dll:	sqlite\libsqlite.lib $(OBJECTS) sqliteodbc.res
-		$(LN) $(DLLLFLAGS) $(OBJECTS) sqliteodbc.res \
-		-def:sqliteodbcu.def -out:$@ $(DLLLIBS)
+sqlite3odbc.dll:	sqlite3\libsqlite3.lib $(OBJECTS) sqlite3odbc.res
+		$(LN) $(DLLLFLAGS) $(OBJECTS) sqlite3odbc.res \
+		-def:sqlite3odbc.def -out:$@ $(DLLLIBS)
 
 VERSION_C:	VERSION
 		.\fixup < VERSION > VERSION_C . ,
@@ -98,7 +85,7 @@ resource.h:	resource.h.in VERSION_C fixup.exe
 		    --VERS-- @VERSION \
 		    --VERS_C-- @VERSION_C
 
-sqlite\libsqlite.lib:	fixup.exe mkopc.exe
-		cd sqlite
-		nmake -f ..\sqlite.mak ENCODING=$(ENCODING)
+sqlite3\libsqlite3.lib:	fixup.exe mkopc.exe
+		cd sqlite3
+		nmake -f ..\sqlite3.mak
 		cd ..

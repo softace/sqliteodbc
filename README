@@ -2,10 +2,9 @@ SQLite ODBC Driver
 ------------------
 
 This is an experimental open source ODBC driver for the wonderful
-SQLite 2.8.* Database Engine/Library. A pre-alpha version for
-SQLite 3.* is also contained in the source archive. So far it is
-more a proof of concept and might contain lots of memory leaks
-and all other kinds of bugs. Thus I highly appreciate feedback.
+SQLite 2.8.* and SQLite 3.* (alpha) Database Engine/Library.
+So far it is more a proof of concept and might contain lots of memory
+leaks and all other kinds of bugs. Thus I highly appreciate feedback.
 
 The current source can be downloaded from
 
@@ -15,8 +14,8 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.15, MS VC++ 6.0 and tested on
-Windows NT 4.0 with the query tool of MS Excel 97, with
+The binaries were made with SQLite 2.8.15, SQLite 3.0.7, MS VC++ 6.0
+and tested on Windows NT 4.0 with the query tool of MS Excel 97, with
 StarOffice 5.2 and OpenOffice 1.1.
 Unzip the archive into a temporary directory and execute the INST.EXE
 program. This installs the SQLite ODBC driver and creates a System DSN.
@@ -162,6 +161,8 @@ Python sample usage with eGenix mx-Extension
 
 Build instructions for MS Visual C++ 6.0:
 
+... for SQLite 2.x.x
+
 1. Extract the source tarball sqliteodbc.tar.gz
 2. Extract the official SQLite 2.x.x sources in the sqliteodbc
    directory which resulted from step 1. Optionally, apply the
@@ -179,19 +180,33 @@ Build instructions for MS Visual C++ 6.0:
 	nmake -f sqliteodbc.mak clean
 	nmake -f sqliteodbc.mak ENCODING=UTF8
 
+... for SQLite 3.x.x
 
-Starting with release 0.63 support for SQLite version 3 will be
-added as a separate DLL/shared library. The SQLite 3.* driver
-is named sqlite3odbc.dll on windows and libsqlite3odbc.so on
-Linux.
+1. Extract the source tarball sqliteodbc.tar.gz
+2. Extract the official SQLite 3.x.x. sources in the sqliteodbc
+   directory which resulted from step 1. Rename the resulting
+   sqlite directory to sqlite3
+3. Setup your MSVC++ environment, ie PATH/INCLUDE/LIB, then
+   open a command window, cd to the sqliteodbc directory and enter:
 
+        nmake -f sqlite3odbc.mak
+
+   This compiles the SQLite3 sources first, creates a link library
+   of the necessary object files, then compiles and links the ODBC
+   driver and the (un)install program.
+
+Names of Win32 Driver DLLs:
+
+   sqliteodbc.dll    Driver with ISO8859-1 SQLite2 engine
+   sqliteodbcu.dll   Driver with UTF-8/UNICODE SQLite2 engine
+   sqlite3odbc.dll   Driver with SQLite3 engine, no WCHAR support for now
 
 TODO:
 
 - improve documentation
 
 
-September, 5th, 2004
+October, 7th, 2004
 Christian Werner
 mailto:chw@ch-werner.de
 

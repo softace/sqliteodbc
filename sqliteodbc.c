@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.82 2004/09/03 05:28:19 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.84 2004/10/06 18:26:14 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -18,9 +18,15 @@
 #endif
 
 #ifdef _WIN32
+#include "resource.h"
 #define ODBC_INI "ODBC.INI"
+#define DRIVER_VER_INFO VERSION
 #else
 #define ODBC_INI ".odbc.ini"
+#endif
+
+#ifndef DRIVER_VER_INFO
+#define DRIVER_VER_INFO "0.0"
 #endif
 
 #undef min
@@ -301,6 +307,7 @@ static void freedyncols(STMT *s);
 
 static SQLRETURN drvexecute(SQLHSTMT stmt);
 
+#if (MEMORY_DEBUG < 1)
 /**
  * Duplicate string using xmalloc().
  * @param str string to be duplicated
@@ -320,6 +327,7 @@ strdup_(const char *str)
     }
     return p;
 }
+#endif
 
 #ifdef SQLITE_UTF8
 /**
@@ -4154,7 +4162,7 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     strncpy(tname, table, size);
     tname[size] = '\0';
     if (id != SQL_BEST_ROWID) {
-        return SQL_SUCCESS;
+	return SQL_SUCCESS;
     }
     ret = sqlite_get_table_printf(d->sqlite, "PRAGMA index_list('%q')",
 				  &rowp, &nrows, &ncols, &errp, tname);
@@ -4174,7 +4182,7 @@ doerr:
     }
     size = 0;	/* number result rows */
     if (ncols * nrows <= 0) {
-        goto nodata_but_rowid;
+	goto nodata_but_rowid;
     }
     ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')",
 				  &rowppp, &nnnrows, &nnncols, &errp, tname);
@@ -5575,6 +5583,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     SQLUINTEGER *uval = (SQLUINTEGER *) val;
 
     switch (attr) {
+    case SQL_QUERY_TIMEOUT:
+	*uval = 0;
+	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_TYPE:
 	*uval = s->curtype;
 	return SQL_SUCCESS;
@@ -5606,7 +5617,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*uval = SQL_CONCUR_LOCK;
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
-	*uval = SQL_RD_ON;
+	*uval = s->retr_data;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
@@ -5632,7 +5643,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     }
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	*((SQLUINTEGER **) val) = s->bind_offs;
+	*((SQLUINTEGER **) val) = s->parm_bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
 	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
@@ -5651,6 +5662,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
 	*(SQLUINTEGER *) val = s->bind_type;
+	return SQL_SUCCESS;
+    case SQL_ATTR_ROW_BIND_OFFSET_PTR:
+	*((SQLUINTEGER **) val) = s->bind_offs;
 	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
@@ -5747,6 +5761,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    (SQLUINTEGER) val != SQL_RD_OFF) {
 	    goto e01s02;
 	}
+	s->retr_data = (int) val;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
@@ -5776,7 +5791,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->row_count = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	s->bind_offs = (SQLUINTEGER *) val;
+	s->parm_bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
 	if ((SQLUINTEGER) val != SQL_PARAM_BIND_BY_COLUMN) {
@@ -5801,6 +5816,9 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
 	s->bind_type = (SQLUINTEGER) val;
+	return SQL_SUCCESS;
+    case SQL_ATTR_ROW_BIND_OFFSET_PTR:
+	s->bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS:
 	if ((SQLUINTEGER) val != SQL_UB_OFF &&
@@ -5864,6 +5882,9 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
     SQLUINTEGER *ret = (SQLUINTEGER *) param;
 
     switch (opt) {
+    case SQL_QUERY_TIMEOUT:
+	*ret = 0;
+	return SQL_SUCCESS;
     case SQL_CURSOR_TYPE:
 	*ret = s->curtype;
 	return SQL_SUCCESS;
@@ -5885,7 +5906,7 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	*ret = SQL_CONCUR_LOCK;
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
-	*ret = SQL_RD_ON;
+	*ret = s->retr_data;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
@@ -5968,6 +5989,7 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 	    setstat(s, -1, "option value changed", "01S02");
 	    return SQL_SUCCESS_WITH_INFO;
 	}
+	s->retr_data = (int) param;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
@@ -6118,13 +6140,40 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 #endif
 #ifdef SQL_CREATE_TABLE
     case SQL_CREATE_TABLE:
-	*((SQLUINTEGER *) val) = 0;
+	*((SQLUINTEGER *) val) = SQL_CT_CREATE_TABLE |
+				 SQL_CT_COLUMN_DEFAULT |
+				 SQL_CT_COLUMN_CONSTRAINT |
+				 SQL_CT_CONSTRAINT_NON_DEFERRABLE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
 #ifdef SQL_CREATE_VIEW
     case SQL_CREATE_VIEW:
-	*((SQLUINTEGER *) val) = 0;
+	*((SQLUINTEGER *) val) = SQL_CV_CREATE_VIEW;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+#endif
+#ifdef SQL_DDL_INDEX
+    case SQL_DDL_INDEX:
+	*((SQLUINTEGER *) val) = SQL_DI_CREATE_INDEX | SQL_DI_DROP_INDEX;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+#endif
+#ifdef SQL_DROP_TABLE
+    case SQL_DROP_TABLE:
+	*((SQLUINTEGER *) val) = SQL_DT_DROP_TABLE;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+#endif
+#ifdef SQL_DROP_VIEW
+    case SQL_DROP_VIEW:
+	*((SQLUINTEGER *) val) = SQL_DV_DROP_VIEW;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+#endif
+#ifdef SQL_INDEX_KEYWORDS
+    case SQL_INDEX_KEYWORDS:
+	*((SQLUINTEGER *) val) = SQL_IK_ALL;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
@@ -6135,7 +6184,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, drvname, valMax, valLen);
 	break;
     case SQL_DRIVER_VER:
-	strmak(val, "02.50", valMax, valLen);
+	strmak(val, DRIVER_VER_INFO, valMax, valLen);
 	break;
     case SQL_FETCH_DIRECTION:
 	*((SQLUINTEGER *) val) = SQL_FD_FETCH_NEXT | SQL_FD_FETCH_FIRST |
@@ -6174,6 +6223,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_DBMS_VER:
 	strmak(val, SQLITE_VERSION, valMax, valLen);
 	break;
+    case SQL_COLUMN_ALIAS:
     case SQL_NEED_LONG_DATA_LEN:
 	strmak(val, "Y", valMax, valLen);
 	break;
@@ -6185,7 +6235,6 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_LIKE_ESCAPE_CLAUSE:
     case SQL_ORDER_BY_COLUMNS_IN_SELECT:
     case SQL_OUTER_JOINS:
-    case SQL_COLUMN_ALIAS:
     case SQL_ACCESSIBLE_TABLES:
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
@@ -6339,9 +6388,12 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*((SQLUINTEGER *) val) = SQL_BP_SCROLL;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
+    case SQL_UNION:
+	*((SQLUINTEGER *) val) = SQL_U_UNION;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
     case SQL_OWNER_USAGE:
     case SQL_SUBQUERIES:
-    case SQL_UNION:
     case SQL_TIMEDATE_ADD_INTERVALS:
     case SQL_TIMEDATE_DIFF_INTERVALS:
 	*((SQLUINTEGER *) val) = 0;
@@ -6417,7 +6469,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FILE_USAGE:
-	*((SQLSMALLINT *) val) = SQL_FILE_NOT_SUPPORTED;
+	*((SQLSMALLINT *) val) = SQL_FILE_CATALOG;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GROUP_BY:
@@ -6425,8 +6477,8 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_KEYWORDS:
-	strmak(val, "SELECT,DROP,DELETE,UPDATE,INSERT,"
-	       "INTO,VALUES,TABLE,FROM,SET,WHERE,AND,CURRENT,OF",
+	strmak(val, "CREATE,SELECT,DROP,DELETE,UPDATE,INSERT,"
+	       "INTO,VALUES,TABLE,INDEX,FROM,SET,WHERE,AND,CURRENT,OF",
 	       valMax, valLen);
 	break;
     case SQL_SPECIAL_CHARACTERS:
@@ -6560,6 +6612,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 			uc_strncpy(val, v, vmax);
 			len = min(vmax, uc_strlen(v));
 			uc_free(v);
+			len *= sizeof (SQLWCHAR);
 		    } else {
 			len = 0;
 		    }
@@ -7490,7 +7543,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
-    getsdnattr(buf, "tracefile", tracef, sizeof (tracef));
+    getdsnattr(buf, "tracefile", tracef, sizeof (tracef));
 #else
     SQLGetPrivateProfileString(buf, "tracefile", "",
 			       tracef, sizeof (tracef), ODBC_INI);
@@ -7816,7 +7869,9 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->curtype = d->curtype;
     s->row_status0 = &s->row_status1;
     s->rowset_size = 1;
+    s->retr_data = SQL_RD_ON;
     s->bind_type = SQL_BIND_BY_COLUMN;
+    s->bind_offs = NULL;
     s->paramset_size = 1;
     sprintf(s->cursorname, "CUR_%08lX", (long) *stmt);
     sl = d->stmt;
@@ -8291,6 +8346,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
     }
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	return SQL_NO_DATA;
+    }
+    if (s->retr_data != SQL_RD_ON) {
+	return SQL_SUCCESS;
     }
     type = mapdeftype(type, s->cols[col].type, s->cols[col].nosign ? 1 : 0,
 		      s->nowchar);
@@ -8942,7 +9000,7 @@ drvtables(SQLHSTMT stmt,
 				 "tbl_name as 'TABLE_NAME', "
 				 "upper(type) as 'TABLE_TYPE', "
 				 "NULL as 'REMARKS' "
-				 "from sqlite_master where %s"
+				 "from sqlite_master where %s "
 				 "and tbl_name like '%q'",
 				 &s->rows, &s->nrows, &ncols, &errp,
 				 where, tname);
@@ -10086,15 +10144,23 @@ dofetchbind(STMT *s, int rsi)
 	} else {
 	    val = (long *) s->bkmrkcol.valp + rsi;
 	}
+	if (s->bind_offs) {
+	    val = (long *) ((char *) val + *s->bind_offs);
+	}
 	*val = s->rowp;
 	if (s->bkmrkcol.lenp) {
+	    SQLINTEGER *ival;
+
 	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
-		SQLINTEGER *ival = (SQLINTEGER *)
-		    ((char *) s->bkmrkcol.lenp + s->bind_type * rsi);
-		*ival = sizeof (long);
+		ival = (SQLINTEGER *) ((char *) s->bkmrkcol.lenp +
+				       s->bind_type * rsi);
 	    } else {
-		s->bkmrkcol.lenp[rsi] = sizeof (long);
+		ival = &s->bkmrkcol.lenp[rsi];
 	    }
+	    if (s->bind_offs) {
+		ival = (SQLINTEGER *) ((char *) ival + *s->bind_offs);
+	    }
+	    *ival = sizeof (long);
 	}
     }
     ret = SQL_SUCCESS;
@@ -10110,12 +10176,18 @@ dofetchbind(STMT *s, int rsi)
 	    } else {
 		dp = (SQLPOINTER) ((char *) b->valp + b->max * rsi);
 	    }
+	    if (s->bind_offs) {
+		dp = (SQLPOINTER) ((char *) dp + *s->bind_offs);
+	    }
 	}
 	if (b->lenp) {
 	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
 		lp = (SQLINTEGER *) ((char *) b->lenp + s->bind_type * rsi);
 	    } else {
 		lp = b->lenp + rsi;
+	    }
+	    if (s->bind_offs) {
+		lp = (SQLINTEGER *) ((char *) lp + *s->bind_offs);
 	    }
 	}
 	if (dp || lp) {
@@ -10134,94 +10206,6 @@ dofetchbind(STMT *s, int rsi)
     }
     if (SQL_SUCCEEDED(ret)) {
 	ret = withinfo ? SQL_SUCCESS_WITH_INFO : SQL_SUCCESS;
-    }
-    return ret;
-}
-
-/**
- * Fetch next result row.
- * @param stmt statement handle
- * @result ODBC error code
- */
-
-SQLRETURN SQL_API
-SQLFetch(SQLHSTMT stmt)
-{
-    STMT *s;
-    int i, withinfo = 0;
-    SQLRETURN ret;
-
-    if (stmt == SQL_NULL_HSTMT) {
-	return SQL_INVALID_HANDLE;
-    }
-    s = (STMT *) stmt;
-    for (i = 0; i < s->rowset_size; i++) {
-	s->row_status0[i] = SQL_ROW_NOROW;
-    }
-    if (s->row_status) {
-	memcpy(s->row_status, s->row_status0,
-	       sizeof (SQLUSMALLINT) * s->rowset_size);
-    }
-    s->row_count0 = 0;
-    if (s->row_count) {
-	*s->row_count = s->row_count0;
-    }
-    if (!s->bindcols) {
-	for (i = 0; i < s->rowset_size; i++) {
-	    s->row_status0[i] = SQL_ROW_ERROR;
-	}
-	return SQL_ERROR;
-    }
-    ret = SQL_SUCCESS;
-    i = 0;
-    if (((DBC *) (s->dbc))->vm_stmt == s && s->vm) {
-	s->rowp = 0;
-	for (; i < s->rowset_size; i++) {
-	    ret = vm_step(s);
-	    if (ret != SQL_SUCCESS) {
-		s->row_status0[i] = SQL_ROW_ERROR;
-		break;
-	    }
-	    if (s->nrows < 1) {
-		break;
-	    }
-	    ret = dofetchbind(s, i);
-	    if (!SQL_SUCCEEDED(ret)) {
-		break;
-	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
-		withinfo = 1;
-	    }
-	}
-    } else if (s->rows && s->nrows > 0) {
-	for (; i < s->rowset_size; i++) {
-	    ++s->rowp;
-	    if (s->rowp < 0 || s->rowp >= s->nrows) {
-		break;
-	    }
-	    ret = dofetchbind(s, i);
-	    if (!SQL_SUCCEEDED(ret)) {
-		break;
-	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
-		withinfo = 1;
-	    }
-	}
-    }
-    if (i == 0) {
-	if (SQL_SUCCEEDED(ret)) {
-	    return SQL_NO_DATA;
-	}
-	return ret;
-    }
-    if (SQL_SUCCEEDED(ret)) {
-	ret = withinfo ? SQL_SUCCESS_WITH_INFO : SQL_SUCCESS;
-    }
-    if (s->row_status) {
-	memcpy(s->row_status, s->row_status0,
-	       sizeof (SQLUSMALLINT) * s->rowset_size);
-    }
-    s->row_count0 = i;
-    if (s->row_count) {
-	*s->row_count = s->row_count0;
     }
     return ret;
 }
@@ -10261,11 +10245,14 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    s->row_status0[i] = SQL_ROW_ERROR;
 	}
 	ret = SQL_ERROR;
-	goto done;
+	i = 0;
+	goto done2;
     }
     if (s->curtype == SQL_CURSOR_FORWARD_ONLY && orient != SQL_FETCH_NEXT) {
 	setstat(s, -1, "wrong fetch direction", "01000");
-	return SQL_ERROR;
+	ret = SQL_ERROR;
+	i = 0;
+	goto done2;
     }
     ret = SQL_SUCCESS;
     i = 0;
@@ -10295,8 +10282,6 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	    if (s->rowp < 0) {
 		s->rowp = -1;
-	    } else {
-		s->rowp += s->rowset_size - 1;
 	    }
 	    if (s->rowp >= s->nrows) {
 		s->rowp = s->nrows;
@@ -10309,7 +10294,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 		return SQL_NO_DATA;
 	    }
 	    s->rowp -= s->rowset_size + 1;
-	    if (s->rowp < 0) {
+	    if (s->rowp < -1) {
 		s->rowp = -1;
 		return SQL_NO_DATA;
 	    }
@@ -10324,7 +10309,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    if (s->nrows < 1) {
 		return SQL_NO_DATA;
 	    }
-	    s->rowp = s->nrows - s->rowset_size - 1;
+	    s->rowp = s->nrows - s->rowset_size;
 	    if (--s->rowp < -1) {
 		s->rowp = -1;
 	    }
@@ -10335,30 +10320,30 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 		return SQL_NO_DATA;
 	    } else if (offset < 0) {
 		if (0 - offset <= s->nrows) {
-		    s->rowp = s->nrows + offset + 1;
+		    s->rowp = s->nrows + offset - 1;
 		    break;
 		}
-		s->rowp = 0;
+		s->rowp = -1;
 		return SQL_NO_DATA;
 	    } else if (offset > s->nrows) {
 		s->rowp = s->nrows;
 		return SQL_NO_DATA;
 	    }
-	    s->rowp = offset - 1;
+	    s->rowp = offset - 1 - 1;
 	    break;
 	case SQL_FETCH_RELATIVE:
 	    if (offset >= 0) {
-		s->rowp += offset - 1;
-		if (s->rowp + offset > s->nrows) {
+		s->rowp += offset * s->rowset_size - 1;
+		if (s->rowp >= s->nrows) {
 		    s->rowp = s->nrows;
 		    return SQL_NO_DATA;
 		}
 	    } else {
-		if (s->rowp + offset < 0) {
-		    s->rowp = 0;
+		s->rowp += offset * s->rowset_size - 1;
+		if (s->rowp < -1) {
+		    s->rowp = -1;
 		    return SQL_NO_DATA;
 		}
-		s->rowp += offset - 1;
 	    }
 	    break;
 	case SQL_FETCH_BOOKMARK:
@@ -10398,6 +10383,7 @@ done:
     if (SQL_SUCCEEDED(ret)) {
 	ret = withinfo ? SQL_SUCCESS_WITH_INFO : SQL_SUCCESS;
     }
+done2:
     if (s->row_status) {
 	memcpy(s->row_status, s->row_status0,
 	       sizeof (SQLUSMALLINT) * s->rowset_size);
@@ -10407,6 +10393,18 @@ done:
 	*s->row_count = s->row_count0;
     }
     return ret;
+}
+
+/**
+ * Fetch next result row.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
+
+SQLRETURN SQL_API
+SQLFetch(SQLHSTMT stmt)
+{
+    return drvfetchscroll(stmt, SQL_FETCH_NEXT, 0);
 }
 
 /**
@@ -10635,8 +10633,9 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
     SQLRETURN ret;
     SQLSMALLINT len;
 
-    ret = drvdescribecol(stmt, col, (char *) name, nameMax, &len,
-			 type, size, digits, nullable);
+    ret = drvdescribecol(stmt, col, (char *) name,
+			 (SQLSMALLINT) (nameMax * sizeof (SQLWCHAR)),
+			 &len, type, size, digits, nullable);
     if (ret == SQL_SUCCESS) {
 	if (name) {
 	    if (len > 0) {
@@ -10658,7 +10657,13 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
 		}
 	    }
 	} else {
+	    STMT *s = (STMT *) stmt;
+	    COL *c = s->cols + col - 1;
+
 	    len = 0;
+	    if (c->column) {
+		len = strlen(c->column);
+	    }
 	}
 	if (nameLen) {
 	    *nameLen = len;
@@ -10937,7 +10942,7 @@ SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     SQLSMALLINT len;
 
     ret = drvcolattributes(stmt, col, id, val, valMax, &len, val2);
-    if (ret == SQL_SUCCESS) {
+    if (SQL_SUCCEEDED(ret)) {
 	SQLWCHAR *v = NULL;
 
 	switch (id) {
@@ -10957,6 +10962,7 @@ SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		v = uc_from_utf((char *) val, SQL_NTS);
 		if (v) {
 		    uc_strncpy(val, v, vmax);
+		    len = min(vmax, uc_strlen(v));
 		    uc_free(v);
 		}
 		if (vmax > 0) {
@@ -11235,7 +11241,7 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     SQLSMALLINT len;
 
     ret = drvcolattribute(stmt, col, id, val, valMax, &len, val2);
-    if (ret == SQL_SUCCESS) {
+    if (SQL_SUCCEEDED(ret)) {
 	SQLWCHAR *v = NULL;
 
 	switch (id) {
@@ -11250,6 +11256,7 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		v = uc_from_utf((char *) val, SQL_NTS);
 		if (v) {
 		    uc_strncpy(val, v, vmax);
+		    len = min(vmax, uc_strlen(v));
 		    uc_free(v);
 		}
 		if (vmax > 0) {
@@ -11966,7 +11973,6 @@ SQLExecDirectW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
 
 #include <windowsx.h>
 #include <winuser.h>
-#include "resource.h"
 
 #define stricmp _stricmp
 

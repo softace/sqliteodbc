@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.4 2004/06/23 08:53:40 chw Exp chw $
+ * $Id: inst.c,v 1.5 2004/09/22 09:37:56 chw Exp chw $
  *
- * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -20,12 +20,21 @@
 #include <ctype.h>
 #include <stdio.h>
 
-static char *DriverName[2] =
-    { "SQLite ODBC Driver", "SQLite ODBC (UTF-8) Driver" };
-static char *DSName[2] =
-    { "SQLite Datasource", "SQLite UTF-8 Datasource" };
-static char *DriverDLL[2] =
-    { "sqliteodbc.dll", "sqliteodbcu.dll" };
+static char *DriverName[3] = {
+    "SQLite ODBC Driver",
+    "SQLite ODBC (UTF-8) Driver",
+    "SQLite3 ODBC Driver"
+};
+static char *DSName[3] = {
+    "SQLite Datasource",
+    "SQLite UTF-8 Datasource",
+    "SQLite3 Datasource"
+};
+static char *DriverDLL[3] = {
+    "sqliteodbc.dll",
+    "sqliteodbcu.dll",
+    "sqlite3odbc.dll"
+};
 
 /**
  * Handler for ODBC installation error messages.
@@ -178,7 +187,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 {
     char path[300], *p;
     int i, remove, quiet;
-    BOOL ret[2];
+    BOOL ret[3];
 
     GetModuleFileName(NULL, path, sizeof (path));
     p = path;
@@ -192,10 +201,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     remove = strstr(p, "uninst") != NULL;
     quiet = strstr(p, "instq") != NULL;
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 3; i++) {
 	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], DSName[i]);
     }
-    if (!remove && (ret[0] || ret[1])) {
+    if (!remove && (ret[0] || ret[1] || ret[2])) {
 	if (!quiet) {
 	    MessageBox(NULL, "SQLite ODBC Driver(s) installed.", "Info",
 		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);

@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.33 2004/09/03 05:32:12 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.34 2004/09/16 13:58:06 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -193,6 +193,7 @@ typedef struct stmt {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
     int nowchar;		/**< Don't try to use WCHAR */
+    int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */
     SQLUSMALLINT *row_status;	/**< Row status pointer */
     SQLUSMALLINT *row_status0;	/**< Internal status array */
@@ -203,8 +204,9 @@ typedef struct stmt {
     SQLUINTEGER paramset_count;	/**< Internal for paramset */
     SQLUINTEGER paramset_nrows;	/**< Row count for paramset handling */
     SQLUINTEGER bind_type;	/**< SQL_ATTR_ROW_BIND_TYPE */
+    SQLUINTEGER *bind_offs;	/**< SQL_ATTR_ROW_BIND_OFFSET_PTR */
     /* Dummies to make ADO happy */
-    SQLUINTEGER *bind_offs;	/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
+    SQLUINTEGER *parm_bind_offs;/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */

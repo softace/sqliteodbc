@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.14
+# VC++ 6.0 Makefile for SQLite 2.8.15
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
