@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.66 2004/04/24 05:10:30 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.68 2004/04/28 13:01:13 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -3051,6 +3051,7 @@ SQLTablePrivileges(SQLHSTMT stmt,
 }
 #endif
 
+#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
 #ifdef SQLITE_UTF8
 /**
  * Retrieve privileges on tables and/or views (UNICODE version).
@@ -3072,6 +3073,7 @@ SQLTablePrivilegesW(SQLHSTMT stmt,
 {
     return mkresultset(stmt, tablePrivSpec, array_size(tablePrivSpec));
 }
+#endif
 #endif
 
 /**
@@ -3114,6 +3116,7 @@ SQLColumnPrivileges(SQLHSTMT stmt,
 }
 #endif
 
+#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
 #ifdef SQLITE_UTF8
 /**
  * Retrieve privileges on columns (UNICODE version).
@@ -3138,6 +3141,7 @@ SQLColumnPrivilegesW(SQLHSTMT stmt,
 {
     return mkresultset(stmt, colPrivSpec, array_size(colPrivSpec));
 }
+#endif
 #endif
 
 /**
@@ -4761,6 +4765,7 @@ SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 }
 #endif
 
+#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
 #ifdef SQLITE_UTF8
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT)
@@ -4835,6 +4840,7 @@ SQLGetDiagRecW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
     }
     return ret;
 }
+#endif
 #endif
 
 #ifndef SQLITE_UTF8
@@ -4968,7 +4974,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
+#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Get option of HSTMT.
  * @param stmt statement handle
@@ -5111,7 +5117,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
-#ifndef SQLITE_UTF8
+#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Set option on HSTMT.
  * @param stmt statement handle
@@ -5749,7 +5755,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     return SQL_SUCCESS;
 }
 
-#ifndef SQLITE_UTF8
+#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(SQLITE_UTF8)
 /**
  * Return information about what this ODBC driver supports.
  * @param dbc database connection handle
@@ -5835,7 +5841,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 			int vmax = valMax / sizeof (SQLWCHAR);
 
 			uc_strncpy(val, v, vmax);
-			len = min(vmax, uc_strlen(v)) * sizeof (SQLWCHAR);
+			len = min(vmax, uc_strlen(v));
 			uc_free(v);
 		    } else {
 			len = 0;
@@ -6853,7 +6859,7 @@ SQLDisconnect(SQLHDBC dbc)
 #if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
 
 /**
- * Standalone (w/o driver manager) database connect.
+ * Internal standalone (w/o driver manager) database connect.
  * @param dbc database connection handle
  * @param hwnd dummy window handle or NULL
  * @param connIn driver connect input string
@@ -6865,8 +6871,8 @@ SQLDisconnect(SQLHDBC dbc)
  * @result ODBC error code
  */
 
-SQLRETURN SQL_API
-SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
+static SQLRETURN
+drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 		 SQLCHAR *connIn, SQLSMALLINT connInLen,
 		 SQLCHAR *connOut, SQLSMALLINT connOutMax,
 		 SQLSMALLINT *connOutLen, SQLUSMALLINT drvcompl)
@@ -9891,8 +9897,6 @@ SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	    }
 	    if (len <= 0) {
 		len = 0;
-	    } else {
-		len /= sizeof (SQLWCHAR);
 	    }
 	    break;
 	}
@@ -9968,6 +9972,19 @@ checkLen:
 	    goto checkLen;
 	}
 	break;
+    case SQL_DESC_TYPE_NAME: {
+	char *tn = c->typename ? c->typename : "varchar";
+
+	if (valc && valMax > 0) {
+	    strncpy(valc, tn, valMax);
+	    valc[valMax - 1] = '\0';
+	}
+	if (valLen) {
+	    *valLen = strlen(tn);
+	    goto checkLen;
+	}
+	break;
+    }
     case SQL_DESC_OCTET_LENGTH:
 	v = c->size;
 	break;
@@ -10142,6 +10159,7 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	case SQL_COLUMN_LABEL:
 	case SQL_DESC_NAME:
 	case SQL_DESC_TABLE_NAME:
+	case SQL_DESC_TYPE_NAME:
 	    if (val && valMax > 0) {
 		int vmax = valMax / sizeof (SQLWCHAR);
 
@@ -10157,8 +10175,6 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	    }
 	    if (len <= 0) {
 		len = 0;
-	    } else {
-		len /= sizeof (SQLWCHAR);
 	    }
 	    break;
 	}
@@ -11379,6 +11395,11 @@ retry:
     return SQL_SUCCESS;
 }
 
+#endif /* WITHOUT_DRIVERMGR */
+#endif /* _WIN32 */
+
+#ifndef WITHOUT_DRIVERMGR
+
 #ifndef SQLITE_UTF8
 /**
  * Connect using a driver connection string.
@@ -11469,6 +11490,10 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 }
 #endif
 
+#endif /* WITHOUT_DRIVERMGR */
+
+#ifdef _WIN32
+
 /**
  * DLL initializer for WIN32.
  * @param hinst instance handle
@@ -11515,7 +11540,6 @@ DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)
     return LibMain(hinst, reason, reserved);
 }
 
-#endif /* WITHOUT_DRIVERMGR */
 #endif /* _WIN32 */
 
 #if defined(HAVE_ODBCINSTEXT_H) && HAVE_ODBCINSTEXT_H

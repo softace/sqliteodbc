@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Sat May 01 2004 version 0.62 released
+
+	* don't implement some APIs for unixODBC unicode driver version
+	* fixed unicode length semantics in SQLGetInfoW() et.al.
+	* when SQLITE_UTF8 make SQLDriverConnectW() on UN*X, too
+	* added missing SQL_DESC_TYPE_NAME case in SQLColAttribute(),
+	  patch provided by Chris Waters
+	  
 Sat Apr 24 version 0.61 released
 
 	* fixed getrowdata() to support SQLGetData() with NULL ptr and

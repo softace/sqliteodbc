@@ -34,20 +34,22 @@ rm -rf $RPM_BUILD_ROOT
 
 %post
 test -x /usr/bin/odbcinst && {
-   INST=/tmp/sqliteinst$$
-   cat > $INST << 'EOD'
+    INST=/tmp/sqliteinst$$
+    cat > $INST << 'EOD'
 [SQLITE]
 Description=SQLite ODBC
 Driver=%{_prefix}/lib/libsqliteodbc.so
 Setup=%{_prefix}/lib/libsqliteodbc.so
 FileUsage=1
 EOD
-   /usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
-   rm -f $INST
+    /usr/bin/odbcinst -q -d -n SQLITE | grep ^SQLITE >/dev/null || {
+	/usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
+    }
+    rm -f $INST
 }
 
 %preun
-if [ $1 = 0 ] ; then
+if [ "$1" = "0" ] ; then
     test -x /usr/bin/odbcinst && {
 	/usr/bin/odbcinst -u -d -n SQLITE || true
     }
