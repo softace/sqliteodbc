@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.56
+%define version 0.60
 %define release 1
 
 Name: %{name}
@@ -21,15 +21,37 @@ SQLite, http://www.unixodbc.org for a description of unixODBC.
 %setup -q
 
 %build
-CFLAGS="%optflags" ./configure --prefix=%{_prefix} --enable-threads
+CFLAGS="%optflags" ./configure --prefix=%{_prefix}
 make
 
 %install
 mkdir -p $RPM_BUILD_ROOT%{_prefix}/lib
 make install prefix=$RPM_BUILD_ROOT%{_prefix}
+rm -f $RPM_BUILD_ROOT%{_prefix}/lib/libsqliteodbc*.{a,la}
 
 %clean
 rm -rf $RPM_BUILD_ROOT
+
+%post
+test -x /usr/bin/odbcinst && {
+   INST=/tmp/sqliteinst$$
+   cat > $INST << 'EOD'
+[SQLITE]
+Description=SQLite ODBC
+Driver=%{_prefix}/lib/libsqliteodbc.so
+Setup=%{_prefix}/lib/libsqliteodbc.so
+FileUsage=1
+EOD
+   /usr/bin/odbcinst -i -d -n SQLITE -f $INST || true
+   rm -f $INST
+}
+
+%preun
+if [ $1 = 0 ] ; then
+    test -x /usr/bin/odbcinst && {
+	/usr/bin/odbcinst -u -d -n SQLITE || true
+    }
+fi
 
 %files
 %defattr(-, root, root)

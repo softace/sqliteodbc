@@ -1,6 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Apr 08 2004 version 0.60 released
+
+	* improved RPM .spec file
+	* added heuristic to detect auto increment columns
+	  (not a 100% solution yet) for better OpenOffice.org
+	  support, thanks to Yves Chaufour for OOo testing
+	* added property list function for unixODBC setup dialog
+	* another SQLFreeStmt(...SQL_CLOSE) fix to make OOo work
+	* added implemetation of SQLForeignKeys()
+	* removed worker thread support, use sqlite_compile(),
+	  sqlite_step(), sqlite_finalize() instead, DSN option to
+	  use that feature is "StepAPI"
+	* minimum required SQLite version is now 2.8.0
+
 Sun Mar 21 2004 version 0.56 released
 
 	* update to SQLite 2.8.13

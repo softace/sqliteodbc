@@ -15,9 +15,9 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.23 2003/10/25 06:52:51 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.26 2004/04/05 06:57:58 chw Exp chw $
  *
- * Copyright (c) 2001-2003 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -41,26 +41,6 @@
 #include <sql.h>
 #include <sqlext.h>
 #include <ctype.h>
-
-#ifdef _WIN32
-#define ASYNC 1
-#else
-#ifdef HAVE_PTHREAD
-#include <pthread.h>
-#define ASYNC 1
-#endif
-#ifdef HAVE_PTH_UCTX
-#ifdef HAVE_PTHREAD
-#error "Conflict in configure"
-#error "Please reconfigure using the switches"
-#error "   --enable-threads     for pthreads"
-#error "or"
-#error "   --enable-pth         for GNU pth"
-#endif
-#include <pth.h>
-#define ASYNC 1
-#endif
-#endif
 
 #include "sqlite.h"
 #ifdef HAVE_IODBC
@@ -100,9 +80,6 @@ typedef struct dbc {
     ENV *env;			/**< Pointer to environment */
     struct dbc *next;		/**< Pointer to next DBC */
     sqlite *sqlite;		/**< SQLITE database handle */
-#ifdef ASYNC
-    sqlite *sqlite2;		/**< SQLITE handle for thread */
-#endif
     int version;		/**< SQLITE version number */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
@@ -116,33 +93,10 @@ typedef struct dbc {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar;		/**< Don't try to use WCHAR */
-#ifdef ASYNC
     int curtype;		/**< Default cursor type */
-    int thread_enable;		/**< True when threading enabled */
-    struct stmt *async_stmt;	/**< Async executing STMT */
-    int async_run;		/**< True when thread running */
-    int async_stop;		/**< True for thread stop requested */
-    int async_done;		/**< True when thread done */
-    char *async_errp;		/**< Thread's sqlite error message */
-    char **async_rows;		/**< Thread's one row result */
-    int async_ncols;		/**< Thread's one row result (# cols) */
-    int async_rownum;		/**< Current row number */
-#ifdef HAVE_PTHREAD
-    int async_cont;		/**< True when thread should continue */
-    pthread_t thr;		/**< Thread identifier */
-    pthread_mutex_t mut;	/**< Mutex for condition */
-    pthread_cond_t cond;	/**< Condition */
-#endif
-#ifdef HAVE_PTH_UCTX
-    int async_cont;		/**< True when coroutine should continue */
-    volatile pth_uctx_t uctx[2];	/**< GNU pth contexts */
-#endif
-#ifdef _WIN32
-    HANDLE thr;			/**< Thread identifier */
-    HANDLE ev_res;		/**< Signal set when result available */
-    HANDLE ev_cont;		/**< Signal set when thread should continue */
-#endif
-#endif
+    int step_enable;		/**< True for sqlite_compile/step/finalize */
+    struct stmt *vm_stmt;	/**< Current STMT executing VM */
+    int vm_rownum;		/**< Current row number */
 } DBC;
 
 /**
@@ -161,6 +115,7 @@ typedef struct {
     int nosign;			/**< Unsigned type */
     int scale;			/**< Scale of column */
     int prec;			/**< Precision of column */
+    int autoinc;		/**< AUTO_INCREMENT column */
     char *typename;		/**< Column type name or NULL */
 } COL;
 
@@ -234,11 +189,8 @@ typedef struct stmt {
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
-#ifdef ASYNC
     int curtype;		/**< Cursor type */
-    int *async_run;		/**< True when async STMT running */
-    int async_enable;		/**< True when SQL_ASYNC_ENABLE */
-#endif
+    sqlite_vm *vm;		/**< SQLite VM or NULL */
 } STMT;
 
 #endif

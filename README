@@ -1,7 +1,7 @@
 SQLite ODBC Driver
 ------------------
 
-This is an experimental ODBC driver for the wonderful SQLite 2.[0-8]
+This is an experimental ODBC driver for the wonderful SQLite 2.8.*
 Database Engine/Library. So far it is more a proof of concept and might
 contain lots of memory leaks and all other kinds of bugs. Thus I highly
 appreciate any feedback.
@@ -16,7 +16,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
 The binaries were made with SQLite 2.8.13, MS VC++ 6.0 and tested on
 Windows NT 4.0 with the query tool of MS Excel 97, with
-StarOffice 5.2 and OpenOffice 1.0.
+StarOffice 5.2 and OpenOffice 1.1.
 Unzip the archive into a temporary directory and execute the INST.EXE
 program. This installs the SQLite ODBC driver and creates a System DSN.
 To remove the driver use the UNINST.EXE program. To create a SQLite
@@ -78,29 +78,16 @@ Of course, you should have installed the unixODBC (or iODBC)
 development RPMs since the ODBC header files are required for
 the build of the SQLite ODBC driver.
 
-Since April 28th, 2002, (version 0.3), the driver supports execution
-of one query at a time (SQLPrepare/SQLExecute/SQLExecDirect) carried
-out in another thread as long as forward only cursors are used
-(default). This reduces memory consumption for large result sets.
-For Win32 the driver is built with threading support turned on
-by default. For UN*X operating systems the configure script tries
-to detect POSIX threads (configure --(enable|disable)-threads,
-disabled by default, but enabled in the .spec file). To use the
-threading support on both platforms it must be turned on by
-SQLConnect/SQLDriverConnect DSN strings. The keyword in ODBC.INI
-for that option is "Threaded=1". In the Win32 DSN config dialog
-a check button is provided for that option.
-
 Since May 15th, 2003, (version 0.51), there are two versions
 of the driver for Win32 platforms: the first (sqliteodbc.dll)
 linked against ISO8859-1 SQLite library exporting ODBC/SQL ANSI
 functions, and the second (sqliteodbcu.dll) linked against UTF-8
 SQLite library exporting ODBC/SQL UNICODE functions.
 
-The UNICODE version is rather experimental and allows to turn
-of wide character SQL data types by its configuration dialog
+The UNICODE version is experimental and allows to turn off
+wide character SQL data types by its configuration dialog
 (checkmark labelled "No WCHAR"). So far it has been only
-marginally tested on Win32.
+tested on Win32.
 
 To setup a SQLite data source using unixODBC (www.unixodbc.org):
 
@@ -109,7 +96,7 @@ To setup a SQLite data source using unixODBC (www.unixodbc.org):
     [SQLite]
     Description=SQLite ODBC Driver
     Driver=/usr/local/lib/libsqliteodbc.so
-    Setup=
+    Setup=/usr/local/lib/libsqliteodbc.so
 
   2. Add a DSN to your private ~/.odbc.ini:
 
@@ -119,8 +106,6 @@ To setup a SQLite data source using unixODBC (www.unixodbc.org):
     Database=/home/johndoe/databases/mytest.db
     # optional lock timeout in milliseconds
     Timeout=2000
-    # optional turn threading support on
-    Threaded=1
 
 For iODBC (www.iodbc.org, only versions 3.0.[56] tested) do the
 following steps:
@@ -197,10 +182,9 @@ Build instructions for MS Visual C++ 6.0:
 TODO:
 
 - improve documentation
-- ??? SQLForeignKeys() ???
 
 
-March, 21st, 2004
+April, 8th, 2004
 Christian Werner
 mailto:chw@ch-werner.de
 

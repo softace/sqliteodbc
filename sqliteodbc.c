@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.54 2004/03/21 17:08:19 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.62 2004/04/05 06:59:02 chw Exp chw $
  *
  * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
  *
@@ -801,10 +801,9 @@ done:
 static int
 setsqliteopts(sqlite *x, DBC *d)
 {
-    int count = 0, step = 0, maxstep, rc;
+    int count = 0, step = 0, rc;
 
-    maxstep = (d->version >= verinfo(2, 6, 0)) ? 4 : 3;
-    while (step < maxstep) {
+    while (step < 4) {
 	if (step < 1) {
 	    rc = sqlite_exec(x, "PRAGMA full_column_names = on;",
 			     NULL, NULL, NULL);
@@ -867,7 +866,7 @@ freerows(char **rowp)
  */
 
 static int
-mapsqltype(char *typename, int *nosign, int ov3, int nowchar)
+mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 {
     char *p, *q;
     int testsign = 0, result;
@@ -967,7 +966,7 @@ mapsqltype(char *typename, int *nosign, int ov3, int nowchar)
  */
 
 static void
-getmd(char *typename, int sqltype, int *mp, int *dp)
+getmd(const char *typename, int sqltype, int *mp, int *dp)
 {
     int m = 0, d = 0;
 
@@ -1160,15 +1159,8 @@ errout:
 	    if (inq) {
 		*p++ = *q;
 	    } else {
-		if (version >= verinfo(2, 5, 0)) {
-		    *p++ = '%';
-		    *p++ = 'Q';
-		} else {
-		    *p++ = '\'';
-		    *p++ = '%';
-		    *p++ = 'q';
-		    *p++ = '\'';
-		}
+		*p++ = '%';
+		*p++ = 'Q';
 		np++;
 	    }
 	    break;
@@ -1277,9 +1269,9 @@ findcol(char **cols, int ncols, char *name)
  */
 
 static void
-fixupdyncols(STMT *s, sqlite *sqlite, char **types)
+fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 {
-    int i, k, t, r, nrows, ncols;
+    int i, k, pk, t, r, nrows, ncols, doautoinc = 0;
     char **rowp;
 
     if (!s->dyncols) {
@@ -1307,8 +1299,17 @@ fixupdyncols(STMT *s, sqlite *sqlite, char **types)
 	    }
 #endif
 #endif
+	    if (strlen(types[i]) == 7 &&
+		strncasecmp(types[i], "integer", 7) == 0) {
+		doautoinc++;
+		s->dyncols[i].autoinc = -1;
+	    } else {
+		s->dyncols[i].autoinc = 0;
+	    }
 	}
-	return;
+	if (!doautoinc) {
+	    return;
+	}
     }
     for (i = 0; i < s->dcols; i++) {
 	int ret;
@@ -1316,9 +1317,10 @@ fixupdyncols(STMT *s, sqlite *sqlite, char **types)
 	if (!s->dyncols[i].table[0]) {
 	    continue;
 	}
-	if (s->dyncols[i].typename) {
+	if (s->dyncols[i].typename && s->dyncols[i].autoinc >= 0) {
 	    continue;
 	}
+	s->dyncols[i].autoinc = 0;
 	ret = sqlite_get_table_printf(sqlite,
 				      "PRAGMA table_info('%q')", &rowp,
 				      &nrows, &ncols, NULL,
@@ -1328,6 +1330,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, char **types)
 	}
 	k = findcol(rowp, ncols, "name");
 	t = findcol(rowp, ncols, "type");
+	pk = findcol(rowp, ncols, "pk");
 	if (k < 0 || t < 0) {
 	    goto freet;
 	}
@@ -1360,6 +1363,12 @@ fixupdyncols(STMT *s, sqlite *sqlite, char **types)
 		    }
 #endif
 #endif
+		    if (pk >= 0 &&
+			strlen(typename) == 7 &&
+			strncasecmp(typename, "integer", 7) == 0 &&
+			strcmp(rowp[r * ncols + pk], "1") == 0) {
+			s->dyncols[m].autoinc = 1;
+		    }
 		}
 	    }
 	}
@@ -1815,13 +1824,13 @@ getbool(char *string)
  * @param d DBC pointer
  * @param name file name
  * @param dsn data source name
- * @param tflag threading flag
+ * @param sflag STEPAPI flag
  * @param busy busy/lock timeout
  * @result ODBC error code
  */
 
 static SQLRETURN
-dbopen(DBC *d, char *name, char *dsn, char *tflag, char *busy)
+dbopen(DBC *d, char *name, char *dsn, char *sflag, char *busy)
 {
     char *errp = NULL, *endp = NULL;
     int tmp, busyto = 1000;
@@ -1845,11 +1854,9 @@ connfail:
 	sqlite_freemem(errp);
 	errp = NULL;
     }
-#ifdef ASYNC
-    d->thread_enable = getbool(tflag);
-    d->curtype = d->thread_enable ?
+    d->step_enable = getbool(sflag);
+    d->curtype = d->step_enable ?
 	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
-#endif
     tmp = strtol(busy, &endp, 0);
     if (endp && *endp == '\0' && endp != busy) {
 	busyto = tmp;
@@ -1870,506 +1877,207 @@ connfail:
     return SQL_SUCCESS;
 }
 
-#ifdef ASYNC
 /**
- * Wait for a new row of data from thread executing a SELECT statement.
+ * Do one VM step gathering one result row
  * @param s statement pointer
- * @result ODBC error code, error message in statement, if any
- */
-
-static SQLRETURN
-waitfordata(STMT *s)
-{
-    SQLRETURN ret = SQL_ERROR;
-    DBC *d = (DBC *) s->dbc;
-
-#ifdef HAVE_PTHREAD
-    pthread_mutex_lock(&d->mut);
-    while (!d->async_done && !d->async_ncols) {
-	if (s->async_enable) {
-	    pthread_mutex_unlock(&d->mut);
-	    return SQL_STILL_EXECUTING;
-	}
-	pthread_cond_wait(&d->cond, &d->mut);
-    }
-#endif
-#ifdef HAVE_PTH_UCTX
-    while (!d->async_done && !d->async_ncols) {
-	pth_uctx_switch(d->uctx[0], d->uctx[1]);
-    }
-#endif
-#ifdef _WIN32
-    if (!d->async_done) {
-	if (s->async_enable) {
-	    if (WaitForSingleObject(d->ev_res, 0) != WAIT_OBJECT_0) {
-		return SQL_STILL_EXECUTING;
-	    }
-	} else {
-	    WaitForSingleObject(d->ev_res, INFINITE);
-	}
-    }
-#endif
-    if (d->async_done) {
-	ret = SQL_NO_DATA;
-	if (d->async_errp) {
-	    setstat(s, d->async_errp, (*s->ov3) ? "HY000" : "S1000");
-	    freep(&d->async_errp);
-	    ret = SQL_ERROR;
-	}
-    } else {
-	freeresult(s, 0);
-	s->rows = d->async_rows;
-	s->ncols = d->async_ncols;
-	d->async_ncols = 0;
-	d->async_rows = NULL;
-	if (s->rows == (char **) -1) {
-	    ret = nomem(s);
-	} else if (s->rows) {
-	    s->rowfree = freerows;
-	    s->nrows = 1;
-	    ret = SQL_SUCCESS;
-	} else {
-	    s->nrows = 0;
-	    ret = SQL_NO_DATA;
-	}
-    }
-#ifdef HAVE_PTHREAD
-    d->async_cont = 1;
-    pthread_cond_broadcast(&d->cond);
-    pthread_mutex_unlock(&d->mut);
-#endif
-#ifdef HAVE_PTH_UCTX
-    d->async_cont = 1;
-#endif
-#ifdef _WIN32
-    SetEvent(d->ev_cont);
-#endif
-    return ret;
-}
-
-/**
- * @struct cbarg
- * Callback argument for SQLite callback function used in
- * thread for SELECT statements.
- */
-
-struct cbarg {
-    STMT *s;		/**< Executing statement. */
-    sqlite *sqlite;	/**< SQLite handle to be used. */
-    int rowcount;	/**< Current # of row being processed. */
-};
-
-/**
- * SQLite callback function used by thread.
- * @param arg user data, actually a cbarg pointer
- * @param ncols number of columns
- * @param values value string array
- * @param cols column name string array
- * @result 1 to abort sqlite_exec(), 0 to continue
+ * @result ODBC error code
  */
 
 static int
-async_cb(void *arg, int ncols, char **values, char **cols)
+vm_step(STMT *s)
 {
-    struct cbarg *ca = (struct cbarg *) arg;
-    STMT *s = ca->s;
     DBC *d = (DBC *) s->dbc;
-    char **rowd = NULL;
-    int i;
+    char **rowd = NULL, *errp = NULL;
+    const char **values, **cols;
+    int i, ncols, rc;
 
-    ++d->async_rownum;
-    if (++ca->rowcount <= 1) {
-	int size;
-	char *p;
-	COL *dyncols;
+    if (s != d->vm_stmt || !s->vm) {
+	setstat(s, "stale statement", (*s->ov3) ? "HY000" : "S1000",
+		0);
+	return SQL_ERROR;
+    }
+    rc = sqlite_step(s->vm, &ncols, &values, &cols);
+    if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
+	++d->vm_rownum;
+	if (d->vm_rownum == 0 && cols && ncols > 0) {
+	    int size;
+	    char *p;
+	    COL *dyncols;
 
-	if (ncols <= 0 || !cols) {
-	    goto contsig;
-	}
-	for (i = size = 0; i < ncols; i++) {
-	    size += 2 + 2 * strlen(cols[i]);
-	}
-	dyncols = xmalloc(ncols * sizeof (COL) + size);
-	if (!dyncols) {
-	    freedyncols(s);
-	    s->ncols = 0;
-	    return 1;
-	}
-	p = (char *) (dyncols + ncols);
-	for (i = 0; i < ncols; i++) {
-	    char *q;
-
-	    dyncols[i].db = ((DBC *) (s->dbc))->dbname;
-	    q = strchr(cols[i], '.');
-	    if (q) {
-		dyncols[i].table = p;
-		strncpy(p, cols[i], q - cols[i]);
-		p[q - cols[i]] = '\0';
-		p += strlen(p) + 1;
-		strcpy(p, q + 1);
-		dyncols[i].column = p;
-		p += strlen(p) + 1;
-	    } else {
-		dyncols[i].table = "";
-		strcpy(p, cols[i]);
-		dyncols[i].column = p;
-		p += strlen(p) + 1;
+	    for (i = size = 0; i < ncols; i++) {
+		size += 2 + 2 * strlen(cols[i]);
 	    }
+	    dyncols = xmalloc(ncols * sizeof (COL) + size);
+	    if (!dyncols) {
+		freedyncols(s);
+		s->ncols = 0;
+		return 1;
+	    }
+	    p = (char *) (dyncols + ncols);
+	    for (i = 0; i < ncols; i++) {
+		char *q;
+
+		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
+		q = strchr(cols[i], '.');
+		if (q) {
+		    dyncols[i].table = p;
+		    strncpy(p, cols[i], q - cols[i]);
+		    p[q - cols[i]] = '\0';
+		    p += strlen(p) + 1;
+		    strcpy(p, q + 1);
+		    dyncols[i].column = p;
+		    p += strlen(p) + 1;
+		} else {
+		    dyncols[i].table = "";
+		    strcpy(p, cols[i]);
+		    dyncols[i].column = p;
+		    p += strlen(p) + 1;
+		}
 #ifdef SQL_LONGVARCHAR
-	    dyncols[i].type = SQL_LONGVARCHAR;
-	    dyncols[i].size = 65536;
+		dyncols[i].type = SQL_LONGVARCHAR;
+		dyncols[i].size = 65536;
 #else
-	    dyncols[i].type = SQL_VARCHAR;
-	    dyncols[i].size = 255;
+		dyncols[i].type = SQL_VARCHAR;
+		dyncols[i].size = 255;
 #endif
-	    dyncols[i].index = i;
-	    dyncols[i].scale = 0;
-	    dyncols[i].prec = 0;
-	    dyncols[i].nosign = 1;
-	    dyncols[i].typename = NULL;
+		dyncols[i].index = i;
+		dyncols[i].scale = 0;
+		dyncols[i].prec = 0;
+		dyncols[i].nosign = 1;
+		dyncols[i].autoinc = -1;
+		dyncols[i].typename = NULL;
+	    }
+	    freedyncols(s);
+	    s->ncols = s->dcols = ncols;
+	    s->dyncols = s->cols = dyncols;
+	    fixupdyncols(s, d->sqlite, cols + ncols);
+	    mkbindcols(s, s->ncols);
 	}
-	freedyncols(s);
-	s->ncols = s->dcols = ncols;
-	s->dyncols = s->cols = dyncols;
-	if (d->version >= verinfo(2, 6, 0) && cols[ncols]) {
-	    fixupdyncols(s, ca->sqlite, cols + ncols);
-	} else {
-	    fixupdyncols(s, ca->sqlite, NULL);
+	if (!cols || ncols <= 0) {
+	    goto killvm;
 	}
-	mkbindcols(s, s->ncols);
-contsig:
-#ifdef HAVE_PTHREAD
-	pthread_mutex_lock(&d->mut);
-	d->async_cont = 0;
-	pthread_cond_broadcast(&d->cond);
-	while (!d->async_run && !d->async_stop) {
-	    pthread_cond_wait(&d->cond, &d->mut);
+	if (!values) {
+	    if (rc == SQLITE_DONE) {
+		freeresult(s, 0);
+		s->nrows = 0;
+		sqlite_finalize(s->vm, NULL);
+		s->vm = NULL;
+		d->vm_stmt = NULL;
+		return SQL_SUCCESS;
+	    }
+	    goto killvm;
 	}
-	pthread_mutex_unlock(&d->mut);
-#endif
-#ifdef HAVE_PTH_UCTX
-	d->async_cont = 0;
-	while (!d->async_run && !d->async_stop) {
-	    pth_uctx_switch(d->uctx[1], d->uctx[0]);
-	}
-#endif
-#ifdef _WIN32
-	SetEvent(d->ev_res);
-	WaitForSingleObject(d->ev_cont, INFINITE);
-#endif
-	if (!cols || d->async_stop) {
-	    return 1;
-	}
-    }
-    if (ncols <= 0) {
-	return 1;
-    }
-    if (!values) {
-	return d->async_stop;
-    }
-    rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
-    if (rowd) {
-	rowd[0] = (char *) (ncols * 2);
-	++rowd;
-	for (i = 0; i < ncols; i++) {
-	    rowd[i] = NULL;
-	    rowd[i + ncols] = xstrdup(values[i]);
-	}
-	for (i = 0; i < ncols; i++) {
-	    if (values[i] && !rowd[i + ncols]) {
-		freerows(rowd);
-		rowd = (char **) -1;
-		break;
+	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
+	if (rowd) {
+	    rowd[0] = (char *) (ncols * 2);
+	    ++rowd;
+	    for (i = 0; i < ncols; i++) {
+		rowd[i] = NULL;
+		rowd[i + ncols] = xstrdup(values[i]);
+	    }
+	    for (i = 0; i < ncols; i++) {
+		if (values[i] && !rowd[i + ncols]) {
+		    freerows(rowd);
+		    rowd = 0;
+		    break;
+		}
 	    }
 	}
-    } else {
-	rowd = (char **) -1;
+	if (rowd) {
+	    freeresult(s, 0);
+	    s->nrows = 1;
+	    s->rows = rowd;
+	    if (rc == SQLITE_DONE) {
+		sqlite_finalize(s->vm, NULL);
+		s->vm = NULL;
+		d->vm_stmt = NULL;
+	    }
+	    return SQL_SUCCESS;
+	}
     }
-#ifdef HAVE_PTHREAD
-    pthread_mutex_lock(&d->mut);
-    d->async_rows = rowd;
-    d->async_ncols = ncols;
-    pthread_cond_broadcast(&d->cond);
-    while (!d->async_cont && !d->async_stop) {
-	pthread_cond_wait(&d->cond, &d->mut);
-    }
-    d->async_cont = 0;
-    pthread_mutex_unlock(&d->mut);
-#endif
-#ifdef HAVE_PTH_UCTX
-    d->async_rows = rowd;
-    d->async_ncols = ncols;
-    while (!d->async_cont && !d->async_stop) {
-	pth_uctx_switch(d->uctx[1], d->uctx[0]);
-    }
-    d->async_cont = 0;
-#endif
-#ifdef _WIN32
-    d->async_rows = rowd;
-    d->async_ncols = ncols;
-    SetEvent(d->ev_res);
-    WaitForSingleObject(d->ev_cont, INFINITE);
-#endif
-    return d->async_stop;
-}
-
-/**
- * @struct thrarg
- * Thread startup arguments for thread executing SQLite SELECT statement.
- */
-
-struct thrarg {
-    DBC *d;		/**< Connection handle. */
-    STMT *s;		/**< Statement handle. */
-    char **params;	/**< Parameters for SELECT statement. */
-};
-
-/**
- * Thread function to execute SELECT in parallel.
- * @param arg thread start argument, actually a thrarg pointer
- */
-
-#ifdef HAVE_PTHREAD
-static void *
-async_exec(void *arg)
-#endif
-#ifdef HAVE_PTH_UCTX
-static void
-async_exec(void *arg)
-#endif
-#ifdef _WIN32
-static __stdcall
-async_exec(void *arg)
-#endif
-{
-    char *errp = NULL;
-    int ret = SQLITE_ERROR;
-    struct thrarg ta = *((struct thrarg *) arg);
-    DBC *d = ta.d;
-    struct cbarg ca;
-
-    ca.s = ta.s;
-    ca.rowcount = 0;
-    ca.sqlite = sqlite_open(d->dbname, 0, &errp);
-    if (!ca.sqlite) {
-	goto fail2;
-    }
+killvm:
+    sqlite_finalize(s->vm, &errp);
+    s->vm = NULL;
+    d->vm_stmt = NULL;
+    setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+	    errp ? errp : "unknown error", rc);
     if (errp) {
 	sqlite_freemem(errp);
 	errp = NULL;
     }
-    ret = setsqliteopts(ca.sqlite, d);
-    if (ret != SQLITE_OK) {
-	goto fail;
-    }
-    d->sqlite2 = ca.sqlite;
-    ret = sqlite_exec_vprintf(ca.sqlite, ta.s->query,
-			      async_cb, &ca, &errp, (char *) ta.params);
-    d->sqlite2 = NULL;
-fail:
-    sqlite_close(ca.sqlite);
-fail2:
-    if (errp) {
-	char *nerrp = NULL;
-
-	if (ret != SQLITE_OK) {
-	    nerrp = xstrdup(errp);
-	}
-	sqlite_freemem(errp);
-	errp = nerrp;
-    } else if (ret != SQLITE_OK) {
-	errp = xstrdup(sqlite_error_string(ret));
-    }
-    freep(&ta.params);
-#ifdef HAVE_PTHREAD
-    pthread_mutex_lock(&d->mut);
-    d->async_errp = errp;
-    d->async_done = 1;
-    d->async_cont = 0;
-    pthread_cond_broadcast(&d->cond);
-    pthread_mutex_unlock(&d->mut);
-    return 0;
-#endif
-#ifdef HAVE_PTH_UCTX
-    d->async_errp = errp;
-    d->async_done = 1;
-    d->async_cont = 0;
-    pth_uctx_switch(d->uctx[1], d->uctx[0]);
-    return;
-#endif
-#ifdef _WIN32
-    d->async_errp = errp;
-    d->async_done = 1;
-    SetEvent(d->ev_res);
-    return 0;
-#endif
+    return SQL_ERROR;	
 }
 
 /**
- * Stop thread executing SELECT.
+ * Stop running VM
  * @param s statement pointer
  */
 
 static void
-async_end(STMT *s)
+vm_end(STMT *s)
 {
-#ifdef HAVE_PTHREAD
-    void *dummy;
-#endif
     DBC *d;
 
-    if (!s || !*s->async_run) {
+    if (!s || !s->vm) {
 	return;
     }
     d = (DBC *) s->dbc;
-    if (d->sqlite2) {
-	sqlite_interrupt(d->sqlite2);
-    }
-#ifdef HAVE_PTHREAD
-    pthread_mutex_lock(&d->mut);
-    d->async_cont = 1;
-    d->async_stop = 1;
-    pthread_cond_broadcast(&d->cond);
-    pthread_mutex_unlock(&d->mut);
-    pthread_join(d->thr, &dummy);
-#endif
-#ifdef HAVE_PTH_UCTX
-    d->async_cont = 1;
-    d->async_stop = 1;
-    while (!d->async_done) {
-	pth_uctx_switch(d->uctx[0], d->uctx[1]);
-    }
-    pth_uctx_destroy(d->uctx[1]);
-    pth_uctx_destroy(d->uctx[0]);
-    d->uctx[0] = d->uctx[1] = NULL;
-#endif
-#ifdef _WIN32
-    d->async_stop = 1;
-    SetEvent(d->ev_cont);
-    if (!d->async_done) {
-	Sleep(50);
-	SetEvent(d->ev_cont);
-    }
-    WaitForSingleObject(d->thr, INFINITE);
-#endif
-    d->async_run = 0;
-    d->async_stmt = NULL;
-    d->async_rownum = -1;
-    if (d->async_rows) {
-	freerows(d->async_rows);
-	d->async_rows = NULL;
-    }
-    freep(&d->async_errp);
-    d->async_ncols = 0;
-    d->async_stop = 0;
+    sqlite_finalize(s->vm, NULL);
+    s->vm = NULL;
+    d->vm_stmt = NULL;
 }
 
 /**
- * Conditionally stop executing thread.
+ * Conditionally stop running VM
  * @param s statement pointer
  */
 
 static void
-async_end_if(STMT *s)
+vm_end_if(STMT *s)
 {
     DBC *d = (DBC *) s->dbc;
 
-    if (d && d->async_stmt == s) {
-	async_end(s);
+    if (d && d->vm_stmt == s) {
+	vm_end(s);
     }
 }
 
 /**
- * Start thread for execution of SELECT statement.
+ * Start VM for execution of SELECT statement.
  * @param s statement pointer
  * @param params string array of statement parameters
  * @result ODBC error code
  */
 
 static SQLRETURN
-async_start(STMT *s, char **params)
+vm_start(STMT *s, char **params)
 {
-    struct thrarg ta;
     DBC *d = (DBC *) s->dbc;
-    SQLRETURN ret = SQL_SUCCESS;
-#ifdef _WIN32
-    DWORD dummy;
-#endif
+    char *errp = NULL, *sql = NULL;
+    const char *endp;
+    sqlite_vm *vm;
+    int rc;
 
-    ta.d = d;
-    ta.s = s;
-    ta.params = params;
-    d->async_done = 0;
-    d->async_run = 0;
-    d->async_stmt = s;
-    d->async_rownum = -1;
-    d->async_ncols = 0;
-#ifdef HAVE_PTHREAD
-    d->async_stop = 0;
-    d->async_cont = 1;
-    pthread_mutex_lock(&d->mut);
-    if (pthread_create(&d->thr, NULL, async_exec, &ta)) {
-	ret = nomem(s);
+    sql = sqlite_vmprintf(s->query, (char *) params);
+    if (!sql) {
+	return nomem(s);
     }
-#endif
-#ifdef HAVE_PTH_UCTX
-    d->async_stop = 0;
-    d->async_cont = 1;
-    if (!pth_uctx_create((pth_uctx_t *) &d->uctx[0])) {
-	ret = nomem(s);
-    } else if (!pth_uctx_create((pth_uctx_t *) &d->uctx[1])) {
-	pth_uctx_destroy(d->uctx[0]);
-	d->uctx[0] = NULL;
-	ret = nomem(s);
-    }
-#endif
-#ifdef _WIN32
-    d->async_stop = 0;
-    ResetEvent(d->ev_res);
-    ResetEvent(d->ev_cont);
-    d->thr = (HANDLE) _beginthreadex(NULL, 32768, async_exec, &ta, 0, &dummy);
-    if (!d->thr) {
-	ret = nomem(s);
-    }
-#endif
-    if (ret == SQL_SUCCESS) {
-#ifdef HAVE_PTHREAD
-	while (d->async_cont && !d->async_done) {
-	    pthread_cond_wait(&d->cond, &d->mut);
+    rc = sqlite_compile(d->sqlite, sql, &endp, &vm, &errp);
+    sqlite_freemem(sql);
+    if (rc != SQLITE_OK) {
+	setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", rc);
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
 	}
-	d->async_run = 1;
-	pthread_cond_broadcast(&d->cond);
-#endif
-#ifdef HAVE_PTH_UCTX
-	if (!pth_uctx_make(d->uctx[1], NULL, 32768, NULL,
-			   async_exec, (void *) &ta, d->uctx[0])) {
-	    pth_uctx_destroy(d->uctx[1]);
-	    pth_uctx_destroy(d->uctx[0]);
-	    d->uctx[0] = d->uctx[1] = NULL;
-	    ret = nomem(s);
-	    goto done;
-	}
-	do {
-	    pth_uctx_switch(d->uctx[0], d->uctx[1]);
-	} while (d->async_cont && !d->async_done);
-	d->async_run = 1;
-#endif
-#ifdef _WIN32
-	d->async_run = 1;
-	WaitForSingleObject(d->ev_res, INFINITE);
-	SetEvent(d->ev_cont);
-#endif
+	return SQL_ERROR;
     }
-#ifdef HAVE_PTHREAD
-    pthread_mutex_unlock(&d->mut);
-#endif
-#ifdef HAVE_PTH_UCTX
-done:
-#endif
-    return ret;
+    s->vm = vm;
+    d->vm_stmt = s;
+    d->vm_rownum = -1;
+    return SQL_SUCCESS;
 }
-
-#endif
 
 /**
  * Function not implemented.
@@ -3272,9 +2980,7 @@ noconn:
     if (!d->sqlite) {
 	goto noconn;
     }
-#ifdef ASYNC
-    async_end_if(s);
-#endif
+    vm_end_if(s);
     freeresult(s, 0);
     s->ncols = ncols;
     s->cols = colspec;
@@ -4010,6 +3716,303 @@ static COL fkeySpec[] = {
     { "SYSTEM", "FOREIGNKEY", "DEFERRABILITY", SQL_SMALLINT, 5 }
 };
 
+/**
+ * Internal retrieve information about primary/foreign keys.
+ * @param stmt statement handle
+ * @param PKcatalog primary key catalog name/pattern or NULL
+ * @param PKcatalogLen length of PKcatalog or SQL_NTS
+ * @param PKschema primary key schema name/pattern or NULL
+ * @param PKschemaLen length of PKschema or SQL_NTS
+ * @param PKtable primary key table name/pattern or NULL
+ * @param PKtableLen length of PKtable or SQL_NTS
+ * @param FKcatalog foreign key catalog name/pattern or NULL
+ * @param FKcatalogLen length of FKcatalog or SQL_NTS
+ * @param FKschema foreign key schema name/pattern or NULL
+ * @param FKschemaLen length of FKschema or SQL_NTS
+ * @param FKtable foreign key table name/pattern or NULL
+ * @param FKtableLen length of FKtable or SQL_NTS
+ * @result ODBC error code
+ */
+
+SQLRETURN SQL_API
+drvforeignkeys(SQLHSTMT stmt,
+	       SQLCHAR *PKcatalog, SQLSMALLINT PKcatalogLen,
+	       SQLCHAR *PKschema, SQLSMALLINT PKschemaLen,
+	       SQLCHAR *PKtable, SQLSMALLINT PKtableLen,
+	       SQLCHAR *FKcatalog, SQLSMALLINT FKcatalogLen,
+	       SQLCHAR *FKschema, SQLSMALLINT FKschemaLen,
+	       SQLCHAR *FKtable, SQLSMALLINT FKtableLen)
+{
+    STMT *s;
+    DBC *d;
+    SQLRETURN sret;
+    int i, size, ret, nrows, ncols, offs, namec, seqc, fromc, toc;
+    char **rowp, *errp = NULL, pname[512], fname[512];
+
+    sret = mkresultset(stmt, fkeySpec, array_size(fkeySpec));
+    if (sret != SQL_SUCCESS) {
+	return sret;
+    }
+    s = (STMT *) stmt;
+    d = (DBC *) s->dbc;
+    if ((!PKtable || PKtable[0] == '\0' || PKtable[0] == '%') &&
+	(!FKtable || FKtable[0] == '\0' || FKtable[0] == '%')) {
+	setstat(s, "need table name", (*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    size = 0;
+    if (PKtable) {
+	if (PKtableLen == SQL_NTS) {
+	    size = sizeof (pname) - 1;
+	} else {
+	    size = min(sizeof (pname) - 1, PKtableLen);
+	}
+	strncpy(pname, PKtable, size);
+    }
+    pname[size] = '\0';
+    size = 0;
+    if (FKtable) {
+
+	if (FKtableLen == SQL_NTS) {
+	    size = sizeof (fname) - 1;
+	} else {
+	    size = min(sizeof (fname) - 1, FKtableLen);
+	}
+	strncpy(fname, FKtable, size);
+    }
+    fname[size] = '\0';
+    if (fname[0] != '\0') {
+	int plen;
+
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "PRAGMA foreign_key_list('%q')", &rowp,
+				      &nrows, &ncols, &errp, fname);
+	if (ret != SQLITE_OK) {
+	    setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite_freemem(errp);
+		errp = NULL;
+	    }
+	    return SQL_ERROR;
+	}
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
+	}
+	if (ncols * nrows <= 0) {
+nodata:
+	    sqlite_free_table(rowp);
+	    return SQL_SUCCESS;
+	}
+	size = 0;
+	namec = findcol(rowp, ncols, "table");
+	seqc = findcol(rowp, ncols, "seq");
+	fromc = findcol(rowp, ncols, "from");
+	toc = findcol(rowp, ncols, "to");
+	if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
+	    goto nodata;
+	}
+	plen = strlen(pname);
+	for (i = 1; i <= nrows; i++) {
+	    char *ptab = rowp[i * ncols + namec];
+
+	    if (plen && ptab) {
+		int len = strlen(ptab);
+
+		if (plen != len || strncasecmp(pname, ptab, plen) != 0) {
+		    continue;
+		}
+	    }
+	    size++;
+	}
+	if (size == 0) {
+	    goto nodata;
+	}
+	s->nrows = size;
+	size = (size + 1) * array_size(fkeySpec);
+	s->rows = xmalloc((size + 1) * sizeof (char *));
+	if (!s->rows) {
+	    s->nrows = 0;
+	    return nomem(s);
+	}
+	s->rows[0] = (char *) size;
+	s->rows += 1;
+	memset(s->rows, 0, sizeof (char *) * size);
+	s->rowfree = freerows;
+	offs = 0;
+	for (i = 1; i <= nrows; i++) {
+	    int pos = 0, roffs = (offs + 1) * s->ncols;
+	    char *ptab = rowp[i * ncols + namec];
+	    char buf[32];
+
+	    if (plen && ptab) {
+		int len = strlen(ptab);
+
+		if (plen != len || strncasecmp(pname, ptab, plen) != 0) {
+		    continue;
+		}
+	    }
+	    s->rows[roffs + 0] = xstrdup("");
+	    s->rows[roffs + 1] = xstrdup("");
+	    s->rows[roffs + 2] = xstrdup(ptab);
+	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + toc]);
+	    s->rows[roffs + 4] = xstrdup("");
+	    s->rows[roffs + 5] = xstrdup("");
+	    s->rows[roffs + 6] = xstrdup(fname);
+	    s->rows[roffs + 7] = xstrdup(rowp[i * ncols + fromc]);
+	    sscanf(rowp[i * ncols + seqc], "%d", &pos);
+	    sprintf(buf, "%d", pos + 1);
+	    s->rows[roffs + 8] = xstrdup(buf);
+	    s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
+	    s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+	    s->rows[roffs + 11] = NULL;
+	    s->rows[roffs + 12] = NULL;
+	    s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
+	    offs++;
+	}
+	sqlite_free_table(rowp);
+    } else {
+	int nnrows, nncols, plen = strlen(pname);
+	char **rowpp;
+
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "select name from sqlite_master "
+				      "where type='table'", &rowp,
+				      &nrows, &ncols, &errp, fname);
+	if (ret != SQLITE_OK) {
+	    setstat(s, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite_freemem(errp);
+		errp = NULL;
+	    }
+	    return SQL_ERROR;
+	}
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
+	}
+	if (ncols * nrows <= 0) {
+	    goto nodata;
+	}
+	size = 0;
+	for (i = 1; i <= nrows; i++) {
+	    int k, len;
+
+	    if (!rowp[i]) {
+		continue;
+	    }
+	    len = strlen(rowp[i]);
+	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
+		continue;
+	    }
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA foreign_key_list('%q')",
+					  &rowpp,
+					  &nnrows, &nncols, NULL, rowp[i]);
+	    if (ret != SQLITE_OK || nncols * nnrows <= 0) {
+		sqlite_free_table(rowpp);
+		continue;
+	    }
+	    namec = findcol(rowpp, nncols, "table");
+	    seqc = findcol(rowpp, nncols, "seq");
+	    fromc = findcol(rowpp, nncols, "from");
+	    toc = findcol(rowpp, nncols, "to");
+	    if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
+		sqlite_free_table(rowpp);
+		continue;
+	    }
+	    for (k = 1; k <= nnrows; k++) {
+		char *ptab = rowpp[k * nncols + namec];
+
+		if (plen && ptab) {
+		    len = strlen(ptab);
+		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
+			continue;
+		    }
+		}
+		size++;
+	    }
+	    sqlite_free_table(rowpp);
+	}
+	if (size == 0) {
+	    goto nodata;
+	}
+	s->nrows = size;
+	size = (size + 1) * array_size(fkeySpec);
+	s->rows = xmalloc((size + 1) * sizeof (char *));
+	if (!s->rows) {
+	    s->nrows = 0;
+	    return nomem(s);
+	}
+	s->rows[0] = (char *) size;
+	s->rows += 1;
+	memset(s->rows, 0, sizeof (char *) * size);
+	s->rowfree = freerows;
+	offs = 0;
+	for (i = 1; i <= nrows; i++) {
+	    int k, len;
+
+	    if (!rowp[i]) {
+		continue;
+	    }
+	    len = strlen(rowp[i]);
+	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
+		continue;
+	    }
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA foreign_key_list('%q')",
+					  &rowpp,
+					  &nnrows, &nncols, NULL, rowp[i]);
+	    if (ret != SQLITE_OK || nncols * nnrows <= 0) {
+		sqlite_free_table(rowpp);
+		continue;
+	    }
+	    namec = findcol(rowpp, nncols, "table");
+	    seqc = findcol(rowpp, nncols, "seq");
+	    fromc = findcol(rowpp, nncols, "from");
+	    toc = findcol(rowpp, nncols, "to");
+	    if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
+		sqlite_free_table(rowpp);
+		continue;
+	    }
+	    for (k = 1; k <= nnrows; k++) {
+		int pos = 0, roffs = (offs + 1) * s->ncols;
+		char *ptab = rowpp[k * nncols + namec];
+		char buf[32];
+
+		if (plen && ptab) {
+		    len = strlen(ptab);
+		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
+			continue;
+		    }
+		}
+		s->rows[roffs + 0] = xstrdup("");
+		s->rows[roffs + 1] = xstrdup("");
+		s->rows[roffs + 2] = xstrdup(ptab);
+		s->rows[roffs + 3] = xstrdup(rowpp[k * nncols + toc]);
+		s->rows[roffs + 4] = xstrdup("");
+		s->rows[roffs + 5] = xstrdup("");
+		s->rows[roffs + 6] = xstrdup(rowp[i]);
+		s->rows[roffs + 7] = xstrdup(rowpp[k * nncols + fromc]);
+		sscanf(rowpp[k * nncols + seqc], "%d", &pos);
+		sprintf(buf, "%d", pos + 1);
+		s->rows[roffs + 8] = xstrdup(buf);
+		s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
+		s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+		s->rows[roffs + 11] = NULL;
+		s->rows[roffs + 12] = NULL;
+		s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
+		offs++;
+	    }
+	    sqlite_free_table(rowpp);
+	}
+	sqlite_free_table(rowp);
+    }
+    return SQL_SUCCESS;
+}
+
 #ifndef SQLITE_UTF8
 /**
  * Retrieve information about primary/foreign keys.
@@ -4038,7 +4041,12 @@ SQLForeignKeys(SQLHSTMT stmt,
 	       SQLCHAR *FKschema, SQLSMALLINT FKschemaLen,
 	       SQLCHAR *FKtable, SQLSMALLINT FKtableLen)
 {
-    return mkresultset(stmt, fkeySpec, array_size(fkeySpec));
+    return drvforeignkeys(stmt,
+			  PKcatalog, PKcatalogLen,
+			  PKschema, PKschemaLen, PKtable, PKtableLen,
+			  FKcatalog, FKcatalogLen,
+			  FKschema, FKschemaLen,
+			  FKtable, FKtableLen);
 }
 #endif
 
@@ -4070,7 +4078,62 @@ SQLForeignKeysW(SQLHSTMT stmt,
 		SQLWCHAR *FKschema, SQLSMALLINT FKschemaLen,
 		SQLWCHAR *FKtable, SQLSMALLINT FKtableLen)
 {
-    return mkresultset(stmt, fkeySpec, array_size(fkeySpec));
+    char *pc = NULL, *ps = NULL, *pt = NULL;
+    char *fc = NULL, *fs = NULL, *ft = NULL;
+    SQLRETURN ret;
+
+    if (PKcatalog) {
+	pc = uc_to_utf_c(PKcatalog, PKcatalogLen);
+	if (!pc) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (PKschema) {
+	ps = uc_to_utf_c(PKschema, PKschemaLen);
+	if (!ps) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (PKtable) {
+	pt = uc_to_utf_c(PKtable, PKtableLen);
+	if (!pt) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKcatalog) {
+	fc = uc_to_utf_c(FKcatalog, FKcatalogLen);
+	if (!fc) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKschema) {
+	fs = uc_to_utf_c(FKschema, FKschemaLen);
+	if (!fs) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKtable) {
+	ft = uc_to_utf_c(FKtable, FKtableLen);
+	if (!ft) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvforeignkeys(stmt, pc, SQL_NTS, ps, SQL_NTS, pt, SQL_NTS,
+			 fc, SQL_NTS, fs, SQL_NTS, ft, SQL_NTS);
+done:
+    uc_free(ft);
+    uc_free(fs);
+    uc_free(fc);
+    uc_free(pt);
+    uc_free(ps);
+    uc_free(pc);
+    return ret;
 }
 #endif
 
@@ -4754,42 +4817,32 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 
     switch (attr) {
     case SQL_ATTR_CURSOR_TYPE:
-#ifdef ASYNC
 	*uval = s->curtype;
-#else
-	*uval = SQL_CURSOR_STATIC;
-#endif
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_SCROLLABLE:
-#ifdef ASYNC
 	*uval = s->curtype != SQL_CURSOR_FORWARD_ONLY ?
 	    SQL_SCROLLABLE : SQL_NONSCROLLABLE;
-#else
-	*uval = SQL_SCROLLABLE;
-#endif
 	return SQL_SUCCESS;
+#ifdef SQL_ATTR_CURSOR_SENSITIVITY
+    case SQL_ATTR_CURSOR_SENSITIVITY:
+	*uval = SQL_UNSPECIFIED;
+	return SQL_SUCCESS;
+#endif
     case SQL_ATTR_ROW_NUMBER:
-#ifdef ASYNC
 	{
 	    STMT *s = (STMT *) stmt;
 	    DBC *d = (DBC *) s->dbc;
 
-	    if (s == d->async_stmt) {
-		*uval = d->async_rownum < 0 ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->async_rownum;
+	    if (s == d->vm_stmt) {
+		*uval = d->vm_rownum < 0 ?
+		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
 	    }
 	}
-#endif
 	*uval = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
-#ifdef ASYNC
-    case SQL_ATTR_ASYNC_ENABLE: {
-	STMT *s = (STMT *) stmt;
-
-	*uval = s->async_enable ? SQL_TRUE : SQL_FALSE;
+    case SQL_ATTR_ASYNC_ENABLE:
+	*uval = SQL_ASYNC_ENABLE_OFF;
 	return SQL_SUCCESS;
-    }
-#endif
     case SQL_CONCURRENCY:
 	*uval = SQL_CONCUR_LOCK;
 	return SQL_SUCCESS;
@@ -4903,32 +4956,28 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 
     switch (attr) {
     case SQL_ATTR_CURSOR_TYPE:
-#ifdef ASYNC
 	if ((SQLUINTEGER) val == SQL_CURSOR_FORWARD_ONLY) {
 	    s->curtype = SQL_CURSOR_FORWARD_ONLY;
 	} else {
 	    s->curtype = SQL_CURSOR_STATIC;
 	}
-#endif
 	if ((SQLUINTEGER) val != SQL_CURSOR_FORWARD_ONLY &&
 	    (SQLUINTEGER) val != SQL_CURSOR_STATIC) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_SCROLLABLE:
-#ifdef ASYNC
 	if ((SQLUINTEGER) val == SQL_NONSCROLLABLE) {
 	    s->curtype = SQL_CURSOR_FORWARD_ONLY;
 	} else {
 	    s->curtype = SQL_CURSOR_STATIC;
 	}
-#endif
 	return SQL_SUCCESS;
-#ifdef ASYNC
     case SQL_ATTR_ASYNC_ENABLE:
-	s->async_enable = (SQLUINTEGER) val;
+	if ((SQLUINTEGER) val != SQL_ASYNC_ENABLE_OFF) {
+	    goto e01s02;
+	}
 	return SQL_SUCCESS;
-#endif
     case SQL_CONCURRENCY:
 	if ((SQLUINTEGER) val != SQL_CONCUR_LOCK) {
 	    goto e01s02;
@@ -5047,30 +5096,22 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 
     switch (opt) {
     case SQL_CURSOR_TYPE:
-#ifdef ASYNC
 	*ret = s->curtype;
-#else
-	*ret = SQL_CURSOR_STATIC;
-#endif
 	return SQL_SUCCESS;
     case SQL_ROW_NUMBER:
-#ifdef ASYNC
 	{
 	    DBC *d = (DBC *) s->dbc;
 
-	    if (s == d->async_stmt) {
-		*ret = d->async_rownum < 0 ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->async_rownum;
+	    if (s == d->vm_stmt) {
+		*ret = d->vm_rownum < 0 ?
+		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
 	    }
 	}
-#endif
 	*ret = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
-#ifdef ASYNC
     case SQL_ASYNC_ENABLE:
-	*ret = s->async_enable ? SQL_TRUE : SQL_FALSE;
+	*ret = SQL_ASYNC_ENABLE_OFF;
 	return SQL_SUCCESS;
-#endif
     case SQL_CONCURRENCY:
 	*ret = SQL_CONCUR_LOCK;
 	return SQL_SUCCESS;
@@ -5130,23 +5171,21 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 
     switch (opt) {
     case SQL_CURSOR_TYPE:
-#ifdef ASYNC
 	if (param == SQL_CURSOR_FORWARD_ONLY) {
 	    s->curtype = param;
 	} else {
 	    s->curtype = SQL_CURSOR_STATIC;
 	}
-#endif
 	if (param != SQL_CURSOR_FORWARD_ONLY &&
 	    param != SQL_CURSOR_STATIC) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
-#ifdef ASYNC
     case SQL_ASYNC_ENABLE:
-	s->async_enable = param;
+	if (param != SQL_ASYNC_ENABLE_OFF) {
+	    goto e01s02;
+	}
 	return SQL_SUCCESS;
-#endif
     case SQL_CONCURRENCY:
 	if (param != SQL_CONCUR_LOCK) {
 	    goto e01s02;
@@ -5289,11 +5328,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #ifdef SQL_ASYNC_MODE
     case SQL_ASYNC_MODE:
-#ifdef ASYNC
-	*((SQLUINTEGER *) val) = SQL_AM_STATEMENT;
-#else
 	*((SQLUINTEGER *) val) = SQL_AM_NONE;
-#endif
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
@@ -5552,11 +5587,8 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_MAX_COLUMNS_IN_SELECT:
     case SQL_MAX_COLUMNS_IN_TABLE:
     case SQL_MAX_ROW_SIZE:
-	*((SQLSMALLINT *) val) = 0;
-	*valLen = sizeof (SQLSMALLINT);
-	break;
     case SQL_MAX_TABLES_IN_SELECT:
-	*((SQLSMALLINT *) val) = 1;
+	*((SQLSMALLINT *) val) = 0;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_MAX_BINARY_LITERAL_LEN:
@@ -6012,33 +6044,7 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
 	return SQL_ERROR;
     }
     memset(d, 0, sizeof (DBC));
-#ifdef ASYNC
     d->curtype = SQL_CURSOR_STATIC;
-#ifdef HAVE_PTHREAD
-    if (pthread_mutex_init(&d->mut, NULL)) {
-	goto error;
-    }
-    if (pthread_cond_init(&d->cond, NULL)) {
-	pthread_mutex_destroy(&d->mut);
-error:
-	xfree(d);
-	return SQL_ERROR;
-    }
-#endif
-#ifdef _WIN32
-    d->ev_res = CreateEvent(NULL, 0, 0, NULL);
-    if (d->ev_res == INVALID_HANDLE_VALUE) {
-	goto error;
-    }
-    d->ev_cont = CreateEvent(NULL, 0, 0, NULL);
-    if (d->ev_cont == INVALID_HANDLE_VALUE) {
-	CloseHandle(d->ev_res);
-error:
-	xfree(d);
-	return SQL_ERROR;
-    }
-#endif
-#endif
 #ifdef HAVE_LIBVERSION
     verstr = sqlite_libversion();
 #else
@@ -6046,6 +6052,10 @@ error:
 #endif
     sscanf(verstr, "%d.%d.%d", &maj, &min, &lev);
     d->version = verinfo(maj & 0xFF, min & 0xFF, lev & 0xFF);
+    if (d->version < verinfo(2, 8, 0)) {
+	xfree(d);
+	return SQL_ERROR;
+    }
     d->ov3 = &d->ov3val;
     e = (ENV *) env;
     if (e->magic == ENV_MAGIC) {
@@ -6131,16 +6141,6 @@ drvfreeconnect(SQLHDBC dbc)
 	    }
 	}
     }
-#ifdef ASYNC
-#ifdef HAVE_PTHREAD
-    pthread_cond_destroy(&d->cond);
-    pthread_mutex_destroy(&d->mut);
-#endif
-#ifdef _WIN32
-    CloseHandle(d->ev_res);
-    CloseHandle(d->ev_cont);
-#endif
-#endif
     d->magic = DEAD_MAGIC;
     xfree(d);
     return SQL_SUCCESS;
@@ -6256,11 +6256,7 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_CURSOR_TYPE:
-#ifdef ASYNC
 	*((SQLINTEGER *) val) = d->curtype;
-#else
-	*((SQLINTEGER *) val) = SQL_CURSOR_STATIC;
-#endif
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_RETRIEVE_DATA:
@@ -6345,10 +6341,8 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 doit:
 	    if (d->autocommit && d->intrans) {
 		return endtran(d, SQL_COMMIT);
-#ifdef ASYNC
 	    } else if (!d->autocommit) {
-		async_end(d->async_stmt);
-#endif
+		vm_end(d->vm_stmt);
 	    }
 	}
 	break;
@@ -6468,11 +6462,7 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 	*((SQLINTEGER *) param) = 1000000000;
 	break;
     case SQL_CURSOR_TYPE:
-#ifdef ASYNC
 	*((SQLINTEGER *) param) = d->curtype;
-#else
-	*((SQLINTEGER *) param) = SQL_CURSOR_STATIC;
-#endif
 	break;
     case SQL_RETRIEVE_DATA:
 	*((SQLINTEGER *) param) = SQL_RD_ON;
@@ -6540,10 +6530,8 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
 	d->autocommit = param == SQL_AUTOCOMMIT_ON;
 	if (d->autocommit && d->intrans) {
 	    return endtran(d, SQL_COMMIT);
-#ifdef ASYNC
 	} else if (!d->autocommit) {
-	    async_end(d->async_stmt);
-#endif
+	    vm_end(d->vm_stmt);
 	}
 	break;
     default:
@@ -6650,7 +6638,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char tflag[32], nwflag[32];
+    char sflag[32], nwflag[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -6686,26 +6674,22 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 	dbname[sizeof (dbname) - 1] = '\0';
     }
     getdsnattr(buf, "timeout", busy, sizeof (busy));
-    tflag[0] = '\0';
+    sflag[0] = '\0';
     nwflag[0] = '\0';
-#ifdef ASYNC
-    getdsnattr(buf, "threaded", tflag, sizeof (tflag));
-#endif
+    getdsnattr(buf, "stepapi", sflag, sizeof (sflag));
     getdsnattr(buf, "nowchar", nwflag, sizeof (nwflag));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "1000",
 			       busy, sizeof (busy), ODBC_INI);
     SQLGetPrivateProfileString(buf, "database", "",
 			       dbname, sizeof (dbname), ODBC_INI);
-#ifdef ASYNC
-    SQLGetPrivateProfileString(buf, "threaded", "",
-			       tflag, sizeof (tflag), ODBC_INI);
-#endif
+    SQLGetPrivateProfileString(buf, "stepapi", "",
+			       sflag, sizeof (sflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "nowchar", "",
 			       nwflag, sizeof (nwflag), ODBC_INI);
 #endif
     d->nowchar = getbool(nwflag);
-    return dbopen(d, dbname, dsn, tflag, busy);
+    return dbopen(d, dbname, dsn, sflag, busy);
 }
 
 #ifndef SQLITE_UTF8
@@ -6788,9 +6772,9 @@ SQLDisconnect(SQLHDBC dbc)
 	setstatd(d, "incomplete transaction", "25000");
 	return SQL_ERROR;
     }
-#ifdef ASYNC
-    async_end(d->async_stmt);
-#endif
+    if (d->vm_stmt) {
+	vm_end(d->vm_stmt);
+    }
     if (d->sqlite) {
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
@@ -6825,7 +6809,7 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char tflag[32];
+    char sflag[32];
 
     if (dbc == SQL_NULL_HDBC || hwnd != NULL) {
 	return SQL_INVALID_HANDLE;
@@ -6875,15 +6859,13 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 				   dbname, sizeof (dbname), ODBC_INI);
     }
 #endif
-    tflag[0] = '\0';
-#ifdef ASYNC
-    getdsnattr(buf, "threaded", tflag, sizeof (tflag));
+    sflag[0] = '\0';
+    getdsnattr(buf, "stepapi", sflag, sizeof (sflag));
 #ifndef WITHOUT_DRIVERMGR
-    if (dsn[0] && !tflag[0]) {
-	SQLGetPrivateProfileString(dsn, "threaded", "",
-				   tflag, sizeof (tflag), ODBC_INI);
+    if (dsn[0] && !sflag[0]) {
+	SQLGetPrivateProfileString(dsn, "stepapi", "",
+				   sflag, sizeof (sflag), ODBC_INI);
     }
-#endif
 #endif
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
@@ -6895,16 +6877,8 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
-#ifdef ASYNC
-			 "DSN=%s;Database=%s;Threaded=%s;Timeout=%s",
-#else
-			 "DSN=%s;Database=%s;Timeout=%s",
-#endif
-			 dsn, dbname,
-#ifdef ASYNC
-			 tflag,
-#endif
-			 busy);
+			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s",
+			 dsn, dbname, sflag, busy);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -6917,7 +6891,7 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 	    *connOutLen = len;
 	}
     }
-    return dbopen(d, dbname, dsn, tflag, busy);
+    return dbopen(d, dbname, dsn, sflag, busy);
 }
 #endif
 
@@ -6992,10 +6966,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->dbc = dbc;
     s->ov3 = d->ov3;
     s->nowchar = d->nowchar;
-#ifdef ASYNC
     s->curtype = d->curtype;
-    s->async_run = &d->async_run;
-#endif
     sprintf(s->cursorname, "CUR_%08lX", (long) *stmt);
     sl = d->stmt;
     pl = NULL;
@@ -7048,15 +7019,11 @@ drvfreestmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 	unbindcols(s);
 	break;
     case SQL_CLOSE:
-#ifdef ASYNC
-	async_end_if(s);
-#endif
-	freeresult(s, -1);
+	vm_end_if(s);
+	freeresult(s, 0);
 	break;
     case SQL_DROP:
-#ifdef ASYNC
-	async_end_if(s);
-#endif
+	vm_end_if(s);
 	return freestmt(stmt);
     default:
 	setstat(s, "unsupported option", (*s->ov3) ? "HYC00" : "S1C00");
@@ -9036,9 +9003,8 @@ SQLFetch(SQLHSTMT stmt)
 	ret = SQL_ERROR;
 	goto done;
     }
-#ifdef ASYNC
-    if (*s->async_run && ((DBC *) (s->dbc))->async_stmt == s) {
-	ret = waitfordata(s);
+    if (((DBC *) (s->dbc))->vm_stmt == s && s->vm) {
+	ret = vm_step(s);
 	if (ret != SQL_SUCCESS) {
 	    s->row_status0 = SQL_ROW_ERROR;
 	    goto done;
@@ -9049,7 +9015,6 @@ SQLFetch(SQLHSTMT stmt)
 	s->rowp = 0;
 	goto dofetch;
     }
-#endif
     if (!s->rows || s->nrows < 1) {
 	return SQL_NO_DATA;
     }
@@ -9057,9 +9022,7 @@ SQLFetch(SQLHSTMT stmt)
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	return SQL_NO_DATA;
     }
-#ifdef ASYNC
 dofetch:
-#endif
     s->row_status0 = SQL_ROW_SUCCESS;
     if (s->bkmrk && s->bkmrkcol.valp) {
 	long *val = (long *) s->bkmrkcol.valp;
@@ -9132,13 +9095,12 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	ret = SQL_ERROR;
 	goto done;
     }
-#ifdef ASYNC
     if (s->curtype == SQL_CURSOR_FORWARD_ONLY && orient != SQL_FETCH_NEXT) {
 	setstat(s, "wrong fetch direction", "01000");
 	return SQL_ERROR;
     }
-    if (*s->async_run && ((DBC *) (s->dbc))->async_stmt == s) {
-	ret = waitfordata(s);
+    if (((DBC *) (s->dbc))->vm_stmt == s && s->vm) {
+	ret = vm_step(s);
 	if (ret != SQL_SUCCESS) {
 	    s->row_status0 = SQL_ROW_ERROR;
 	    goto done;
@@ -9149,7 +9111,6 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	s->rowp = 0;
 	goto dofetch;
     }
-#endif
     if (!s->rows) {
 	return SQL_NO_DATA;
     }
@@ -9652,9 +9613,14 @@ checkLen:
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_MONEY:
-    case SQL_COLUMN_AUTO_INCREMENT:
 	if (val2) {
 	    *val2 = SQL_FALSE;
+	}
+	*valLen = sizeof (int);
+	return SQL_SUCCESS;
+    case SQL_COLUMN_AUTO_INCREMENT:
+	if (val2) {
+	    *val2 = c->autoinc > 0 ? SQL_TRUE : SQL_FALSE;
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
@@ -9980,8 +9946,10 @@ checkLen:
 	v = c->prec;
 	break;
     case SQL_COLUMN_MONEY:
-    case SQL_COLUMN_AUTO_INCREMENT:
 	v = SQL_FALSE;
+	break;
+    case SQL_COLUMN_AUTO_INCREMENT:
+	v = c->autoinc > 0 ? SQL_TRUE : SQL_FALSE;
 	break;
     case SQL_DESC_NULLABLE:
 	v = SQL_NULLABLE;
@@ -10350,14 +10318,13 @@ selcb(void *arg, int ncols, char **values, char **cols)
 	    dyncols[i].scale = 0;
 	    dyncols[i].prec = 0;
 	    dyncols[i].nosign = 1;
+	    dyncols[i].autoinc = -1;
 	    dyncols[i].typename = NULL;
 	}
 	freedyncols(s);
 	s->dyncols = s->cols = dyncols;
 	s->dcols = ncols;
-	if (d->version >= verinfo(2, 6, 0) && cols[ncols]) {
-	    fixupdyncols(s, d->sqlite, cols + ncols);
-	}
+	fixupdyncols(s, d->sqlite, (const char **) cols + ncols);
     }
     s->ncols = ncols;
     return 1;
@@ -10390,9 +10357,7 @@ noconn:
     if (!d->sqlite) {
 	goto noconn;
     }
-#ifdef ASYNC
-    async_end(s);
-#endif
+    vm_end(s);
     freep(&s->query);
     s->query = fixupsql(query, queryLen, &s->nparams, &s->isselect, &errp,
 			d->version);
@@ -10437,9 +10402,6 @@ noconn:
 	    sqlite_freemem(errp);
 	    errp = NULL;
 	}
-	if (d->version < verinfo(2, 6, 0)) {
-	    fixupdyncols(s, d->sqlite, NULL);
-	}
     }
     mkbindcols(s, s->ncols);
     return SQL_SUCCESS;
@@ -10476,9 +10438,7 @@ noconn:
 		(*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
-#ifdef ASYNC
-    async_end(s);
-#endif
+    vm_end(s);
     for (i = size = 0; i < s->nparams; i++) {
 	SQLRETURN ret;
 
@@ -10496,19 +10456,17 @@ noconn:
 	}
 	p = (char *) (params + s->nparams);
 	for (i = 0; i < s->nparams; i++) {
+	    int len = 0;
+
 	    params[i] = p;
 	    substparam(s, i, &p, NULL);
-	    if (d->version >= verinfo(2, 5, 0)) {
-		int len = 0;
-
-		if (s->bindparms[i].ind) {
-		    len = s->bindparms[i].len;
-		} else if (s->bindparms[i].lenp) {
-		    len = *s->bindparms[i].lenp;
-		}
-		if (len == SQL_NULL_DATA) {
-		    params[i] = NULL;
-		}
+	    if (s->bindparms[i].ind) {
+		len = s->bindparms[i].len;
+	    } else if (s->bindparms[i].lenp) {
+		len = *s->bindparms[i].lenp;
+	    }
+	    if (len == SQL_NULL_DATA) {
+		params[i] = NULL;
 	    }
 	}
     }
@@ -10531,18 +10489,16 @@ noconn:
 	    errp = NULL;
 	}
     }
-#ifdef ASYNC
     if (s->isselect && !d->intrans &&
-	d->thread_enable &&
-	s->curtype == SQL_CURSOR_FORWARD_ONLY) {
+	s->curtype == SQL_CURSOR_FORWARD_ONLY &&
+	d->step_enable && d->vm_stmt == NULL) {
 	s->nrows = -1;
-	ret = async_start(s, params);
+	ret = vm_start(s, params);
 	if (ret == SQL_SUCCESS) {
 	    params = NULL;
 	    goto done2;
 	}
     }
-#endif
     ret = sqlite_get_table_vprintf(d->sqlite, s->query, &s->rows,
 				   &s->nrows, &ncols, &errp, (char *) params);
     if (ret != SQLITE_OK) {
@@ -10620,6 +10576,7 @@ noconn:
 	    dyncols[i].scale = 0;
 	    dyncols[i].prec = 0;
 	    dyncols[i].nosign = 1;
+	    dyncols[i].autoinc = -1;
 	    dyncols[i].typename = NULL;
 	}
 	freedyncols(s);
@@ -10629,9 +10586,7 @@ noconn:
     }
 done:
     mkbindcols(s, s->ncols);
-#ifdef ASYNC
 done2:
-#endif
     s->rowp = -1;
     return SQL_SUCCESS;
 }
@@ -10764,12 +10719,8 @@ static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #define KEY_BUSY		3
 #define KEY_DRIVER		4
 #define KEY_NOWCHAR		5
-#ifdef ASYNC
-#define KEY_THR			6
+#define KEY_STEPAPI		6
 #define NUMOFKEYS		7
-#else
-#define NUMOFKEYS		6
-#endif
 
 typedef struct {
     BOOL supplied;
@@ -10796,9 +10747,7 @@ static struct {
     { "Timeout", KEY_BUSY },
     { "Driver", KEY_DRIVER },
     { "NoWCHAR", KEY_NOWCHAR },
-#ifdef ASYNC
-    { "Threaded", KEY_THR },
-#endif
+    { "StepAPI", KEY_STEPAPI },
     { NULL, 0 }
 };
 
@@ -10896,13 +10845,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_NOWCHAR].attr,
 				     ODBC_INI);
     }
-#ifdef ASYNC
-    if (parent || setupdlg->attr[KEY_THR].supplied) {
-	SQLWritePrivateProfileString(dsn, "Threaded",
-				     setupdlg->attr[KEY_THR].attr,
+    if (parent || setupdlg->attr[KEY_STEPAPI].supplied) {
+	SQLWritePrivateProfileString(dsn, "StepAPI",
+				     setupdlg->attr[KEY_STEPAPI].attr,
 				     ODBC_INI);
     }
-#endif
     if (setupdlg->attr[KEY_DSN].supplied &&
 	stricmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
@@ -10944,14 +10891,12 @@ GetAttributes(SETUPDLG *setupdlg)
 				   sizeof (setupdlg->attr[KEY_NOWCHAR].attr),
 				   ODBC_INI);
     }
-#ifdef ASYNC
-    if (!setupdlg->attr[KEY_THR].supplied) {
-	SQLGetPrivateProfileString(dsn, "Threaded", "1",
-				   setupdlg->attr[KEY_THR].attr,
-				   sizeof (setupdlg->attr[KEY_THR].attr),
+    if (!setupdlg->attr[KEY_STEPAPI].supplied) {
+	SQLGetPrivateProfileString(dsn, "StepAPI", "0",
+				   setupdlg->attr[KEY_STEPAPI].attr,
+				   sizeof (setupdlg->attr[KEY_STEPAPI].attr),
 				   ODBC_INI);
     }
-#endif
 }
 
 /**
@@ -11005,11 +10950,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
-#ifdef ASYNC
-	CheckDlgButton(hdlg, IDC_THREADED,
-		       getbool(setupdlg->attr[KEY_THR].attr) ?
+	CheckDlgButton(hdlg, IDC_STEPAPI,
+		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
-#endif
 	if (setupdlg->defDSN) {
 	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAME), FALSE);
 	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAMETEXT), FALSE);
@@ -11058,11 +11001,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
 		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
 		   "1" : "0");
-#ifdef ASYNC
-	    strcpy(setupdlg->attr[KEY_THR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_THREADED) == BST_CHECKED ?
+	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
+		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
-#endif
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -11161,11 +11102,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
-#ifdef ASYNC
-	CheckDlgButton(hdlg, IDC_THREADED,
-		       getbool(setupdlg->attr[KEY_THR].attr) ?
+	CheckDlgButton(hdlg, IDC_STEPAPI,
+		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
-#endif
 	return TRUE;
     case WM_COMMAND:
 	switch (GET_WM_COMMAND_ID(wparam, lparam)) {
@@ -11186,11 +11125,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
 		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
 		   "1" : "0");
-#ifdef ASYNC
-	    strcpy(setupdlg->attr[KEY_THR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_THREADED) == BST_CHECKED ?
+	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
+		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
-#endif
 	    /* FALL THROUGH */
 	case IDCANCEL:
 	    EndDialog(hdlg, GET_WM_COMMAND_ID(wparam, lparam) == IDOK);
@@ -11275,11 +11212,8 @@ retry:
 
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
-#ifdef ASYNC
-		"%s%s%s%s%s%sDatabase=%s;Threaded=%s;Timeout=%s;NoWCHAR=%s",
-#else
-		"%s%s%s%s%s%sDatabase=%s;Timeout=%s;NoWCHAR=%s",
-#endif
+			 "%s%s%s%s%s%sDatabase=%s;StepAPI=%s;"
+			 "Timeout=%s;NoWCHAR=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? setupdlg->attr[KEY_DSN].attr : "",
 			 dsn_0 ? ";" : "",
@@ -11287,9 +11221,7 @@ retry:
 			 drv_0 ? setupdlg->attr[KEY_DRIVER].attr : "",
 			 drv_0 ? ";" : "",
 			 setupdlg->attr[KEY_DBNAME].attr,
-#ifdef ASYNC
-			 setupdlg->attr[KEY_THR].attr,
-#endif
+			 setupdlg->attr[KEY_STEPAPI].attr,
 			 setupdlg->attr[KEY_BUSY].attr,
 			 setupdlg->attr[KEY_NOWCHAR].attr);
 	if (count < 0) {
@@ -11307,11 +11239,7 @@ retry:
     d->nowchar = getbool(setupdlg->attr[KEY_NOWCHAR].attr);
     rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
 		setupdlg->attr[KEY_DSN].attr,
-#ifdef ASYNC
-		setupdlg->attr[KEY_THR].attr,
-#else
-		"0",
-#endif
+		setupdlg->attr[KEY_STEPAPI].attr,
 		setupdlg->attr[KEY_BUSY].attr);
     if (rc != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {
@@ -11443,8 +11371,8 @@ LibMain(HANDLE hinst, DWORD reason, LPVOID reserved)
 	break;
     default:
 	break;
-  }
-  return TRUE;
+    }
+    return TRUE;
 }
 
 /**
@@ -11463,3 +11391,52 @@ DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)
 
 #endif /* WITHOUT_DRIVERMGR */
 #endif /* _WIN32 */
+
+#if defined(HAVE_ODBCINSTEXT_H) && HAVE_ODBCINSTEXT_H
+
+/*
+ * unixODBC property page for this driver,
+ * may or may not work depending on unixODBC version.
+ */
+
+#include <odbcinstext.h>
+
+int
+ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
+{
+    static const char *instYN[] = { "No", "Yes", NULL };
+
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_FILENAME;
+    strncpy(prop->szName, "Database", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "", INI_MAX_PROPERTY_VALUE);
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_TEXTEDIT;
+    strncpy(prop->szName, "Timeout", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "1000", INI_MAX_PROPERTY_VALUE);
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc (sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "StepAPI", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
+#ifdef SQLITE_UTF8
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc (sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "NoWCHAR", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
+#endif
+    return 1;
+}
+
+#endif /* HAVE_ODBCINSTEXT_H */

@@ -9,7 +9,7 @@
 #define IDC_TONAME                      405
 #define IDC_TONAMETEXT                  406
 #define IDC_BROWSE			407
-#define IDC_THREADED			408
+#define IDC_STEPAPI			408
 #define IDC_NOWCHAR			409
 #define IDS_MSGTITLE                    500
 #define IDS_BADDSN                      501
