@@ -65,7 +65,7 @@ AC_SUBST(SQLITE_LIBVERSION)
 #########
 # Find ODBC headers and libraries
 #
-AC_ARG_WITH(odbc, [  --with-odbc=DIR       use ODBC header/libs from DIR],
+AC_ARG_WITH(odbc, [  --with-odbc=DIR         use ODBC header/libs from DIR],
   ODBC_DIR=$withval)
 if test ! -d $ODBC_DIR ; then
   AC_MSG_ERROR(ODBC directory $ODBC_DIR does not exist)
@@ -138,12 +138,67 @@ if test "$USE_THREADS" = "yes" ; then
   fi
   if test "$THREAD_FLAGS" = "" ; then
     AC_MSG_ERROR(Threading not usable on this system)
-  fi 
+  fi
 else
   AC_MSG_RESULT(no)
-fi        
+fi
+if test "$THREAD_FLAGS" != "" ; then
+  case `uname` in
+    Linux) THREAD_FLAGS="$THREAD_FLAGS -DBROKEN_MT_FLOCKING=1" ;;
+  esac
+fi
 AC_SUBST(THREAD_LIB)
 AC_SUBST(THREAD_FLAGS)
+
+##########
+# Find coro header file and library
+#
+AC_ARG_WITH(coro, [  --with-coro=DIR         use coroutine hdr/lib from DIR],
+  CORO_DIR=$withval)
+if test -n "$CORO_DIR" ; then
+  if test ! -d $CORO_DIR ; then
+    AC_MSG_ERROR(CORO directory $CORO_DIR does not exist)
+  else
+    AC_MSG_CHECKING([for coroutine hdr/lib])
+    CORO_FLAGS=
+    CORO_LIB=
+    for i in $CORO_DIR ; do
+      if test -r $i/include/coro.h -a -r $i/lib/libcoro.a ; then
+        CORO_FLAGS="-DHAVE_CORO=1 -I$i/include"
+        CORO_LIB="-L$i/lib -lcoro"
+      elif test -r $i/coro.h -a -r $i/libcoro.a ; then
+        CORO_FLAGS="-DHAVE_CORO=1 -I$i"
+        CORO_LIB="-L$i -lcoro"
+      fi
+    done
+    if test -n "$CORO_FLAGS" ; then
+      AC_MSG_RESULT(yes)
+      saved_CFLAGS=$CFLAGS
+      CFLAGS="$CFLAGS $CORO_FLAGS"
+      saved_LIBS=$LIBS
+      LIBS="$LIBS $CORO_LIB"
+      unset ac_cv_lib_coro_co_create || ac_cv_lib_coro_co_create=""
+      AC_CHECK_LIB(coro,co_create,CORO_GOOD=1,CORO_GOOD=0)
+      if test $CORO_GOOD = 0 ; then
+        LIBS="$LIBS -lpthread"
+        unset ac_cv_lib_coro_co_create || ac_cv_lib_coro_co_create=""
+        AC_CHECK_LIB(coro,co_create,CORO_GOOD=1,CORO_GOOD=0)
+        if test $CORO_GOOD = 1 ; then
+          CORO_LIBS="$CORO_LIBS -lpthread"
+        else
+          CORO_FLAGS=
+          CORO_LIB=
+        fi
+      fi
+      CFLAGS="$saved_CFLAGS"
+      LIBS="$saved_LIBS"
+    else
+      AC_MSG_RESULT(no)
+    fi
+  fi
+fi
+AC_SUBST(CORO_FLAGS)
+AC_SUBST(CORO_LIB)
 
 #########
 # Generate the output files.

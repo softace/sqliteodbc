@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.13 2002/06/22 13:03:39 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.16 2002/08/30 05:24:52 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -27,8 +27,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <sys/time.h>
+#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #endif
 #include <stdarg.h>
 #include <string.h>
@@ -38,10 +41,32 @@
 
 #ifdef _WIN32
 #define ASYNC 1
+#define ASYNC_FULL 1
 #else
 #ifdef HAVE_PTHREAD
 #include <pthread.h>
 #define ASYNC 1
+
+/**
+ * For systems (eg all Linux kernels up to 2.4) which do not implement
+ * a proper file locking among the threads of one process, a work
+ * around is provided which is enabled by defining BROKEN_MT_FLOCKING.
+ */
+#ifndef BROKEN_MT_FLOCKING
+#define ASYNC_FULL 1
+#endif
+#endif
+#ifdef HAVE_CORO
+#ifdef HAVE_PTHREAD
+#error "Conflict in configure"
+#error "Please reconfigure using the switches"
+#error "   --enable-threads     for pthreads"
+#error "or"
+#error "   --with-coro=DIR      for coro"
+#endif
+#include <coro.h>
+#define ASYNC 1
+#define ASYNC_FULL 1
 #endif
 #endif
 
@@ -88,6 +113,8 @@ typedef struct dbc {
     int version;		/**< SQLITE version number */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
+    int timeout;		/**< Lock timeout value */
+    long t0;			/**< Start time for SQLITE busy handler */
     int autocommit;		/**< Auto commit state */
     int intrans;		/**< True when transaction started */
     struct stmt *stmt;		/**< STMT list of this DBC */
@@ -109,6 +136,10 @@ typedef struct dbc {
     pthread_t thr;		/**< Thread identifier */
     pthread_mutex_t mut;	/**< Mutex for condition */
     pthread_cond_t cond;	/**< Condition */
+#endif
+#ifdef HAVE_CORO
+    int async_cont;		/**< True when coroutine should continue */
+    struct coroutine *corout;	/**< Coroutine handle */
 #endif
 #ifdef _WIN32
     HANDLE thr;			/**< Thread identifier */

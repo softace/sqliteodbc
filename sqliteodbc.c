@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.33 2002/07/05 20:10:26 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.37 2002/08/30 05:25:16 chw Exp chw $
  *
  * Copyright (c) 2001,2002 Christian Werner <chw@ch-werner.de>
  *
@@ -407,22 +407,104 @@ noconn(STMT *s)
 }
 
 /**
+ * Busy callback for SQLite.
+ * @param udata user data, pointer to DBC
+ * @param table table name or NULL
+ * @param count count of subsequenct calls
+ * @result true of false
+ */
+
+static int
+busy_handler(void *udata, const char *table, int count)
+{
+    DBC *d = (DBC *) udata;
+    long t1;
+    int ret = 0;
+#ifndef _WIN32
+    struct timeval tv;
+#endif
+
+    if (d->timeout <= 0) {
+	return ret;
+    }
+    if (count <= 1) {
+#ifdef _WIN32
+	d->t0 = GetTickCount();
+#else
+	gettimeofday(&tv, NULL);
+	d->t0 = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
+    }
+#ifdef _WIN32
+    t1 = GetTickCount();
+#else
+    gettimeofday(&tv, NULL);
+    t1 = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
+    if (t1 - d->t0 > d->timeout) {
+	goto done;
+	return 0;
+    }
+#ifdef _WIN32
+    Sleep(10);
+#else
+    tv.tv_sec = 0;
+    tv.tv_usec = 10000;
+    select(0, NULL, NULL, NULL, &tv);
+#endif
+    ret = 1;
+done:
+    return ret;
+}
+
+/**
  * Set SQLite options (PRAGMAs) given SQLite handle.
  * @param x SQLite database handle
+ * @param d DBC pointer
+ * @result SQLite error code
  *
  * "full_column_names" is always turned on to get the table
  * names in column labels. "count_changes" is always turned
  * on to get the number of affected rows for INSERTs et.al.
  * "empty_result_callbacks" is always turned on to get
  * column labels even when no rows are returned.
+ * Starting from SQLite 2.6.0 data types are reported for
+ * callback functions when the "show_datatypes" pragma is
+ * asserted.
  */
 
-static void
-setsqliteopts(sqlite *x)
+static int
+setsqliteopts(sqlite *x, DBC *d)
 {
-    sqlite_exec(x, "PRAGMA full_column_names = on;", NULL, NULL, NULL);
-    sqlite_exec(x, "PRAGMA count_changes = on;", NULL, NULL, NULL);
-    sqlite_exec(x, "PRAGMA empty_result_callbacks = on;", NULL, NULL, NULL);
+    int count = 0, step = 0, maxstep, rc;
+
+    maxstep = (d->version >= verinfo(2, 6, 0)) ? 4 : 3;
+    while (step < maxstep) {
+	if (step < 1) {
+	    rc = sqlite_exec(x, "PRAGMA full_column_names = on;",
+			     NULL, NULL, NULL);
+	} else if (step < 2) {
+	    rc = sqlite_exec(x, "PRAGMA count_changes = on;",
+			     NULL, NULL, NULL);
+	} else if (step < 3) {
+	    rc = sqlite_exec(x, "PRAGMA empty_result_callbacks = on;",
+			     NULL, NULL, NULL);
+	} else {
+	    rc = sqlite_exec(x, "PRAGMA show_datatypes = on;",
+			     NULL, NULL, NULL);
+	}
+	if (rc != SQLITE_OK) {
+	    if (rc != SQLITE_BUSY ||
+		!busy_handler((void *) d, NULL, ++count)) {
+		return rc;
+	    }
+	    continue;
+	}
+	count = 0;
+	++step;
+    }
+    sqlite_busy_handler(x, busy_handler, (void *) d);
+    return SQLITE_OK;
 }
 
 /**
@@ -476,6 +558,8 @@ mapsqltype(char *typename, int *nosign)
     } else if (strncmp(p, "int", 3) == 0 ||
 	strncmp(p, "mediumint", 9) == 0) {
 	testsign = 1;
+	result = SQL_INTEGER;
+    } else if (strncmp(p, "numeric", 7) == 0) {
 	result = SQL_INTEGER;
     } else if (strncmp(p, "tinyint", 7) == 0) {
 	testsign = 1;
@@ -609,7 +693,7 @@ mapdeftype(int type, int stype, int nosign)
  * @param nparam output number of parameters
  * @param isselect output indicator for SELECT statement
  * @param errmsg output error message
- * @version SQLite version information
+ * @param version SQLite version information
  * @result newly allocated string containing query string for SQLite or NULL
  */
 
@@ -769,14 +853,17 @@ findcol(char **cols, int ncols, char *name)
  * Fixup column information for a running statement.
  * @param s statement to get fresh column information
  * @param sqlite SQLite database handle
+ * @param types column types or NULL
  *
  * The "dyncols" field of STMT is filled with column
  * information obtained by SQLite "PRAGMA table_info"
- * for each column whose table name is known.
+ * for each column whose table name is known. If the
+ * types are already present as with SQLite 2.5.7
+ * this information is used instead.
  */
 
 static void
-fixupdyncols(STMT *s, sqlite *sqlite)
+fixupdyncols(STMT *s, sqlite *sqlite, char **types)
 {
     int i, k, t, r, nrows, ncols;
     char **rowp;
@@ -784,17 +871,36 @@ fixupdyncols(STMT *s, sqlite *sqlite)
     if (!s->dyncols) {
 	return;
     }
+    if (types) {
+	for (i = 0; i < s->dcols; i++) {
+	    freep(&s->dyncols[i].typename);
+	    s->dyncols[i].typename = xstrdup(types[i]);
+	    s->dyncols[i].type =
+		mapsqltype(types[i], &s->dyncols[i].nosign);
+	    getmd(types[i], s->dyncols[i].type, &s->dyncols[i].size, NULL);
+#ifdef SQL_LONGVARCHAR
+	    if (s->dyncols[i].type == SQL_VARCHAR &&
+		s->dyncols[i].size > 255) {
+		s->dyncols[i].type = SQL_LONGVARCHAR;
+	    }
+#endif
+	}
+	return;
+    }
     for (i = 0; i < s->dcols; i++) {
+	int ret;
+
 	if (!s->dyncols[i].table[0]) {
 	    continue;
 	}
 	if (s->dyncols[i].typename) {
 	    continue;
 	}
-	if (sqlite_get_table_printf(sqlite,
-				    "PRAGMA table_info('%q')", &rowp,
-				    &nrows, &ncols, NULL,
-				    s->dyncols[i].table) != SQLITE_OK) {
+	ret = sqlite_get_table_printf(sqlite,
+				      "PRAGMA table_info('%q')", &rowp,
+				      &nrows, &ncols, NULL,
+				      s->dyncols[i].table);
+	if (ret != SQLITE_OK) {
 	    continue;
 	}
 	k = findcol(rowp, ncols, "name");
@@ -1256,7 +1362,6 @@ done:
 }
 
 #ifdef ASYNC
-
 /**
  * Get boolean flag from string.
  * @param string string to be inspected
@@ -1271,7 +1376,88 @@ getbool(char *string)
     }
     return 0;
 }
+#endif
 
+/**
+ * Open SQLite database file given file name and flags.
+ * @param d DBC pointer
+ * @param name file name
+ * @param dsn data source name
+ * @param tflag threading flag
+ * @param busy busy/lock timeout
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+dbopen(DBC *d, char *name, char *dsn, char *tflag, char *busy)
+{
+    char *errp = NULL;
+    int tmp, busyto = 1000;
+
+    if (d->sqlite) {
+	sqlite_close(d->sqlite);
+	d->sqlite = NULL;
+    }
+#ifdef ASYNC_FULL
+    if (d->sqlite2) {
+	sqlite_close(d->sqlite2);
+	d->sqlite2 = NULL;
+    }
+#endif
+    d->sqlite = sqlite_open(name, 0, &errp);
+    if (d->sqlite == NULL) {
+connfail:
+	setstatd(d, errp ? errp : "connect failed", "S1000");
+	freep(&errp);
+	return SQL_ERROR;
+    }
+    freep(&errp);
+#ifdef ASYNC
+    d->thread_enable = getbool(tflag);
+#ifdef ASYNC_FULL
+    if (d->thread_enable) {
+	d->sqlite2 = sqlite_open(name, 0, NULL);
+	if (d->sqlite2 == NULL) {
+	    d->thread_enable = 0;
+	}
+    }
+#endif
+    d->curtype = d->thread_enable ?
+	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
+#endif
+    tmp = strtoul(busy, &errp, 0);
+    if (errp && *errp == '\0' && errp != busy) {
+	busyto = tmp;
+    }
+    if (busyto < 1 || busyto > 1000000) {
+	busyto = 1000000;
+    }
+    d->timeout = busyto;
+    if (setsqliteopts(d->sqlite, d) != SQLITE_OK) {
+#ifdef ASYNC_FULL
+connfail2:
+#endif
+	sqlite_close(d->sqlite);
+	d->sqlite = NULL;
+	goto connfail;
+    }
+#ifdef ASYNC_FULL
+    if (d->sqlite2) {
+	if (setsqliteopts(d->sqlite2, d) != SQLITE_OK) {
+	    sqlite_close(d->sqlite2);
+	    d->sqlite2 = NULL;
+	    goto connfail2;
+	}
+    }
+#endif
+    freep(&d->dbname);
+    d->dbname = xstrdup(name);
+    freep(&d->dsn);
+    d->dsn = xstrdup(dsn);
+    return SQL_SUCCESS;
+}
+
+#ifdef ASYNC
 /**
  * Wait for a new row of data from thread executing a SELECT statement.
  * @param s statement pointer
@@ -1292,6 +1478,11 @@ waitfordata(STMT *s)
 	    return SQL_STILL_EXECUTING;
 	}
 	pthread_cond_wait(&d->cond, &d->mut);
+    }
+#endif
+#ifdef HAVE_CORO
+    while (!d->async_done && !d->async_ncols) {
+	co_call(d->corout, 0);
     }
 #endif
 #ifdef _WIN32
@@ -1326,13 +1517,16 @@ waitfordata(STMT *s)
 	    ret = SQL_SUCCESS;
 	} else {
 	    s->nrows = 0;
-	    ret = SQL_SUCCESS;
+	    ret = SQL_NO_DATA;
 	}
     }
 #ifdef HAVE_PTHREAD
     d->async_cont = 1;
-    pthread_cond_signal(&d->cond);
+    pthread_cond_broadcast(&d->cond);
     pthread_mutex_unlock(&d->mut);
+#endif
+#ifdef HAVE_CORO
+    d->async_cont = 1;
 #endif
 #ifdef _WIN32
     SetEvent(d->ev_cont);
@@ -1348,6 +1542,7 @@ waitfordata(STMT *s)
 
 struct cbarg {
     STMT *s;		/**< Executing statement. */
+    sqlite *sqlite;	/**< SQLite handle to be used. */
     int rowcount;	/**< Current # of row being processed. */
 };
 
@@ -1423,59 +1618,78 @@ async_cb(void *arg, int ncols, char **values, char **cols)
 	freedyncols(s);
 	s->ncols = s->dcols = ncols;
 	s->dyncols = s->cols = dyncols;
-	fixupdyncols(s, d->sqlite2);
+	if (d->version >= verinfo(2, 6, 0) && cols[ncols]) {
+	    fixupdyncols(s, ca->sqlite, cols + ncols);
+	} else {
+	    fixupdyncols(s, ca->sqlite, NULL);
+	}
 	mkbindcols(s);
 contsig:
 #ifdef HAVE_PTHREAD
 	pthread_mutex_lock(&d->mut);
 	d->async_cont = 0;
-	pthread_cond_signal(&d->cond);
+	pthread_cond_broadcast(&d->cond);
 	while (!d->async_run && !d->async_stop) {
 	    pthread_cond_wait(&d->cond, &d->mut);
 	}
 	pthread_mutex_unlock(&d->mut);
 #endif
+#ifdef HAVE_CORO
+	d->async_cont = 0;
+	while (!d->async_run && !d->async_stop) {
+	    co_resume(0);
+	}
+#endif
 #ifdef _WIN32
 	SetEvent(d->ev_res);
 	WaitForSingleObject(d->ev_cont, INFINITE);
 #endif
-	if (!cols) {
+	if (!cols || d->async_stop) {
 	    return 1;
 	}
     }
     if (ncols <= 0) {
 	return 1;
     }
-    if (values) {
-	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
-	if (rowd) {
-	    rowd[0] = (char *) (ncols * 2);
-	    ++rowd;
-	    for (i = 0; i < ncols; i++) {
-		rowd[i] = NULL;
-		rowd[i + ncols] = xstrdup(values[i]);
-	    }
-	    for (i = 0; i < ncols; i++) {
-		if (values[i] && !rowd[i + ncols]) {
-		    freerows(rowd);
-		    rowd = (char **) -1;
-		    break;
-		}
-	    }
-	} else {
-	    rowd = (char **) -1;
+    if (!values) {
+	return d->async_stop;
+    }
+    rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
+    if (rowd) {
+	rowd[0] = (char *) (ncols * 2);
+	++rowd;
+	for (i = 0; i < ncols; i++) {
+	    rowd[i] = NULL;
+	    rowd[i + ncols] = xstrdup(values[i]);
 	}
+	for (i = 0; i < ncols; i++) {
+	    if (values[i] && !rowd[i + ncols]) {
+		freerows(rowd);
+		rowd = (char **) -1;
+		break;
+	    }
+	}
+    } else {
+	rowd = (char **) -1;
     }
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&d->mut);
     d->async_rows = rowd;
     d->async_ncols = ncols;
-    pthread_cond_signal(&d->cond);
+    pthread_cond_broadcast(&d->cond);
     while (!d->async_cont && !d->async_stop) {
 	pthread_cond_wait(&d->cond, &d->mut);
     }
     d->async_cont = 0;
     pthread_mutex_unlock(&d->mut);
+#endif
+#ifdef HAVE_CORO
+    d->async_rows = rowd;
+    d->async_ncols = ncols;
+    while (!d->async_cont && !d->async_stop) {
+	co_resume(0);
+    }
+    d->async_cont = 0;
 #endif
 #ifdef _WIN32
     d->async_rows = rowd;
@@ -1502,7 +1716,7 @@ struct thrarg {
  * @param arg thread start argument, actually a thrarg pointer
  */
 
-#ifdef HAVE_PTHREAD
+#if defined(HAVE_PTHREAD) || defined(HAVE_CORO)
 static void *
 async_exec(void *arg)
 #endif
@@ -1519,16 +1733,43 @@ async_exec(void *arg)
 
     ca.s = ta.s;
     ca.rowcount = 0;
-    ret = sqlite_exec_vprintf(d->sqlite2, ta.s->query,
+#ifdef ASYNC_FULL
+    ca.sqlite = d->sqlite2;
+#else
+    ca.sqlite = sqlite_open(d->dbname, 0, &errp);
+    if (!ca.sqlite) {
+	goto fail2;
+    }
+    ret = setsqliteopts(ca.sqlite, d);
+    if (ret != SQLITE_OK) {
+	freep(&errp);
+	errp = xstrdup(sqlite_error_string(ret));
+	goto fail;
+    }
+    d->sqlite2 = ca.sqlite;
+#endif
+    ret = sqlite_exec_vprintf(ca.sqlite, ta.s->query,
 			      async_cb, &ca, &errp, (char *) ta.params);
+#ifndef ASYNC_FULL
+    d->sqlite2 = NULL;
+fail:
+    sqlite_close(ca.sqlite);
+fail2:
+#endif
     freep(&ta.params);
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&d->mut);
     d->async_errp = errp;
     d->async_done = 1;
     d->async_cont = 0;
-    pthread_cond_signal(&d->cond);
+    pthread_cond_broadcast(&d->cond);
     pthread_mutex_unlock(&d->mut);
+#endif
+#ifdef HAVE_CORO
+    d->async_errp = errp;
+    d->async_done = 1;
+    d->async_cont = 0;
+    co_resume(0);
 #endif
 #ifdef _WIN32
     d->async_errp = errp;
@@ -1555,14 +1796,25 @@ async_end(STMT *s)
 	return;
     }
     d = (DBC *) s->dbc;
-    sqlite_interrupt(d->sqlite2);
+    if (d->sqlite2) {
+	sqlite_interrupt(d->sqlite2);
+    }
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&d->mut);
     d->async_cont = 1;
     d->async_stop = 1;
-    pthread_cond_signal(&d->cond);
+    pthread_cond_broadcast(&d->cond);
     pthread_mutex_unlock(&d->mut);
     pthread_join(d->thr, &dummy);
+#endif
+#ifdef HAVE_CORO
+    d->async_cont = 1;
+    d->async_stop = 1;
+    while (!d->async_done) {
+	co_call(d->corout, 0);
+    }
+    co_delete(d->corout);
+    d->corout = NULL;
 #endif
 #ifdef _WIN32
     d->async_stop = 1;
@@ -1582,6 +1834,7 @@ async_end(STMT *s)
     }
     freep(&d->async_errp);
     d->async_ncols = 0;
+    d->async_stop = 0;
 }
 
 /**
@@ -1632,6 +1885,14 @@ async_start(STMT *s, char **params)
 	ret = nomem(s);
     }
 #endif
+#ifdef HAVE_CORO
+    d->async_stop = 0;
+    d->async_cont = 1;
+    d->corout = co_create(async_exec, NULL, 8192);
+    if (!d->corout) {
+	ret = nomem(s);
+    }
+#endif
 #ifdef _WIN32
     d->async_stop = 0;
     ResetEvent(d->ev_res);
@@ -1647,7 +1908,14 @@ async_start(STMT *s, char **params)
 	    pthread_cond_wait(&d->cond, &d->mut);
 	}
 	d->async_run = 1;
-	pthread_cond_signal(&d->cond);
+	pthread_cond_broadcast(&d->cond);
+#endif
+#ifdef HAVE_CORO
+	co_call(d->corout, &ta);
+	while (d->async_cont && !d->async_done) {
+	    co_call(d->corout, 0);
+	}
+	d->async_run = 1;
 #endif
 #ifdef _WIN32
 	d->async_run = 1;
@@ -2368,8 +2636,8 @@ static COL tablePrivSpec[] = {
 /**
  * Retrieve privileges on tables and/or views.
  * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param catalog catalog name/pattern or NULL
+ * @param catalogLen length of catalog name/pattern or SQL_NTS
  * @param schema schema name/pattern or NULL
  * @param schemaLen length of schema name/pattern or SQL_NTS
  * @param table table name/pattern or NULL
@@ -2403,8 +2671,8 @@ static COL colPrivSpec[] = {
 /**
  * Retrieve privileges on columns.
  * @param stmt statement handle
- * @param cat catalog name/pattern or NULL
- * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param catalog catalog name/pattern or NULL
+ * @param catalogLen length of catalog name/pattern or SQL_NTS
  * @param schema schema name/pattern or NULL
  * @param schemaLen length of schema name/pattern or SQL_NTS
  * @param table table name/pattern or NULL
@@ -2502,13 +2770,15 @@ nodata:
 	int nnrows, nncols;
 	char **rowpp;
 
-	if (*rowp[i * ncols + uniquec] != '0' &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
-	    size += nnrows;
-	    sqlite_free_table(rowpp);
+	if (*rowp[i * ncols + uniquec] != '0') {
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret == SQLITE_OK) {
+		size += nnrows;
+		sqlite_free_table(rowpp);
+	    }
 	}
     }
     if (size == 0) {
@@ -2530,13 +2800,16 @@ nodata:
 	int nnrows, nncols;
 	char **rowpp;
 
-	if (*rowp[i * ncols + uniquec] != '0' &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
+	if (*rowp[i * ncols + uniquec] != '0') {
 	    int k;
 
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret != SQLITE_OK) {
+		continue;
+	    }
 	    for (k = 0; nnrows && k < nncols; k++) {
 		if (strcmp(rowpp[k], "name") == 0) {
 		    int m;
@@ -2673,13 +2946,15 @@ nodata:
 	int nnrows, nncols;
 	char **rowpp;
 
-	if (*rowp[i * ncols + uniquec] != '0' &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
-	    size += nnrows;
-	    sqlite_free_table(rowpp);
+	if (*rowp[i * ncols + uniquec] != '0') {
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret == SQLITE_OK) {
+		size += nnrows;
+		sqlite_free_table(rowpp);
+	    }
 	}
     }
     if (size == 0) {
@@ -2706,13 +2981,16 @@ nodata:
 	int nnrows, nncols;
 	char **rowpp;
 
-	if (*rowp[i * ncols + uniquec] != '0' &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
+	if (*rowp[i * ncols + uniquec] != '0') {
 	    int k;
 
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret != SQLITE_OK) {
+		continue;
+	    }
 	    for (k = 0; nnrows && k < nncols; k++) {
 		if (strcmp(rowpp[k], "name") == 0) {
 		    int m;
@@ -2830,6 +3108,7 @@ static COL fkeySpec[] = {
 
 /**
  * Retrieve information about primary/foreign keys.
+ * @param stmt statement handle
  * @param PKcatalog primary key catalog name/pattern or NULL
  * @param PKcatalogLen length of PKcatalog or SQL_NTS
  * @param PKschema primary key schema name/pattern or NULL
@@ -2867,7 +3146,7 @@ SQLForeignKeys(SQLHSTMT stmt,
 static SQLRETURN
 endtran(DBC *d, SQLSMALLINT comptype)
 {
-    int fail = 0;
+    int fail = 0, ret;
     char *sql, *errp;
 
     if (!d->sqlite) {
@@ -2886,7 +3165,8 @@ endtran(DBC *d, SQLSMALLINT comptype)
 	sql = "ROLLBACK TRANSACTION";
     doit:
 	d->intrans = 0;
-	if (sqlite_exec(d->sqlite, sql, NULL, NULL, &errp) != SQLITE_OK) {
+	ret = sqlite_exec(d->sqlite, sql, NULL, NULL, &errp);
+	if (ret != SQLITE_OK) {
 	    if (!fail) {
 		setstatd(d, "%s", "S1000", errp ? errp : "transaction failed");
 		freep(&errp);
@@ -3013,6 +3293,7 @@ static COL procSpec[] = {
 
 /**
  * Retrieve information about stored procedures.
+ * @param stmt statement handle
  * @param catalog catalog name/pattern or NULL
  * @param catalogLen length of catalog or SQL_NTS
  * @param schema schema name/pattern or NULL
@@ -3059,6 +3340,7 @@ static COL procColSpec[] = {
 
 /**
  * Retrieve information about columns in result set of stored procedures.
+ * @param stmt statement handle
  * @param catalog catalog name/pattern or NULL
  * @param catalogLen length of catalog or SQL_NTS
  * @param schema schema name/pattern or NULL
@@ -4588,13 +4870,10 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
 	   SQLCHAR *pass, SQLSMALLINT passLen)
 {
     DBC *d;
-    int len, tmp, busyto = 1000;
+    int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4];
-#ifdef ASYNC
     char tflag[32];
-#endif
-    char *errp;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -4630,8 +4909,8 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
 	dbname[sizeof (dbname) - 1] = '\0';
     }
     getdsnattr(buf, "timeout", busy, sizeof (busy));
-#ifdef ASYNC
     tflag[0] = '\0';
+#ifdef ASYNC
     getdsnattr(buf, "threaded", tflag, sizeof (tflag));
 #endif
 #else
@@ -4644,40 +4923,7 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
 			       tflag, sizeof (tflag), ODBC_INI);
 #endif
 #endif
-    tmp = strtoul(busy, &errp, 0);
-    if (errp && *errp == '\0' && errp != busy) {
-	busyto = tmp;
-    }
-    d->sqlite = sqlite_open(dbname, 0, &errp);
-    if (d->sqlite == NULL) {
-	setstatd(d, errp ? errp : "connect failed", "S1000");
-	freep(&errp);
-	return SQL_ERROR;
-    }
-    freep(&errp);
-#ifdef ASYNC
-    d->thread_enable = getbool(tflag);
-    if (d->thread_enable) {
-	d->sqlite2 = sqlite_open(dbname, 0, NULL);
-	if (d->sqlite2 == NULL) {
-	    d->thread_enable = 0;
-	}
-    }
-    d->curtype = d->thread_enable ? SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
-#endif
-    sqlite_busy_timeout(d->sqlite, busyto);
-    setsqliteopts(d->sqlite);
-#ifdef ASYNC
-    if (d->sqlite2) {
-	sqlite_busy_timeout(d->sqlite2, busyto);
-	setsqliteopts(d->sqlite2);
-    }
-#endif
-    freep(&d->dbname);
-    d->dbname = xstrdup(dbname);
-    freep(&d->dsn);
-    d->dsn = xstrdup(buf);
-    return SQL_SUCCESS;
+    return dbopen(d, dbname, dsn, tflag, busy);
 }
 
 /**
@@ -4709,7 +4955,7 @@ SQLDisconnect(SQLHDBC dbc)
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
     }
-#ifdef ASYNC
+#ifdef ASYNC_FULL
     if (d->sqlite2) {
 	sqlite_close(d->sqlite2);
 	d->sqlite2 = NULL;
@@ -4742,13 +4988,10 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 		 SQLSMALLINT *connOutLen, SQLUSMALLINT drvcompl)
 {
     DBC *d;
-    int len, busyto = 1000, tmp;
+    int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
-#ifdef ASYNC
     char tflag[32];
-#endif
-    char *errp;
 
     if (dbc == SQL_NULL_HDBC || hwnd != NULL) {
 	return SQL_INVALID_HANDLE;
@@ -4789,10 +5032,6 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 				   busy, sizeof (busy), ODBC_INI);
     }
 #endif
-    tmp = strtoul(busy, &errp, 0);
-    if (errp && *errp == '\0' && errp != busy) {
-	busyto = tmp;
-    }
     dbname[0] = '\0';
     getdsnattr(buf, "database", dbname, sizeof (dbname));
 #ifndef WITHOUT_DRIVERMGR
@@ -4801,8 +5040,8 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 				   dbname, sizeof (dbname), ODBC_INI);
     }
 #endif
-#ifdef ASYNC
     tflag[0] = '\0';
+#ifdef ASYNC
     getdsnattr(buf, "threaded", tflag, sizeof (tflag));
 #ifndef WITHOUT_DRIVERMGR
     if (dsn[0] && !tflag[0]) {
@@ -4822,15 +5061,15 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 #ifdef ASYNC
-			 "DSN=%s;Database=%s;Threaded=%s;Timeout=%d",
+			 "DSN=%s;Database=%s;Threaded=%s;Timeout=%s",
 #else
-			 "DSN=%s;Database=%s;Timeout=%d",
+			 "DSN=%s;Database=%s;Timeout=%s",
 #endif
 			 dsn, dbname,
 #ifdef ASYNC
 			 tflag,
 #endif
-			 busyto);
+			 busy);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -4843,36 +5082,7 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
 	    *connOutLen = len;
 	}
     }
-    d->sqlite = sqlite_open(dbname, 0, &errp);
-    if (d->sqlite == NULL) {
-	setstatd(d, errp ? errp : "connect failed", "S1000");
-	freep(&errp);
-	return SQL_ERROR;
-    }
-    freep(&errp);
-#ifdef ASYNC
-    d->thread_enable = getbool(tflag);
-    if (d->thread_enable) {
-	d->sqlite2 = sqlite_open(dbname, 0, NULL);
-	if (d->sqlite2 == NULL) {
-	    d->thread_enable = 0;
-	}
-    }
-    d->curtype = d->thread_enable ? SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
-#endif
-    sqlite_busy_timeout(d->sqlite, busyto);
-    setsqliteopts(d->sqlite);
-#ifdef ASYNC
-    if (d->sqlite2) {
-	sqlite_busy_timeout(d->sqlite2, busyto);
-	setsqliteopts(d->sqlite2);
-    }
-#endif
-    freep(&d->dbname);
-    d->dbname = xstrdup(dbname);
-    freep(&d->dsn);
-    d->dsn = xstrdup(dsn);
-    return SQL_SUCCESS;
+    return dbopen(d, dbname, dsn, tflag, busy);
 }
 #endif
 
@@ -5572,7 +5782,7 @@ SQLTables(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     char *errp;
-    int ncols;
+    int ncols, rc;
     char tname[512];
     char *where = "(type = 'table' or type = 'view')";
 
@@ -5711,17 +5921,17 @@ SQLTables(SQLHSTMT stmt,
 	strncpy(tname, table, size);
 	tname[size] = '\0';
     }
-    if (sqlite_get_table_printf(d->sqlite,
-				"select '' as 'TABLE_QUALIFIER', "
-				"'' as 'TABLE_OWNER', "
-				"tbl_name as 'TABLE_NAME', "
-				"upper(type) as 'TABLE_TYPE', "
-				"NULL as 'REMARKS' "
-				"from sqlite_master where %s"
-				"and tbl_name like '%q'",
-				&s->rows, &s->nrows, &ncols, &errp,
-				where, tname)
-	== SQLITE_OK) {
+    rc = sqlite_get_table_printf(d->sqlite,
+				 "select '' as 'TABLE_QUALIFIER', "
+				 "'' as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "upper(type) as 'TABLE_TYPE', "
+				 "NULL as 'REMARKS' "
+				 "from sqlite_master where %s"
+				 "and tbl_name like '%q'",
+				 &s->rows, &s->nrows, &ncols, &errp,
+				 where, tname);
+    if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
 	    sqlite_free_table(s->rows);
 	    s->rows = NULL;
@@ -6177,13 +6387,15 @@ nodata:
 	isuniq = *rowp[i * ncols + uniquec] != '0' ||
 	    (*rowp[i * ncols + namec] == '(' &&
 	     strstr(rowp[i * ncols + namec], " autoindex "));
-	if ((isuniq || itype == SQL_INDEX_ALL) &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
-	    size += nnrows;
-	    sqlite_free_table(rowpp);
+	if (isuniq || itype == SQL_INDEX_ALL) {
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret == SQLITE_OK) {
+		size += nnrows;
+		sqlite_free_table(rowpp);
+	    }
 	}
     }
     if (size == 0) {
@@ -6205,14 +6417,16 @@ nodata:
 	int nnrows, nncols;
 	char **rowpp;
 
-	if ((*rowp[i * ncols + uniquec] != '0' ||
-	     itype == SQL_INDEX_ALL) &&
-	    sqlite_get_table_printf(d->sqlite,
-				    "PRAGMA index_info('%q')", &rowpp,
-				    &nnrows, &nncols, NULL,
-				    rowp[i * ncols + namec]) == SQLITE_OK) {
+	if (*rowp[i * ncols + uniquec] != '0' || itype == SQL_INDEX_ALL) {
 	    int k;
 
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret != SQLITE_OK) {
+		continue;
+	    }
 	    for (k = 0; nnrows && k < nncols; k++) {
 		if (strcmp(rowpp[k], "name") == 0) {
 		    int m;
@@ -6326,7 +6540,9 @@ SQLFetch(SQLHSTMT stmt)
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	return SQL_NO_DATA;
     }
+#ifdef ASYNC
 dofetch:
+#endif
     for (i = 0; s->bindcols && i < s->ncols; i++) {
 	BINDCOL *b = &s->bindcols[i];
 
@@ -6414,8 +6630,10 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	break;
     default:
 	return SQL_ERROR;
-    }	
+    }
+#ifdef ASYNC
 dofetch:
+#endif
     for (i = 0; s->bindcols && i < s->ncols; i++) {
 	BINDCOL *b = &s->bindcols[i];
 
@@ -6541,6 +6759,7 @@ SQLNumResultCols(SQLHSTMT stmt, SQLSMALLINT *ncols)
  * @param stmt statement handle
  * @param col column number, starting at 1
  * @param name buffer for column name
+ * @param nameMax length of name buffer
  * @param nameLen output length of column name
  * @param type output SQL type
  * @param size output column size
@@ -6985,8 +7204,7 @@ SQLMoreResults(SQLHSTMT stmt)
     if (stmt == SQL_NULL_HSTMT) {
 	return SQL_INVALID_HANDLE;
     }
-    s = (STMT *) stmt;
-    return (s->rowp < 0 && s->nrows > 0) ? SQL_SUCCESS : SQL_NO_DATA;
+    return SQL_NO_DATA;
 }
 
 /**
@@ -7007,6 +7225,7 @@ selcb(void *arg, int ncols, char **values, char **cols)
 	int i, size;
 	char *p;
 	COL *dyncols;
+	DBC *d = (DBC *) s->dbc;
 
 	for (i = size = 0; i < ncols; i++) {
 	    size += 2 + 2 * strlen(cols[i]);
@@ -7053,6 +7272,9 @@ selcb(void *arg, int ncols, char **values, char **cols)
 	freedyncols(s);
 	s->dyncols = s->cols = dyncols;
 	s->dcols = ncols;
+	if (d->version >= verinfo(2, 6, 0) && cols[ncols]) {
+	    fixupdyncols(s, d->sqlite, cols + ncols);
+	}
     }
     s->ncols = ncols;
     return 1;
@@ -7125,7 +7347,9 @@ noconn:
 	}
 	freep(&params);
 	freep(&errp);
-	fixupdyncols(s, d->sqlite);
+	if (d->version < verinfo(2, 6, 0)) {
+	    fixupdyncols(s, d->sqlite, NULL);
+	}
     }
     mkbindcols(s);
     return SQL_SUCCESS;
@@ -7305,11 +7529,13 @@ noconn:
 	freedyncols(s);
 	s->ncols = s->dcols = ncols;
 	s->dyncols = s->cols = dyncols;
-	fixupdyncols(s, d->sqlite);
+	fixupdyncols(s, d->sqlite, NULL);
     }
 done:
     mkbindcols(s);
+#ifdef ASYNC
 done2:
+#endif
     s->rowp = -1;
     return SQL_SUCCESS;
 }
@@ -7824,8 +8050,7 @@ SQLDriverConnect(SQLHDBC dbc, SQLHWND hwnd,
     DBC *d;
     SETUPDLG *setupdlg;
     short ret;
-    int busyto = 1000, tmp;
-    char *errp;
+    SQLRETURN rc;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -7905,46 +8130,22 @@ retry:
 	    *connOutLen = len;
 	}
     }
-    tmp = strtoul(setupdlg->attr[KEY_BUSY].attr, &errp, 0);
-    if (errp && *errp == '\0' && errp != setupdlg->attr[KEY_BUSY].attr) {
-	busyto = tmp;
-    }
-    errp = NULL;
-    d->sqlite = sqlite_open(setupdlg->attr[KEY_DBNAME].attr, 0, &errp);
-    if (d->sqlite == NULL) {
+    rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
+		setupdlg->attr[KEY_DSN].attr,
+#ifdef ASYNC
+		setupdlg->attr[KEY_THR].attr,
+#else
+		"0",
+#endif
+		setupdlg->attr[KEY_BUSY].attr);
+    if (rc != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {
 	    prompt = TRUE;
-	    freep(&errp);
 	    goto retry;
 	}
-	setstatd(d, "%s", "S1000", errp ? errp : "connect failed");
-	freep(&errp);
 	xfree(setupdlg);
-	return SQL_ERROR;
+	return rc;
     }
-    freep(&errp);
-#ifdef ASYNC
-    d->thread_enable = getbool(setupdlg->attr[KEY_THR].attr);
-    if (d->thread_enable) {
-	d->sqlite2 = sqlite_open(setupdlg->attr[KEY_DBNAME].attr, 0, NULL);
-	if (d->sqlite2 == NULL) {
-	    d->thread_enable = 0;
-	}
-    }
-    d->curtype = d->thread_enable ? SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
-#endif
-    sqlite_busy_timeout(d->sqlite, busyto);
-    setsqliteopts(d->sqlite);
-#ifdef ASYNC
-    if (d->sqlite2) {
-	sqlite_busy_timeout(d->sqlite2, busyto);
-	setsqliteopts(d->sqlite2);
-    }
-#endif
-    freep(&d->dbname);
-    d->dbname = xstrdup(setupdlg->attr[KEY_DBNAME].attr);
-    freep(&d->dsn);
-    d->dsn = xstrdup(setupdlg->attr[KEY_DSN].attr);
     xfree(setupdlg);
     return SQL_SUCCESS;
 }

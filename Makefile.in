@@ -12,15 +12,17 @@ ODBC_LIB =	@ODBC_LIB@
 VER_INFO =	@VER_INFO@
 THREAD_LIB =	@THREAD_LIB@
 THREAD_FLAGS =	@THREAD_FLAGS@
+CORO_LIB =	@CORO_LIB@
+CORO_FLAGS =	@CORO_FLAGS@
 
 libsqliteodbc.la:	sqliteodbc.lo
 		$(LIBTOOL) $(CC) -o libsqliteodbc.la sqliteodbc.lo \
 		    -rpath $(prefix)/lib $(SQLITE_LIB) $(ODBC_LIB) \
-		    $(THREAD_LIB) -release $(VER_INFO)
+		    $(THREAD_LIB) $(CORO_LIB) -release $(VER_INFO)
 
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 		$(LIBTOOL) $(CC) -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
-		    $(THREAD_FLAGS) $(SQLITE_FLAGS) sqliteodbc.c
+		    $(THREAD_FLAGS) $(CORO_FLAGS) $(SQLITE_FLAGS) sqliteodbc.c
 
 install:	libsqliteodbc.la
 		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
