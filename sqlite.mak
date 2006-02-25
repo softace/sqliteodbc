@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 2.8.15
+# VC++ 6.0 Makefile for SQLite 2.8.16
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -197,9 +197,6 @@ config.h:
 	.\temp >config.h
 	@del temp.*
 
-pragma.obj:	$(TOP)/src/pragma.c $(HDR)
-	$(TCCXD) -c $(TOP)/src/pragma.c
-
 opcodes.h:	$(TOP)/src/vdbe.c
 	..\mkopc <$(TOP)/src/vdbe.c
 
@@ -317,4 +314,8 @@ clean:
 	del *.lib
 	del *.exe
 	del sqlite.h
+	del opcodes.h
+	del opcodes.c
 	del config.h
+	del parse.h
+	del parse.c

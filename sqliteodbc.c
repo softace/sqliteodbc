@@ -2,9 +2,10 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.84 2004/10/06 18:26:14 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.96 2006/02/24 12:56:25 chw Exp chw $
  *
- * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
+ * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -22,11 +23,23 @@
 #define ODBC_INI "ODBC.INI"
 #define DRIVER_VER_INFO VERSION
 #else
+#ifdef __OS2__
+#define ODBC_INI "ODBC.INI"
+#else
 #define ODBC_INI ".odbc.ini"
+#endif
+#endif
+
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+#define MAX_PARAMS_FOR_VPRINTF 32
 #endif
 
 #ifndef DRIVER_VER_INFO
 #define DRIVER_VER_INFO "0.0"
+#endif
+
+#ifndef COLATTRIBUTE_LAST_ARG_TYPE
+#define COLATTRIBUTE_LAST_ARG_TYPE SQLPOINTER
 #endif
 
 #undef min
@@ -302,10 +315,11 @@ static void freedyncols(STMT *s);
 /**
  * Internal query execution used by SQLExecute() and SQLExecDirect().
  * @param stmt statement handle
+ * @param initial false when called from SQLPutData()
  * @result ODBC error code
  */
 
-static SQLRETURN drvexecute(SQLHSTMT stmt);
+static SQLRETURN drvexecute(SQLHSTMT stmt, int initial);
 
 #if (MEMORY_DEBUG < 1)
 /**
@@ -428,6 +442,15 @@ uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
 			((str[1] & 0x3f) << 12) | ((str[2] & 0x3f) << 6) |
 			(str[4] & 0x3f);
 
+		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
+			t >= 0x10000) {
+			t -= 0x10000;
+			uc[i++] = 0xd800 | (t & 0x3ff);
+			if (i >= ucLen) {
+			    break;
+			}
+			t = 0xdc00 | ((t >> 10) & 0x3ff);
+		    }
 		    uc[i++] = t;
 		    str += 4;
 		} else {
@@ -441,6 +464,15 @@ uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
 			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
 			((str[4] & 0x3f) << 6) | (str[5] & 0x3f);
 
+		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
+			t >= 0x10000) {
+			t -= 0x10000;
+			uc[i++] = 0xd800 | (t & 0x3ff);
+			if (i >= ucLen) {
+			    break;
+			}
+			t = 0xdc00 | ((t >> 10) & 0x3ff);
+		    }
 		    uc[i++] = t;
 		    str += 5;
 		} else {
@@ -472,7 +504,7 @@ uc_from_utf(unsigned char *str, int len)
 
     if (str) {
 	if (len == SQL_NTS) {
-	    len = strlen(str);
+	    len = strlen((char *) str);
 	}
 	len = sizeof (SQLWCHAR) * (len + 1);
 	uc = xmalloc(len);
@@ -512,12 +544,29 @@ uc_to_utf(SQLWCHAR *str, int len)
     for (i = 0; i < len; i++) {
 	unsigned long c = str[i];
 
+	if (sizeof (SQLWCHAR) == 2 * sizeof (char)) {
+	    c &= 0xffff;
+	}
 	if (c < 0xc0) {
 	    *cp++ = c;
 	} else if (c < 0x800) {
 	    *cp++ = 0xc0 | ((c >> 6) & 0x1f);
 	    *cp++ = 0x80 | (c & 0x3f);
 	} else if (c < 0x10000) {
+	    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
+		c >= 0xd800 && c <= 0xdbff && i + 1 < len) {
+		unsigned long c2 = str[i + 1] & 0xffff;
+
+		if (c2 >= 0xdc00 && c <= 0xdfff) {
+		    c = ((c & 0x3ff) | ((c2 & 0x3ff) << 10)) + 0x10000;
+		    *cp++ = 0xf0 | ((c >> 18) & 0x07);
+		    *cp++ = 0x80 | ((c >> 12) & 0x3f);
+		    *cp++ = 0x80 | ((c >> 6) & 0x3f);
+		    *cp++ = 0x80 | (c & 0x3f);
+		    ++i;
+		    continue;
+		}
+	    }
 	    *cp++ = 0xe0 | ((c >> 12) & 0x0f);
 	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
 	    *cp++ = 0x80 | (c & 0x3f);
@@ -660,7 +709,7 @@ setstatd(DBC *d, int naterr, char *msg, char *st, ...)
 	int count;
 
 	va_start(ap, st);
-	count = vsnprintf(d->logmsg, sizeof (d->logmsg), msg, ap);
+	count = vsnprintf((char *) d->logmsg, sizeof (d->logmsg), msg, ap);
 	va_end(ap);
 	if (count < 0) {
 	    d->logmsg[sizeof (d->logmsg) - 1] = '\0';
@@ -700,7 +749,7 @@ setstat(STMT *s, int naterr, char *msg, char *st, ...)
 	int count;
 
 	va_start(ap, st);
-	count = vsnprintf(s->logmsg, sizeof (s->logmsg), msg, ap);
+	count = vsnprintf((char *) s->logmsg, sizeof (s->logmsg), msg, ap);
 	va_end(ap);
 	if (count < 0) {
 	    s->logmsg[sizeof (s->logmsg) - 1] = '\0';
@@ -906,7 +955,6 @@ busy_handler(void *udata, const char *table, int count)
 #endif
     if (t1 - d->t0 > d->timeout) {
 	goto done;
-	return 0;
     }
 #ifdef _WIN32
     Sleep(10);
@@ -923,6 +971,13 @@ busy_handler(void *udata, const char *table, int count)
 done:
     return ret;
 }
+
+#ifdef HAVE_ENCDEC
+static void hextobin_func(sqlite_func *context, int argc, const char **argv);
+static void bintohex_func(sqlite_func *context, int argc, const char **argv);
+#endif
+
+static void time_func(sqlite_func *context, int argc, const char **argv);
 
 /**
  * Set SQLite options (PRAGMAs) given SQLite handle.
@@ -973,11 +1028,7 @@ setsqliteopts(sqlite *x, DBC *d)
 #if HAVE_ENCDEC
     {
 	char *fname;
-	static void hextobin_func(sqlite_func *context,
-				  int argc, const char **argv);
-	static void bintohex_func(sqlite_func *context,
-				  int argc, const char **argv);
-
+       
 	fname = "hextobin";
 	sqlite_create_function(x, fname, 1, hextobin_func, 0);
 	sqlite_function_type(x, fname, SQLITE_TEXT);
@@ -988,8 +1039,6 @@ setsqliteopts(sqlite *x, DBC *d)
 #endif
     {
 	char *fname;
-	static void time_func(sqlite_func *context,
-			      int argc, const char **argv);
 
 	fname = "current_time_local";
 	sqlite_create_function(x, fname, 0, time_func, (void *) 0);
@@ -1119,7 +1168,8 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 	result = SQL_DATE;
 #endif
 #ifdef SQL_LONGVARCHAR
-    } else if (strncmp(p, "text", 4) == 0) {
+    } else if (strncmp(p, "text", 4) == 0 ||
+	       strncmp(p, "memo", 4) == 0) {
 #ifdef SQLITE_UTF8
 	result = nowchar ? SQL_LONGVARCHAR : SQL_WLONGVARCHAR;
 #else
@@ -1144,6 +1194,12 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 	       strncmp(p, "longvarbinary", 13) == 0 ||
 	       strncmp(p, "longblob", 8) == 0) {
 	result = SQL_LONGVARBINARY;
+#endif
+#ifdef SQL_BIT
+    } else if (strncmp(p, "bool", 4) == 0 ||
+	       strncmp(p, "bit", 3) == 0) {
+	testsign = 0;
+	result = SQL_BIT;
 #endif
     }
     if (nosign) {
@@ -1293,6 +1349,11 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 	case SQL_VARBINARY:
 	case SQL_LONGVARBINARY:
 	    type = SQL_C_BINARY;
+	    break;
+#endif
+#ifdef SQL_BIT
+	case SQL_BIT:
+	    type = SQL_C_BIT;
 	    break;
 #endif
 	default:
@@ -1471,7 +1532,7 @@ errout:
     }
     if (isselect) {
 	p = out;
-	while (*p && ISSPACE(*q)) {
+	while (*p && ISSPACE(*p)) {
 	    ++p;
 	}
 	*isselect = strncasecmp(p, "select", 6) == 0;
@@ -1532,21 +1593,23 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	return;
     }
     /* fixup labels */
-    if (s->dcols > 1) {
-	char *table = s->dyncols[0].table;
+    if (!s->longnames) {
+	if (s->dcols > 1) {
+	    char *table = s->dyncols[0].table;
 
-	for (i = 1; table[0] && i < s->dcols; i++) {
-	    if (strcmp(s->dyncols[i].table, table)) {
-		break;
+	    for (i = 1; table[0] && i < s->dcols; i++) {
+		if (strcmp(s->dyncols[i].table, table)) {
+		    break;
+		}
 	    }
-	}
-	if (i >= s->dcols) {
-	    for (i = 0; i < s->dcols; i++) {
-		s->dyncols[i].label = s->dyncols[i].column;
+	    if (i >= s->dcols) {
+		for (i = 0; i < s->dcols; i++) {
+		    s->dyncols[i].label = s->dyncols[i].column;
+		}
 	    }
+	} else if (s->dcols == 1) {
+	    s->dyncols[0].label = s->dyncols[0].column;
 	}
-    } else if (s->dcols == 1) {
-	s->dyncols[0].label = s->dyncols[0].column;
     }
     if (types) {
 	for (i = 0; i < s->dcols; i++) {
@@ -2179,12 +2242,13 @@ dbtracerc(DBC *d, int rc, char *err)
  * @param name file name
  * @param dsn data source name
  * @param sflag STEPAPI flag
+ * @param sflag NoTXN flag
  * @param busy busy/lock timeout
  * @result ODBC error code
  */
 
 static SQLRETURN
-dbopen(DBC *d, char *name, char *dsn, char *sflag, char *busy)
+dbopen(DBC *d, char *name, char *dsn, char *sflag, char *ntflag, char *busy)
 {
     char *errp = NULL, *endp = NULL;
     int tmp, busyto = 1000;
@@ -2214,6 +2278,7 @@ connfail:
     }
 #endif
     d->step_enable = getbool(sflag);
+    d->trans_disable = getbool(ntflag);
     d->curtype = d->step_enable ?
 	SQL_CURSOR_FORWARD_ONLY : SQL_CURSOR_STATIC;
     tmp = strtol(busy, &endp, 0);
@@ -2297,6 +2362,9 @@ vm_step(STMT *s)
 		    dyncols[i].column = p;
 		    p += strlen(p) + 1;
 		}
+		if (s->longnames) {
+		    dyncols[i].column = dyncols[i].label;
+		}
 #ifdef SQL_LONGVARCHAR
 		dyncols[i].type = SQL_LONGVARCHAR;
 		dyncols[i].size = 65536;
@@ -2351,6 +2419,7 @@ vm_step(STMT *s)
 	    freeresult(s, 0);
 	    s->nrows = 1;
 	    s->rows = rowd;
+	    s->rowfree = freerows;
 	    if (rc == SQLITE_DONE) {
 		sqlite_finalize(s->vm, NULL);
 		s->vm = NULL;
@@ -2422,7 +2491,27 @@ vm_start(STMT *s, char **params)
     sqlite_vm *vm;
     int rc;
 
-    sql = sqlite_vmprintf(s->query, (char *) params);
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+    sql = sqlite_mprintf(s->query,
+			 params[0], params[1],
+			 params[2], params[3],
+			 params[4], params[5],
+			 params[6], params[7],
+			 params[8], params[9],
+			 params[10], params[11],
+			 params[12], params[13],
+			 params[14], params[15],
+			 params[16], params[17],
+			 params[18], params[19],
+			 params[20], params[21],
+			 params[22], params[23],
+			 params[24], params[25],
+			 params[26], params[27],
+			 params[28], params[29],
+			 params[30], params[31]);
+#else
+    sql = sqlite_vmprintf((char *) s->query, (char *) params);
+#endif
     if (!sql) {
 	return nomem(s);
     }
@@ -2666,13 +2755,14 @@ converr:
 	bin[i] |= (v >= 16) ? (v - 6) : v;
 	++p;
     }
-    i = sqlite_encode_binary(bin, len, 0);
+    i = sqlite_encode_binary((unsigned char *) bin, len, 0);
     p = xmalloc(i + 1);
     if (!p) {
 	freep(&bin);
 	goto oom;
     }
-    i = sqlite_encode_binary(bin, len, p);
+    i = sqlite_encode_binary((unsigned char *) bin, len,
+			     (unsigned char *) p);
     sqlite_set_result_string(context, p, i);
     freep(&bin);
     freep(&p);
@@ -2705,7 +2795,8 @@ oom:
 	sqlite_set_result_error(context, "out of memory", -1);
 	return;
     }
-    len = sqlite_decode_binary(argv[0], bin);
+    len = sqlite_decode_binary((unsigned char *) argv[0],
+			       (unsigned char *) bin);
     if (len < 0) {
 	freep(&bin);
 	sqlite_set_result_error(context, "error decoding binary data", -1);
@@ -2773,13 +2864,14 @@ converr:
 	bin[i] |= (v >= 16) ? (v - 6) : v;
 	++pp;
     }
-    i = sqlite_encode_binary(bin, len, 0);
+    i = sqlite_encode_binary((unsigned char *) bin, len, 0);
     pp = xmalloc(i + 1);
     if (!pp) {
 	freep(&bin);
 	return nomem(s);
     }
-    p->len = sqlite_encode_binary(bin, len, pp);
+    p->len = sqlite_encode_binary((unsigned char *) bin, len,
+				  (unsigned char *) pp);
     if (p->param == p->ind) {
 	freep(&p->param);
     }
@@ -2798,7 +2890,7 @@ converr:
  */
 
 SQLRETURN SQL_API
-SQLPutData(SQLHSTMT stmt, SQLPOINTER data, SQLINTEGER len)
+SQLPutData(SQLHSTMT stmt, SQLPOINTER data, SQLLEN len)
 {
     STMT *s;
     int i, dlen, done = 0;
@@ -2830,6 +2922,8 @@ seqerr:
 		    setstat(s, -1, "invalid length", "HY090");
 		    return SQL_ERROR;
 		}
+		freep(&p->param);
+		p->param = xmalloc(len + 1);
 		goto putd;
 	    } else
 #endif
@@ -2845,6 +2939,9 @@ seqerr:
 		case SQL_C_TINYINT:
 		case SQL_C_UTINYINT:
 		case SQL_C_STINYINT:
+#ifdef SQL_BIT
+		case SQL_C_BIT:
+#endif
 		    size = sizeof (char);
 		    break;
 		case SQL_C_SHORT:
@@ -2976,7 +3073,7 @@ putd:
 			}
 		    } else if (type == SQL_C_BINARY) {
 			int bsize;
-			char *bin;
+			unsigned char *bin;
 
 			bsize = sqlite_encode_binary(p->param, p->len, 0);
 			bin = xmalloc(bsize + 1);
@@ -3001,10 +3098,10 @@ putd:
     for (i = 0; i < s->nparams; i++) {
 	p = &s->bindparms[i];
 	if (p->need) {
-	    return SQL_NEED_DATA;
+	    return SQL_SUCCESS;
 	}
     }
-    return drvexecute(stmt);
+    return drvexecute(stmt, 0);
 }
 
 /**
@@ -3072,6 +3169,11 @@ substparam(STMT *s, int pnum, char **out, int *size)
     case SQL_C_BINARY:
 #endif
 	break;
+#ifdef SQL_BIT
+    case SQL_C_BIT:
+	strcpy(buf, (*((unsigned char *) p->param)) ? "1" : "0");
+	goto bind;
+#endif
     case SQL_C_UTINYINT:
 	sprintf(buf, "%d", *((unsigned char *) p->param));
 	goto bind;
@@ -3207,7 +3309,7 @@ static SQLRETURN
 drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	     SQLSMALLINT buftype, SQLSMALLINT ptype, SQLUINTEGER coldef,
 	     SQLSMALLINT scale,
-	     SQLPOINTER data, SQLINTEGER buflen, SQLINTEGER *len)
+	     SQLPOINTER data, SQLINTEGER buflen, SQLLEN *len)
 {
     STMT *s;
     BINDPARM *p;
@@ -3268,6 +3370,7 @@ outofmem:
     p->lenp = (int *) len;
     p->offs = 0;
     p->len = 0;
+    p->param0 = data;
     if (p->lenp) {
 #ifdef SQLITE_UTF8
 	if (buftype == SQL_C_WCHAR) {
@@ -3288,7 +3391,7 @@ outofmem:
     }
     if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
 	p->param = NULL;
-	p->ind = data;
+	p->ind = p->param0;
 	p->need = 1;
     } else if (p->lenp && *p->lenp == SQL_NULL_DATA) {
 	p->param = NULL;
@@ -3351,7 +3454,6 @@ outofmem:
 #endif
 	p->need = 0;
     }
-    p->param0 = p->param;
     return SQL_SUCCESS;
 }
 
@@ -3372,9 +3474,9 @@ outofmem:
 
 SQLRETURN SQL_API
 SQLBindParameter(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
-		 SQLSMALLINT buftype, SQLSMALLINT ptype, SQLUINTEGER coldef,
+		 SQLSMALLINT buftype, SQLSMALLINT ptype, SQLULEN coldef,
 		 SQLSMALLINT scale,
-		 SQLPOINTER data, SQLINTEGER buflen, SQLINTEGER *len)
+		 SQLPOINTER data, SQLLEN buflen, SQLLEN *len)
 {
     return drvbindparam(stmt, pnum, iotype, buftype, ptype, coldef,
 			scale, data, buflen, len);
@@ -3395,9 +3497,9 @@ SQLBindParameter(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 
 SQLRETURN SQL_API
 SQLBindParam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT vtype,
-	     SQLSMALLINT ptype, SQLUINTEGER lenprec,
+	     SQLSMALLINT ptype, SQLULEN lenprec,
 	     SQLSMALLINT scale, SQLPOINTER val,
-	     SQLINTEGER *lenp)
+	     SQLLEN *lenp)
 {
     return drvbindparam(stmt, pnum, SQL_PARAM_INPUT, vtype, ptype,
 			lenprec, scale, val, 0, lenp);
@@ -3450,12 +3552,12 @@ SQLParamData(SQLHSTMT stmt, SQLPOINTER *p)
     }
     for (i = 0; i < s->nparams; i++) {
 	if (s->bindparms[i].need) {
-	    *p = (SQLPOINTER) s->bindparms[i].ind;
+	    *p = (SQLPOINTER) s->bindparms[i].param0;
 	    return SQL_NEED_DATA;
 	}
     }
     return SQL_SUCCESS;
-}    
+}
 
 /**
  * Return information about parameter.
@@ -3530,8 +3632,8 @@ SQLDescribeParam(SQLHSTMT stmt, UWORD pnum, SWORD *dtype, UDWORD *size,
 
 SQLRETURN SQL_API
 SQLSetParam(SQLHSTMT stmt, SQLUSMALLINT par, SQLSMALLINT type,
-	    SQLSMALLINT sqltype, SQLUINTEGER coldef,
-	    SQLSMALLINT scale, SQLPOINTER val, SQLINTEGER *nval)
+	    SQLSMALLINT sqltype, SQLULEN coldef,
+	    SQLSMALLINT scale, SQLPOINTER val, SQLLEN *nval)
 {
     return drvbindparam(stmt, par, SQL_PARAM_INPUT,
 			type, sqltype, coldef, scale, val,
@@ -3613,7 +3715,7 @@ SQLRETURN SQL_API
 SQLGetDescRec(SQLHDESC handle, SQLSMALLINT recno,
 	      SQLCHAR *name, SQLSMALLINT buflen,
 	      SQLSMALLINT *strlen, SQLSMALLINT *type,
-	      SQLSMALLINT *subtype, SQLINTEGER *len,
+	      SQLSMALLINT *subtype, SQLLEN *len,
 	      SQLSMALLINT *prec, SQLSMALLINT *scale,
 	      SQLSMALLINT *nullable)
 {
@@ -3630,7 +3732,7 @@ SQLRETURN SQL_API
 SQLGetDescRecW(SQLHDESC handle, SQLSMALLINT recno,
 	       SQLWCHAR *name, SQLSMALLINT buflen,
 	       SQLSMALLINT *strlen, SQLSMALLINT *type,
-	       SQLSMALLINT *subtype, SQLINTEGER *len,
+	       SQLSMALLINT *subtype, SQLLEN *len,
 	       SQLSMALLINT *prec, SQLSMALLINT *scale,
 	       SQLSMALLINT *nullable)
 {
@@ -3645,9 +3747,9 @@ SQLGetDescRecW(SQLHDESC handle, SQLSMALLINT recno,
 SQLRETURN SQL_API
 SQLSetDescRec(SQLHDESC handle, SQLSMALLINT recno,
 	      SQLSMALLINT type, SQLSMALLINT subtype,
-	      SQLINTEGER len, SQLSMALLINT prec,
+	      SQLLEN len, SQLSMALLINT prec,
 	      SQLSMALLINT scale, SQLPOINTER data,
-	      SQLINTEGER *strlen, SQLINTEGER *indicator)
+	      SQLLEN *strlen, SQLLEN *indicator)
 {
     return SQL_ERROR;
 }
@@ -3685,6 +3787,7 @@ noconn:
     mkbindcols(s, s->ncols);
     s->nrows = 0;
     s->rowp = -1;
+    s->isselect = -1;
     return SQL_SUCCESS;
 }
 
@@ -3870,7 +3973,7 @@ drvprimarykeys(SQLHSTMT stmt,
     } else {
 	size = min(sizeof (tname) - 1, tableLen);
     }
-    strncpy(tname, table, size);
+    strncpy(tname, (char *) table, size);
     tname[size] = '\0';
     ret = sqlite_get_table_printf(d->sqlite,
 				  "PRAGMA index_list('%q')", &rowp,
@@ -4088,7 +4191,8 @@ SQLPrimaryKeysW(SQLHSTMT stmt,
 	    goto done;
 	}
     }
-    ret = drvprimarykeys(stmt, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS);
+    ret = drvprimarykeys(stmt, (SQLCHAR *) c, SQL_NTS,
+			 (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS);
 done:
     uc_free(t);
     uc_free(s);
@@ -4159,7 +4263,7 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     } else {
 	size = min(sizeof (tname) - 1, tableLen);
     }
-    strncpy(tname, table, size);
+    strncpy(tname, (char *) table, size);
     tname[size] = '\0';
     if (id != SQL_BEST_ROWID) {
 	return SQL_SUCCESS;
@@ -4436,7 +4540,8 @@ SQLSpecialColumnsW(SQLHSTMT stmt, SQLUSMALLINT id,
 	    goto done;
 	}
     }
-    ret = drvspecialcolumns(stmt, id, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS,
+    ret = drvspecialcolumns(stmt, id, (SQLCHAR *) c, SQL_NTS,
+			    (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS,
 			    scope, nullable);
 done:
     uc_free(t);
@@ -4518,7 +4623,7 @@ drvforeignkeys(SQLHSTMT stmt,
 	} else {
 	    size = min(sizeof (pname) - 1, PKtableLen);
 	}
-	strncpy(pname, PKtable, size);
+	strncpy(pname, (char *) PKtable, size);
     }
     pname[size] = '\0';
     size = 0;
@@ -4528,7 +4633,7 @@ drvforeignkeys(SQLHSTMT stmt,
 	} else {
 	    size = min(sizeof (fname) - 1, FKtableLen);
 	}
-	strncpy(fname, FKtable, size);
+	strncpy(fname, (char *) FKtable, size);
     }
     fname[size] = '\0';
     if (fname[0] != '\0') {
@@ -4874,8 +4979,10 @@ SQLForeignKeysW(SQLHSTMT stmt,
 	    goto done;
 	}
     }
-    ret = drvforeignkeys(stmt, pc, SQL_NTS, ps, SQL_NTS, pt, SQL_NTS,
-			 fc, SQL_NTS, fs, SQL_NTS, ft, SQL_NTS);
+    ret = drvforeignkeys(stmt, (SQLCHAR *) pc, SQL_NTS,
+			 (SQLCHAR *) ps, SQL_NTS, (SQLCHAR *) pt, SQL_NTS,
+			 (SQLCHAR *) fc, SQL_NTS, (SQLCHAR *) fs, SQL_NTS,
+			 (SQLCHAR *) ft, SQL_NTS);
 done:
     uc_free(ft);
     uc_free(fs);
@@ -5390,13 +5497,13 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 	return SQL_NO_DATA;
     case SQL_HANDLE_DBC:
 	d = (DBC *) handle;
-	logmsg = d->logmsg;
+	logmsg = (char *) d->logmsg;
 	sqlst = d->sqlstate;
 	naterr = d->naterr;
 	break;
     case SQL_HANDLE_STMT:
 	s = (STMT *) handle;
-	logmsg = s->logmsg;
+	logmsg = (char *) s->logmsg;
 	sqlst = s->sqlstate;
 	naterr = s->naterr;
 	break;
@@ -5417,19 +5524,19 @@ drvgetdiagrec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 	*nativeerr = naterr;
     }
     if (sqlstate) {
-	strcpy(sqlstate, sqlst);
+	strcpy((char *) sqlstate, sqlst);
     }
     if (msglen) {
 	*msglen = len;
     }
     if (len >= buflen) {
 	if (msg && buflen > 0) {
-	    strncpy(msg, logmsg, buflen);
+	    strncpy((char *) msg, logmsg, buflen);
 	    msg[buflen - 1] = '\0';
 	    logmsg[0] = '\0';
 	}
     } else if (msg) {
-	strcpy(msg, logmsg);
+	strcpy((char *) msg, logmsg);
 	logmsg[0] = '\0';
     }
     return SQL_SUCCESS;
@@ -5666,6 +5773,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
 	*((SQLUINTEGER **) val) = s->bind_offs;
 	return SQL_SUCCESS;
+    case SQL_ATTR_NOSCAN:
+	*((SQLUINTEGER **) val) = SQL_NOSCAN_OFF;
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -5827,6 +5937,11 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	}
 	s->bkmrk = (SQLUINTEGER) val == SQL_UB_ON;
 	return SQL_SUCCESS;
+    case SQL_ATTR_NOSCAN:
+	if ((SQLUINTEGER) val != SQL_NOSCAN_OFF) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -5911,6 +6026,9 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
 	*ret = s->rowset_size;
+	return SQL_SUCCESS;
+    case SQL_ATTR_NOSCAN:
+	*ret = SQL_NOSCAN_OFF;
 	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
@@ -6012,6 +6130,11 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 	    s->rowset_size = param;
 	}
 	return SQL_SUCCESS;
+    case SQL_ATTR_NOSCAN:
+	if (param != SQL_NOSCAN_OFF) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
 }
@@ -6025,7 +6148,7 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
+SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
 {
     return drvsetstmtoption(stmt, opt, param);
 }
@@ -6040,7 +6163,7 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
+SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
 {
     return drvsetstmtoption(stmt, opt, param);
 }
@@ -6061,7 +6184,7 @@ SQLSetPos(SQLHSTMT stmt, SQLUSMALLINT row, SQLUSMALLINT op, SQLUSMALLINT lock)
  */
 
 SQLRETURN SQL_API
-SQLSetScrollOptions(SQLHSTMT stmt, SQLUSMALLINT concur, SQLINTEGER rowkeyset,
+SQLSetScrollOptions(SQLHSTMT stmt, SQLUSMALLINT concur, SQLLEN rowkeyset,
 		    SQLUSMALLINT rowset)
 {
     return drvunimplstmt(stmt);
@@ -6095,7 +6218,11 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 #ifdef _WIN32
 	"sqliteodbc.dll";
 #else
+#ifdef __OS2__
+	"SQLLODBC.DLL";
+#else
 	"sqliteodbc.so";
+#endif
 #endif
 
     if (dbc == SQL_NULL_HDBC) {
@@ -6262,7 +6389,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_CURSOR_COMMIT_BEHAVIOR:
     case SQL_CURSOR_ROLLBACK_BEHAVIOR:
-	*((SQLSMALLINT *) val) = SQL_CB_DELETE;
+	*((SQLSMALLINT *) val) = SQL_CB_PRESERVE;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
 #ifdef SQL_CURSOR_SENSITIVITY
@@ -6605,7 +6732,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	case SQL_SPECIAL_CHARACTERS:
 	    if (val) {
 		if (len > 0) {
-		    v = uc_from_utf((char *) val, len);
+		    v = uc_from_utf((SQLCHAR *) val, len);
 		    if (v) {
 			int vmax = valMax / sizeof (SQLWCHAR);
 
@@ -6676,7 +6803,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     exists[SQL_API_SQLDESCRIBECOL] = SQL_TRUE;
     exists[SQL_API_SQLROWCOUNT] = SQL_TRUE;
     exists[SQL_API_SQLDISCONNECT] = SQL_TRUE;
-    exists[SQL_API_SQLSETCURSORNAME] = SQL_FALSE;
+    exists[SQL_API_SQLSETCURSORNAME] = SQL_TRUE;
     exists[SQL_API_SQLERROR] = SQL_TRUE;
     exists[SQL_API_SQLSETPARAM] = SQL_TRUE;
     exists[SQL_API_SQLEXECDIRECT] = SQL_TRUE;
@@ -7088,7 +7215,7 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_NOSCAN:
-	*((SQLINTEGER *) val) = SQL_NOSCAN_ON;
+	*((SQLINTEGER *) val) = SQL_NOSCAN_OFF;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_CONCURRENCY:
@@ -7297,7 +7424,7 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 	*((SQLINTEGER *) param) = SQL_ASYNC_ENABLE_OFF;
 	break;
     case SQL_NOSCAN:
-	*((SQLINTEGER *) param) = SQL_NOSCAN_ON;
+	*((SQLINTEGER *) param) = SQL_NOSCAN_OFF;
 	break;
     case SQL_CONCURRENCY:
 	*((SQLINTEGER *) param) = SQL_CONCUR_LOCK;
@@ -7400,7 +7527,7 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
+SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLULEN param)
 {
     return drvsetconnectoption(dbc, opt, param);
 }
@@ -7416,13 +7543,13 @@ SQLSetConnectOption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetConnectOptionW(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
+SQLSetConnectOptionW(SQLHDBC dbc, SQLUSMALLINT opt, SQLULEN param)
 {
     return drvsetconnectoption(dbc, opt, param);
 }
 #endif
 
-#if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
+#if defined(WITHOUT_DRIVERMGR) || (!defined(_WIN32) && !defined(__OS2__))
 
 /**
  * Handling of SQLConnect() connection attributes
@@ -7487,7 +7614,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char sflag[32], nwflag[32];
+    char sflag[32], ntflag[32], nwflag[32], lnflag[32];
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     char tracef[SQL_MAX_MESSAGE_LENGTH];
 #endif
@@ -7510,7 +7637,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 	len = min(sizeof (buf) - 1, dsnLen);
     }
     if (dsn != NULL) {
-	strncpy(buf, dsn, len);
+	strncpy(buf, (char *) dsn, len);
     }
     buf[len] = '\0';
     if (buf[0] == '\0') {
@@ -7527,9 +7654,13 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     }
     getdsnattr(buf, "timeout", busy, sizeof (busy));
     sflag[0] = '\0';
+    ntflag[0] = '\0';
     nwflag[0] = '\0';
+    lnflag[0] = '\0';
     getdsnattr(buf, "stepapi", sflag, sizeof (sflag));
+    getdsnattr(buf, "notxn", ntflag, sizeof (ntflag));
     getdsnattr(buf, "nowchar", nwflag, sizeof (nwflag));
+    getdsnattr(buf, "longnames", lnflag, sizeof (lnflag));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "1000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -7537,8 +7668,12 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 			       dbname, sizeof (dbname), ODBC_INI);
     SQLGetPrivateProfileString(buf, "stepapi", "",
 			       sflag, sizeof (sflag), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "notxn", "",
+			       ntflag, sizeof (ntflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "nowchar", "",
 			       nwflag, sizeof (nwflag), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "longnames", "",
+			       lnflag, sizeof (lnflag), ODBC_INI);
 #endif
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     tracef[0] = '\0';
@@ -7553,7 +7688,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     }
 #endif
     d->nowchar = getbool(nwflag);
-    return dbopen(d, dbname, dsn, sflag, busy);
+    d->longnames = getbool(lnflag);
+    return dbopen(d, dbname, (char *) dsn, sflag, ntflag, busy);
 }
 
 #ifndef SQLITE_UTF8
@@ -7608,7 +7744,7 @@ SQLConnectW(SQLHDBC dbc, SQLWCHAR *dsn, SQLSMALLINT dsnLen,
 	    return SQL_ERROR;
 	}
     }
-    ret = drvconnect(dbc, dsna, SQL_NTS);
+    ret = drvconnect(dbc, (SQLCHAR *) dsna, SQL_NTS);
     uc_free(dsna);
     return ret;
 }
@@ -7648,7 +7784,7 @@ SQLDisconnect(SQLHDBC dbc)
     return SQL_SUCCESS;
 }
 
-#if defined(WITHOUT_DRIVERMGR) || !defined(_WIN32)
+#if defined(WITHOUT_DRIVERMGR) || (!defined(_WIN32) && !defined(__OS2__))
 
 /**
  * Internal standalone (w/o driver manager) database connect.
@@ -7673,7 +7809,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char sflag[32];
+    char sflag[32], ntflag[32], lnflag[32];
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
     char tracef[SQL_MAX_MESSAGE_LENGTH];
 #endif
@@ -7699,7 +7835,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	len = min(connInLen, sizeof (buf) - 1);
     }
     if (connIn != NULL) {
-	strncpy(buf, connIn, len);
+	strncpy(buf, (char *) connIn, len);
     }
     buf[len] = '\0';
     if (!buf[0]) {
@@ -7740,6 +7876,22 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   sflag, sizeof (sflag), ODBC_INI);
     }
 #endif
+    ntflag[0] = '\0';
+    getdsnattr(buf, "notxn", ntflag, sizeof (ntflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !ntflag[0]) {
+	SQLGetPrivateProfileString(dsn, "notxn", "",
+				   ntflag, sizeof (ntflag), ODBC_INI);
+    }
+#endif
+    lnflag[0] = '\0';
+    getdsnattr(buf, "longnames", lnflag, sizeof (lnflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !lnflag[0]) {
+	SQLGetPrivateProfileString(dsn, "longnames", "",
+				   lnflag, sizeof (lnflag), ODBC_INI);
+    }
+#endif
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
 	strncpy(dbname, buf, sizeof (dbname));
@@ -7761,12 +7913,13 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
-			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
-			 "Tracefile=%s",
-			 dsn, dbname, sflag, busy, tracef
+			 "DSN=%s;Database=%s;StepAPI=%s;NoTXN=%s;"
+			 "Timeout=%s;LongNames=%s;Tracefile=%s",
+			 dsn, dbname, sflag, ntflag, busy, lnflag, tracef
 #else
-			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s",
-			 dsn, dbname, sflag, busy
+			 "DSN=%s;Database=%s;StepAPI=%s;NoTXN=%s;"
+			 "Timeout=%s;LongNames=%s",
+			 dsn, dbname, sflag, ntflag, busy, lnflag
 #endif
 			);
 	if (count < 0) {
@@ -7774,7 +7927,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	}
 	len = min(connOutMax - 1, strlen(buf));
 	if (connOut) {
-	    strncpy(connOut, buf, len);
+	    strncpy((char *) connOut, buf, len);
 	    connOut[len] = '\0';
 	}
 	if (connOutLen) {
@@ -7786,7 +7939,8 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	d->trace = fopen(tracef, "a");
     }
 #endif
-    return dbopen(d, dbname, dsn, sflag, busy);
+    d->longnames = getbool(lnflag);
+    return dbopen(d, dbname, dsn, sflag, ntflag, busy);
 }
 #endif
 
@@ -7866,6 +8020,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->dbc = dbc;
     s->ov3 = d->ov3;
     s->nowchar = d->nowchar;
+    s->longnames = d->longnames;
     s->curtype = d->curtype;
     s->row_status0 = &s->row_status1;
     s->rowset_size = 1;
@@ -7873,7 +8028,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->bind_type = SQL_BIND_BY_COLUMN;
     s->bind_offs = NULL;
     s->paramset_size = 1;
-    sprintf(s->cursorname, "CUR_%08lX", (long) *stmt);
+    sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
     sl = d->stmt;
     pl = NULL;
     while (sl) {
@@ -7983,16 +8138,16 @@ drvgetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
     }
     s = (STMT *) stmt;
     if (lenp && !cursor) {
-	*lenp = strlen(s->cursorname);
+	*lenp = strlen((char *) s->cursorname);
 	return SQL_SUCCESS;
     }
     if (cursor) {
 	if (buflen > 0) {
-	    strncpy(cursor, s->cursorname, buflen - 1);
+	    strncpy((char *) cursor, (char *) s->cursorname, buflen - 1);
 	    cursor[buflen - 1] = '\0';
 	}
 	if (lenp) {
-	    *lenp = min(strlen(s->cursorname), buflen - 1);
+	    *lenp = min(strlen((char *) s->cursorname), buflen - 1);
 	}
     }
     return SQL_SUCCESS;
@@ -8031,14 +8186,14 @@ SQLGetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT buflen,
 		  SQLSMALLINT *lenp)
 {
     SQLRETURN ret;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
     ret = drvgetcursorname(stmt, (SQLCHAR *) cursor, buflen, &len);
     if (ret == SQL_SUCCESS) {
 	SQLWCHAR *c = NULL;
 
 	if (cursor) {
-	    c = uc_from_utf((char *) cursor, len);
+	    c = uc_from_utf((SQLCHAR *) cursor, len);
 	    if (!c) {
 		return nomem((STMT *) stmt);
 	    }
@@ -8085,7 +8240,7 @@ drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
     } else {
 	len = min(sizeof (s->cursorname) - 1, len);
     }
-    strncpy(s->cursorname, cursor, len);
+    strncpy((char *) s->cursorname, (char *) cursor, len);
     s->cursorname[len] = '\0';
     return SQL_SUCCESS;
 }
@@ -8127,7 +8282,7 @@ SQLSetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT len)
 	    return nomem((STMT *) stmt);
 	}
     }
-    ret = drvsetcursorname(stmt, c, SQL_NTS);
+    ret = drvsetcursorname(stmt, (SQLCHAR *) c, SQL_NTS);
     uc_free(c);
     return ret;
 }
@@ -8330,10 +8485,10 @@ mkbindcols(STMT *s, int ncols)
 
 static SQLRETURN
 getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
-	   SQLPOINTER val, SQLINTEGER len, SQLINTEGER *lenp, int partial)
+	   SQLPOINTER val, SQLLEN len, SQLLEN *lenp, int partial)
 {
     char **data, valdummy[16];
-    SQLINTEGER dummy;
+    SQLLEN dummy;
     int valnull = 0;
     int type = otype;
 
@@ -8387,6 +8542,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_UTINYINT:
 	case SQL_C_TINYINT:
 	case SQL_C_STINYINT:
+#ifdef SQL_BIT
+	case SQL_C_BIT:
+#endif
 	    *((char *) val) = 0;
 	    break;
 	case SQL_C_USHORT:
@@ -8453,6 +8611,12 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		*lenp = sizeof (char);
 	    }
 	    break;
+#ifdef SQL_BIT
+	case SQL_C_BIT:
+	    *((char *) val) = getbool(*data);
+	    *lenp = sizeof (char);
+	    break;
+#endif
 	case SQL_C_USHORT:
 	case SQL_C_SHORT:
 	case SQL_C_SSHORT:
@@ -8507,7 +8671,8 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		if (!bin) {
 		    return nomem(s);
 		}
-		dlen = sqlite_decode_binary(*data, bin);
+		dlen = sqlite_decode_binary((unsigned char *) *data,
+					    (unsigned char *) bin);
 		if (dlen < 0) {
 		    freep(&bin);
 		    setstat(s, -1, "error decoding binary data",
@@ -8618,7 +8783,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 
 	    doz = (type == SQL_C_CHAR || type == SQL_C_WCHAR) ? 1 : 0;
 	    if (otype == SQL_C_WCHAR) {
-		ucdata = uc_from_utf(*data, dlen);
+		ucdata = uc_from_utf((SQLCHAR *) *data, dlen);
 		if (!ucdata) {
 		    return nomem(s);
 		}
@@ -8735,7 +8900,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 
 SQLRETURN SQL_API
 SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
-	   SQLPOINTER val, SQLINTEGER max, SQLINTEGER *lenp)
+	   SQLPOINTER val, SQLLEN max, SQLLEN *lenp)
 {
     STMT *s;
 
@@ -8943,12 +9108,12 @@ drvtables(SQLHSTMT stmt,
 	int with_view = 0, with_table = 0;
 
 	if (typeLen == SQL_NTS) {
-	    strncpy(tmp, type, sizeof (tmp));
+	    strncpy(tmp, (char *) type, sizeof (tmp));
 	    tmp[sizeof (tmp) - 1] = '\0';
 	} else {
 	    int len = min(sizeof (tmp) - 1, typeLen);
 
-	    strncpy(tmp, type, len);
+	    strncpy(tmp, (char *) type, len);
 	    tmp[len] = '\0';
 	}
 	t = tmp;
@@ -8991,7 +9156,7 @@ drvtables(SQLHSTMT stmt,
 	} else {
 	    size = min(sizeof (tname) - 1, tableLen);
 	}
-	strncpy(tname, table, size);
+	strncpy(tname, (char *) table, size);
 	tname[size] = '\0';
     }
     rc = sqlite_get_table_printf(d->sqlite,
@@ -9104,8 +9269,8 @@ SQLTablesW(SQLHSTMT stmt,
 	    goto done;
 	}
     }
-    ret = drvtables(stmt, c, SQL_NTS, s, SQL_NTS,
-		    t, SQL_NTS, y, SQL_NTS);
+    ret = drvtables(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+		    (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) y, SQL_NTS);
 done:
     uc_free(y);
     uc_free(t);
@@ -9182,7 +9347,7 @@ drvcolumns(SQLHSTMT stmt,
     } else {
 	size = min(sizeof (tname) - 1, tableLen);
     }
-    strncpy(tname, table, size);
+    strncpy(tname, (char *) table, size);
     tname[size] = '\0';
     ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
@@ -9375,8 +9540,8 @@ SQLColumnsW(SQLHSTMT stmt,
 	    goto done;
 	}
     }
-    ret = drvcolumns(stmt, c, SQL_NTS, s, SQL_NTS,
-		     t, SQL_NTS, k, SQL_NTS);
+    ret = drvcolumns(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+		     (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) k, SQL_NTS);
 done:
     uc_free(k);
     uc_free(t);
@@ -9505,6 +9670,12 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 	s->rows[offs + 2] = "65536";
 	break;
 #endif
+#ifdef SQL_BIT
+    case SQL_BIT:
+	sign = NULL;
+	s->rows[offs + 2] = "1";
+	break;
+#endif
     }
     s->rows[offs + 3] = s->rows[offs + 4] = quote;
     s->rows[offs + 5] = crpar;
@@ -9589,6 +9760,11 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	s->nrows += 2;
     }
 #endif
+#ifdef SQL_BIT
+    if (sqltype == SQL_ALL_TYPES) {
+	s->nrows += 1;
+    }
+#endif
     s->rows = (char **) xmalloc(sizeof (char *) * (s->nrows + 1)
 				* array_size(typeSpec));
     if (!s->rows) {
@@ -9654,6 +9830,9 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 #if HAVE_ENCDEC
 	mktypeinfo(s, cc++, "varbinary", SQL_VARBINARY, 0);
 	mktypeinfo(s, cc++, "longvarbinary", SQL_LONGVARBINARY, 0);
+#endif
+#ifdef SQL_BIT
+	mktypeinfo(s, cc++, "bit", SQL_BIT, 0);
 #endif
 	qsort(s->rows + array_size(typeSpec), s->nrows,
 	      sizeof (char *) * array_size(typeSpec), typeinfosort);
@@ -9732,6 +9911,11 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	    break;
 	case SQL_LONGVARBINARY:
 	    mktypeinfo(s, 1, "longvarbinary", SQL_LONGVARBINARY, 31);
+	    break;
+#endif
+#ifdef SQL_BIT
+	case SQL_BIT:
+	    mktypeinfo(s, 1, "bit", SQL_BIT, 29);
 	    break;
 #endif
 	default:
@@ -9833,7 +10017,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     } else {
 	size = min(sizeof (tname) - 1, tableLen);
     }
-    strncpy(tname, table, size);
+    strncpy(tname, (char *) table, size);
     tname[size] = '\0';
     ret = sqlite_get_table_printf(d->sqlite,
 				  "PRAGMA index_list('%q')", &rowp,
@@ -10077,8 +10261,8 @@ SQLStatisticsW(SQLHSTMT stmt, SQLWCHAR *cat, SQLSMALLINT catLen,
 	    goto done;
 	}
     }
-    ret = drvstatistics(stmt, c, SQL_NTS, s, SQL_NTS, t, SQL_NTS,
-			itype, resv);
+    ret = drvstatistics(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+			(SQLCHAR *) t, SQL_NTS, itype, resv);
 done:
     uc_free(t);
     uc_free(s);
@@ -10100,7 +10284,7 @@ done:
 
 SQLRETURN SQL_API
 SQLGetData(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
-	   SQLPOINTER val, SQLINTEGER len, SQLINTEGER *lenp)
+	   SQLPOINTER val, SQLLEN len, SQLLEN *lenp)
 {
     STMT *s;
 
@@ -10149,16 +10333,16 @@ dofetchbind(STMT *s, int rsi)
 	}
 	*val = s->rowp;
 	if (s->bkmrkcol.lenp) {
-	    SQLINTEGER *ival;
+	    SQLLEN *ival;
 
 	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
-		ival = (SQLINTEGER *) ((char *) s->bkmrkcol.lenp +
-				       s->bind_type * rsi);
+		ival = (SQLLEN *) ((char *) s->bkmrkcol.lenp +
+				   s->bind_type * rsi);
 	    } else {
 		ival = &s->bkmrkcol.lenp[rsi];
 	    }
 	    if (s->bind_offs) {
-		ival = (SQLINTEGER *) ((char *) ival + *s->bind_offs);
+		ival = (SQLLEN *) ((char *) ival + *s->bind_offs);
 	    }
 	    *ival = sizeof (long);
 	}
@@ -10167,7 +10351,7 @@ dofetchbind(STMT *s, int rsi)
     for (i = 0; s->bindcols && i < s->ncols; i++) {
 	BINDCOL *b = &s->bindcols[i];
 	SQLPOINTER dp = 0;
-	SQLINTEGER *lp = 0;
+	SQLLEN *lp = 0;
 
 	b->offs = 0;
 	if (b->valp) {
@@ -10182,12 +10366,12 @@ dofetchbind(STMT *s, int rsi)
 	}
 	if (b->lenp) {
 	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
-		lp = (SQLINTEGER *) ((char *) b->lenp + s->bind_type * rsi);
+		lp = (SQLLEN *) ((char *) b->lenp + s->bind_type * rsi);
 	    } else {
 		lp = b->lenp + rsi;
 	    }
 	    if (s->bind_offs) {
-		lp = (SQLINTEGER *) ((char *) lp + *s->bind_offs);
+		lp = (SQLLEN *) ((char *) lp + *s->bind_offs);
 	    }
 	}
 	if (dp || lp) {
@@ -10246,6 +10430,12 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	}
 	ret = SQL_ERROR;
 	i = 0;
+	goto done2;
+    }
+    if (!s->isselect) {
+	setstat(s, -1, "no result set available", "24000");
+	ret = SQL_ERROR;
+	i = s->nrows;
 	goto done2;
     }
     if (s->curtype == SQL_CURSOR_FORWARD_ONLY && orient != SQL_FETCH_NEXT) {
@@ -10416,7 +10606,7 @@ SQLFetch(SQLHSTMT stmt)
  */
 
 SQLRETURN SQL_API
-SQLFetchScroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
+SQLFetchScroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLLEN offset)
 {
     return drvfetchscroll(stmt, orient, offset);
 }
@@ -10432,8 +10622,8 @@ SQLFetchScroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
  */
 
 SQLRETURN SQL_API
-SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
-		 SQLUINTEGER *rowcount, SQLUSMALLINT *rowstatus)
+SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLLEN offset,
+		 SQLULEN *rowcount, SQLUSMALLINT *rowstatus)
 {
     STMT *s;
     SQLRETURN ret;
@@ -10466,7 +10656,7 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLINTEGER offset,
  */
 
 SQLRETURN SQL_API
-SQLRowCount(SQLHSTMT stmt, SQLINTEGER *nrows)
+SQLRowCount(SQLHSTMT stmt, SQLLEN *nrows)
 {
     STMT *s;
 
@@ -10519,7 +10709,7 @@ SQLNumResultCols(SQLHSTMT stmt, SQLSMALLINT *ncols)
 static SQLRETURN
 drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
 	       SQLSMALLINT nameMax, SQLSMALLINT *nameLen,
-	       SQLSMALLINT *type, SQLUINTEGER *size,
+	       SQLSMALLINT *type, SQLULEN *size,
 	       SQLSMALLINT *digits, SQLSMALLINT *nullable)
 {
     STMT *s;
@@ -10540,13 +10730,13 @@ drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
     }
     c = s->cols + col - 1;
     if (name && nameMax > 0) {
-	strncpy(name, c->column, nameMax);
+	strncpy((char *) name, c->column, nameMax);
 	name[nameMax - 1] = '\0';
 	didname = 1;
     }
     if (nameLen) {
 	if (didname) {
-	    *nameLen = strlen(name);
+	    *nameLen = strlen((char *) name);
 	} else {
 	    *nameLen = strlen(c->column);
 	}
@@ -10601,7 +10791,7 @@ drvdescribecol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
 SQLRETURN SQL_API
 SQLDescribeCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
 	       SQLSMALLINT nameMax, SQLSMALLINT *nameLen,
-	       SQLSMALLINT *type, SQLUINTEGER *size,
+	       SQLSMALLINT *type, SQLULEN *size,
 	       SQLSMALLINT *digits, SQLSMALLINT *nullable)
 {
     return drvdescribecol(stmt, col, name, nameMax, nameLen,
@@ -10631,9 +10821,9 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
 		SQLSMALLINT *digits, SQLSMALLINT *nullable)
 {
     SQLRETURN ret;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
-    ret = drvdescribecol(stmt, col, (char *) name,
+    ret = drvdescribecol(stmt, col, (SQLCHAR *) name,
 			 (SQLSMALLINT) (nameMax * sizeof (SQLWCHAR)),
 			 &len, type, size, digits, nullable);
     if (ret == SQL_SUCCESS) {
@@ -10641,7 +10831,7 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
 	    if (len > 0) {
 		SQLWCHAR *n = NULL;
 
-		n = uc_from_utf((char *) name, len);
+		n = uc_from_utf((SQLCHAR *) name, len);
 		if (n) {
 		    uc_strncpy(name, n, nameMax);
 		    len = min(nameMax, uc_strlen(n));
@@ -10688,7 +10878,7 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
 static SQLRETURN
 drvcolattributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		 SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		 SQLINTEGER *val2)
+		 SQLLEN *val2)
 {
     STMT *s;
     COL *c;
@@ -10760,6 +10950,18 @@ checkLen:
 	    return SQL_SUCCESS_WITH_INFO;
 	}
 	return SQL_SUCCESS;
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+    case SQL_DESC_BASE_COLUMN_NAME:
+	if (strchr(c->column, '(') || strchr(c->column, ')')) {
+	    valc[0] = '\0';
+	    *valLen = 0;
+	} else if (valc && valMax > 0) {
+	    strncpy(valc, c->column, valMax);
+	    valc[valMax - 1] = '\0';
+	    *valLen = strlen(c->column);
+	}
+	goto checkLen;
+#endif
     case SQL_COLUMN_TYPE:
     case SQL_DESC_TYPE:
 #ifdef SQLITE_UTF8
@@ -10862,6 +11064,12 @@ checkLen:
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
+    case SQL_DESC_COUNT:
+	if (val2) {
+	    *val2 = s->ncols;
+	}
+	*valLen = sizeof (int);
+	return SQL_SUCCESS;
     case SQL_COLUMN_TYPE_NAME: {
 	char *tn = c->typename ? c->typename : "varchar";
 
@@ -10886,6 +11094,9 @@ checkLen:
     case SQL_COLUMN_TABLE_NAME:
 #if (SQL_COLUMN_TABLE_NAME != SQL_DESC_TABLE_NAME)
     case SQL_DESC_TABLE_NAME:
+#endif
+#ifdef SQL_DESC_BASE_TABLE_NAME
+    case SQL_DESC_BASE_TABLE_NAME:
 #endif
 	if (valc && valMax > 0) {
 	    strncpy(valc, c->table, valMax);
@@ -10914,7 +11125,7 @@ checkLen:
 SQLRETURN SQL_API
 SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		 SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		 SQLINTEGER *val2)
+		 SQLLEN *val2)
 {
     return drvcolattributes(stmt, col, id, val, valMax, valLen, val2);
 }
@@ -10936,10 +11147,10 @@ SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 SQLRETURN SQL_API
 SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		  SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		  SQLINTEGER *val2)
+		  SQLLEN *val2)
 {
     SQLRETURN ret;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
     ret = drvcolattributes(stmt, col, id, val, valMax, &len, val2);
     if (SQL_SUCCEEDED(ret)) {
@@ -10956,10 +11167,16 @@ SQLColAttributesW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 #if (SQL_COLUMN_TABLE_NAME != SQL_DESC_TABLE_NAME)
 	case SQL_DESC_TABLE_NAME:
 #endif
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+	case SQL_DESC_BASE_COLUMN_NAME:
+#endif
+#ifdef SQL_DESC_BASE_TABLE_NAME
+    case SQL_DESC_BASE_TABLE_NAME:
+#endif
 	    if (val && valMax > 0) {
 		int vmax = valMax / sizeof (SQLWCHAR);
 
-		v = uc_from_utf((char *) val, SQL_NTS);
+		v = uc_from_utf((SQLCHAR *) val, SQL_NTS);
 		if (v) {
 		    uc_strncpy(val, v, vmax);
 		    len = min(vmax, uc_strlen(v));
@@ -11018,6 +11235,9 @@ drvcolattribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
     }
     c = s->cols + col - 1;
     switch (id) {
+    case SQL_DESC_COUNT:
+	v = s->ncols;
+	break;
     case SQL_DESC_CATALOG_NAME:
 	if (valc && valMax > 0) {
 	    strncpy(valc, c->db, valMax);
@@ -11059,6 +11279,24 @@ checkLen:
 	    goto checkLen;
 	}
 	break;
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+    case SQL_DESC_BASE_COLUMN_NAME:
+	if (strchr(c->column, '(') || strchr(c->column, ')')) {
+	    valc[0] = '\0';
+	    if (valLen) {
+		*valLen = 0;
+		goto checkLen;
+	    }
+	} else if (valc && valMax > 0) {
+	    strncpy(valc, c->column, valMax);
+	    valc[valMax - 1] = '\0';
+	    if (valLen) {
+		*valLen = strlen(c->column);
+		goto checkLen;
+	    }
+	}
+	break;
+#endif
     case SQL_DESC_TYPE_NAME: {
 	char *tn = c->typename ? c->typename : "varchar";
 
@@ -11079,6 +11317,9 @@ checkLen:
     case SQL_COLUMN_TABLE_NAME:
 #endif
     case SQL_DESC_TABLE_NAME:
+#ifdef SQL_DESC_BASE_TABLE_NAME
+    case SQL_DESC_BASE_TABLE_NAME:
+#endif
 	if (valc && valMax > 0) {
 	    strncpy(valc, c->table, valMax);
 	    valc[valMax - 1] = '\0';
@@ -11149,6 +11390,11 @@ checkLen:
 	    v = SQL_C_TYPE_DATE;
 	    break;
 #endif
+#ifdef SQL_BIT
+	case SQL_BIT:
+	    v = SQL_C_BIT;
+	    break;
+#endif
 	default:
 #ifdef SQLITE_UTF8
 	    v = s->nowchar ? SQL_C_CHAR : SQL_C_WCHAR;
@@ -11213,9 +11459,10 @@ checkLen:
 SQLRETURN SQL_API
 SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		SQLPOINTER val2)
+		COLATTRIBUTE_LAST_ARG_TYPE val2)
 {
-    return drvcolattribute(stmt, col, id, val, valMax, valLen, val2);
+    return drvcolattribute(stmt, col, id, val, valMax, valLen,
+			   (SQLPOINTER) val2);
 }
 #endif
 
@@ -11235,12 +11482,13 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 SQLRETURN SQL_API
 SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		 SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
-		 SQLPOINTER val2)
+		 COLATTRIBUTE_LAST_ARG_TYPE val2)
 {
     SQLRETURN ret;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
-    ret = drvcolattribute(stmt, col, id, val, valMax, &len, val2);
+    ret = drvcolattribute(stmt, col, id, val, valMax, &len,
+			  (SQLPOINTER) val2);
     if (SQL_SUCCEEDED(ret)) {
 	SQLWCHAR *v = NULL;
 
@@ -11249,11 +11497,17 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	case SQL_COLUMN_LABEL:
 	case SQL_DESC_NAME:
 	case SQL_DESC_TABLE_NAME:
+#ifdef SQL_DESC_BASE_TABLE_NAME
+	case SQL_DESC_BASE_TABLE_NAME:
+#endif
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+	case SQL_DESC_BASE_COLUMN_NAME:
+#endif
 	case SQL_DESC_TYPE_NAME:
 	    if (val && valMax > 0) {
 		int vmax = valMax / sizeof (SQLWCHAR);
 
-		v = uc_from_utf((char *) val, SQL_NTS);
+		v = uc_from_utf((SQLCHAR *) val, SQL_NTS);
 		if (v) {
 		    uc_strncpy(val, v, vmax);
 		    len = min(vmax, uc_strlen(v));
@@ -11332,17 +11586,17 @@ drverror(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 	    goto noerr;
 	}
 	*nativeErr = s->naterr;
-	strcpy(sqlState, s->sqlstate);
+	strcpy((char *) sqlState, s->sqlstate);
 	if (errmax == SQL_NTS) {
-	    strcpy(errmsg, "[SQLite]");
-	    strcat(errmsg, s->logmsg);
-	    *errlen = strlen(errmsg);
+	    strcpy((char *) errmsg, "[SQLite]");
+	    strcat((char *) errmsg, (char *) s->logmsg);
+	    *errlen = strlen((char *) errmsg);
 	} else {
-	    strncpy(errmsg, "[SQLite]", errmax);
+	    strncpy((char *) errmsg, "[SQLite]", errmax);
 	    if (errmax - 8 > 0) {
-		strncpy(errmsg + 8, s->logmsg, errmax - 8);
+		strncpy((char *) errmsg + 8, (char *) s->logmsg, errmax - 8);
 	    }
-	    *errlen = min(strlen(s->logmsg) + 8, errmax);
+	    *errlen = min(strlen((char *) s->logmsg) + 8, errmax);
 	}
 	s->logmsg[0] = '\0';
 	return SQL_SUCCESS;
@@ -11354,17 +11608,17 @@ drverror(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 	    goto noerr;
 	}
 	*nativeErr = d->naterr;
-	strcpy(sqlState, d->sqlstate);
+	strcpy((char *) sqlState, d->sqlstate);
 	if (errmax == SQL_NTS) {
-	    strcpy(errmsg, "[SQLite]");
-	    strcat(errmsg, d->logmsg);
-	    *errlen = strlen(errmsg);
+	    strcpy((char *) errmsg, "[SQLite]");
+	    strcat((char *) errmsg, (char *) d->logmsg);
+	    *errlen = strlen((char *) errmsg);
 	} else {
-	    strncpy(errmsg, "[SQLite]", errmax);
+	    strncpy((char *) errmsg, "[SQLite]", errmax);
 	    if (errmax - 8 > 0) {
-		strncpy(errmsg + 8, d->logmsg, errmax - 8);
+		strncpy((char *) errmsg + 8, (char *) d->logmsg, errmax - 8);
 	    }
-	    *errlen = min(strlen(d->logmsg) + 8, errmax);
+	    *errlen = min(strlen((char *) d->logmsg) + 8, errmax);
 	}
 	d->logmsg[0] = '\0';
 	return SQL_SUCCESS;
@@ -11421,20 +11675,21 @@ SQLErrorW(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 	  SQLWCHAR *errmsg, SQLSMALLINT errmax, SQLSMALLINT *errlen)
 {
     char state[16];
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
     SQLRETURN ret;
     
-    ret = drverror(env, dbc, stmt, state, nativeErr,
-		   (char *) errmsg, errmax, &len);
+    ret = drverror(env, dbc, stmt, (SQLCHAR *) state, nativeErr,
+		   (SQLCHAR *) errmsg, errmax, &len);
     if (ret == SQL_SUCCESS) {
 	if (sqlState) {
-	    uc_from_utf_buf(state, sqlState, 6 * sizeof (SQLWCHAR));
+	    uc_from_utf_buf((SQLCHAR *) state, sqlState,
+			    6 * sizeof (SQLWCHAR));
 	}
 	if (errmsg) {
 	    if (len > 0) {
 		SQLWCHAR *e = NULL;
 
-		e = uc_from_utf((char *) errmsg, len);
+		e = uc_from_utf((SQLCHAR *) errmsg, len);
 		if (e) {
 		    if (errmax > 0) {
 			uc_strncpy(errmsg, e, errmax);
@@ -11543,6 +11798,9 @@ selcb(void *arg, int ncols, char **values, char **cols)
 		dyncols[i].column = p;
 		p += strlen(p) + 1;
 	    }
+	    if (s->longnames) {
+		dyncols[i].column = dyncols[i].label;
+	    }
 #ifdef SQL_LONGVARCHAR
 	    dyncols[i].type = SQL_LONGVARCHAR;
 	    dyncols[i].size = 65536;
@@ -11595,8 +11853,9 @@ noconn:
     }
     vm_end(s);
     freep(&s->query);
-    s->query = fixupsql(query, queryLen, &s->nparams, &s->isselect, &errp,
-			d->version, &s->parmnames);
+    s->query = (SQLCHAR *) fixupsql((char *) query, queryLen, &s->nparams,
+				    &s->isselect, &errp,
+				    d->version, &s->parmnames);
     if (!s->query) {
 	if (errp) {
 	    setstat(s, -1, errp, (*s->ov3) ? "HY000" : "S1000");
@@ -11604,25 +11863,58 @@ noconn:
 	}
 	return nomem(s);
     }
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+    if (s->nparams > MAX_PARAMS_FOR_VPRINTF) {
+	freep(&s->query);
+	setstat(s, -1, "too much parameters in query",
+		(*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+#endif
     errp = NULL;
     freeresult(s, -1);
-    if (s->isselect) {
+    if (s->isselect > 0) {
 	int ret;
 	char **params = NULL;
 
 	if (s->nparams) {
-	    int i;
+	    int i, maxp;
 
-	    params = xmalloc(s->nparams * sizeof (char *));
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+	    maxp = MAX_PARAMS_FOR_VPRINTF;
+#else
+	    maxp = s->nparams;
+#endif
+	    params = xmalloc(maxp * sizeof (char *));
 	    if (!params) {
 		return nomem(s);
 	    }
-	    for (i = 0; i < s->nparams; i++) {
+	    for (i = 0; i < maxp; i++) {
 		params[i] = NULL;
 	    }
 	}
-	ret = sqlite_exec_vprintf(d->sqlite, s->query, selcb, s,
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+	ret = sqlite_exec_printf(d->sqlite, s->query, selcb, s, &errp,
+				 params[0], params[1],
+				 params[2], params[3],
+				 params[4], params[5],
+				 params[6], params[7],
+				 params[8], params[9],
+				 params[10], params[11],
+				 params[12], params[13],
+				 params[14], params[15],
+				 params[16], params[17],
+				 params[18], params[19],
+				 params[20], params[21],
+				 params[22], params[23],
+				 params[24], params[25],
+				 params[26], params[27],
+				 params[28], params[29],
+				 params[30], params[31]);
+#else
+	ret = sqlite_exec_vprintf(d->sqlite, (char *) s->query, selcb, s,
 				  &errp, (char *) params);
+#endif
 	if (ret != SQLITE_ABORT && ret != SQLITE_OK) {
 	    dbtracerc(d, ret, errp);
 	    freep(&params);
@@ -11650,7 +11942,7 @@ noconn:
 /* see doc on top */
 
 static SQLRETURN
-drvexecute(SQLHSTMT stmt)
+drvexecute(SQLHSTMT stmt, int initial)
 {
     STMT *s;
     DBC *d;
@@ -11681,6 +11973,24 @@ noconn:
     }
 again:
     vm_end(s);
+    if (initial) {
+	/* fixup data-at-execution parameters */
+	for (i = 0; i < s->nparams; i++) {
+	    BINDPARM *p = &s->bindparms[i];
+
+	    if (!p->need &&
+		p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		if (p->param && p->param == p->ind) {
+		    freep(&p->param);
+		}
+		p->ind = p->param0;
+		p->param = NULL;
+		p->need = 1;
+		p->offs = 0;
+		p->len = 0;
+	    }
+	}
+    }
     for (i = size = 0; i < s->nparams; i++) {
 	ret = substparam(s, i, NULL, &size);
 	if (ret != SQL_SUCCESS) {
@@ -11689,13 +11999,22 @@ again:
     }
     if (s->nparams) {
 	char *p;
+	int maxp;
 
-	params = xmalloc(s->nparams * sizeof (char *) + size);
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+	maxp = MAX_PARAMS_FOR_VPRINTF;
+#else
+	maxp = s->nparams;
+#endif
+	params = xmalloc(maxp * sizeof (char *) + size);
 	if (!params) {
 	    ret = nomem(s);
 	    goto cleanup;
 	}
-	p = (char *) (params + s->nparams);
+	for (i = 0; i < maxp; i++) {
+	    params[i] = NULL;
+	}	    
+	p = (char *) (params + maxp);
 	for (i = 0; i < s->nparams; i++) {
 	    int len = 0;
 
@@ -11712,7 +12031,7 @@ again:
 	}
     }
     freeresult(s, 0);
-    if (!d->autocommit && !d->intrans) {
+    if (!d->autocommit && !d->intrans && !d->trans_disable) {
 	rc = sqlite_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
 	dbtracerc(d, rc, errp);
 	if (rc != SQLITE_OK) {
@@ -11732,7 +12051,7 @@ again:
 	    errp = NULL;
 	}
     }
-    if (s->isselect && !d->intrans &&
+    if (s->isselect > 0 && !d->intrans &&
 	s->curtype == SQL_CURSOR_FORWARD_ONLY &&
 	d->step_enable && s->nparams == 0 && d->vm_stmt == NULL) {
 	s->nrows = -1;
@@ -11742,8 +12061,29 @@ again:
 	    goto done2;
 	}
     }
-    rc = sqlite_get_table_vprintf(d->sqlite, s->query, &s->rows,
+#ifdef CANT_PASS_VALIST_AS_CHARPTR
+    rc = sqlite_get_table_printf(d->sqlite, s->query, &s->rows,
+				 &s->nrows, &ncols, &errp,
+				 params[0], params[1],
+				 params[2], params[3],
+				 params[4], params[5],
+				 params[6], params[7],
+				 params[8], params[9],
+				 params[10], params[11],
+				 params[12], params[13],
+				 params[14], params[15],
+				 params[16], params[17],
+				 params[18], params[19],
+				 params[20], params[21],
+				 params[22], params[23],
+				 params[24], params[25],
+				 params[26], params[27],
+				 params[28], params[29],
+				 params[30], params[31]);
+#else
+    rc = sqlite_get_table_vprintf(d->sqlite, (char *) s->query, &s->rows,
 				  &s->nrows, &ncols, &errp, (char *) params);
+#endif
     dbtracerc(d, rc, errp);
     if (rc != SQLITE_OK) {
 	freep(&params);
@@ -11814,6 +12154,9 @@ again:
 		dyncols[i].table = "";
 		dyncols[i].column = s->rows[i];
 	    }
+	    if (s->longnames) {
+		dyncols[i].column = dyncols[i].label;
+	    }
 #ifdef SQL_LONGVARCHAR
 	    dyncols[i].type = SQL_LONGVARCHAR;
 	    dyncols[i].size = 65536;
@@ -11853,11 +12196,15 @@ done2:
 	}
     }
 cleanup:
-    if (s->nparams) {
+    if (ret != SQL_NEED_DATA && s->nparams) {
 	for (i = 0; i < s->nparams; i++) {
 	    BINDPARM *p = &s->bindparms[i];
 
-	    p->param = p->param0;
+	    if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		freep(&p->param);
+	    } else {
+		p->param = p->param0;
+	    }
 	}
 	s->nrows = s->paramset_nrows;
 	s->paramset_count = 0;
@@ -11900,7 +12247,7 @@ SQLPrepareW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
     if (!q) {
 	return nomem((STMT *) stmt);
     }
-    ret = drvprepare(stmt, q, SQL_NTS);
+    ret = drvprepare(stmt, (SQLCHAR *) q, SQL_NTS);
     uc_free(q);
     return ret;
 }
@@ -11915,7 +12262,7 @@ SQLPrepareW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
 SQLRETURN SQL_API
 SQLExecute(SQLHSTMT stmt)
 {
-    return drvexecute(stmt);
+    return drvexecute(stmt, 1);
 }
 
 #ifndef SQLITE_UTF8
@@ -11933,7 +12280,7 @@ SQLExecDirect(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
     if (drvprepare(stmt, query, queryLen) != SQL_SUCCESS) {
 	return SQL_ERROR;
     }
-    return drvexecute(stmt);
+    return drvexecute(stmt, 1);
 }
 #endif
 
@@ -11955,18 +12302,19 @@ SQLExecDirectW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
     if (!q) {
 	return nomem((STMT *) stmt);
     }
-    ret = drvprepare(stmt, q, SQL_NTS);
+    ret = drvprepare(stmt, (SQLCHAR *) q, SQL_NTS);
     uc_free(q);
     if (ret == SQL_SUCCESS) {
-	return drvexecute(stmt);
+	return drvexecute(stmt, 1);
     }
     return ret;
 }
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__OS2__)
 #ifndef WITHOUT_DRIVERMGR
 
+#ifdef _WIN32
 /*
  * Windows configuration dialog stuff.
  */
@@ -11975,8 +12323,25 @@ SQLExecDirectW(SQLHSTMT stmt, SQLWCHAR *query, SQLINTEGER queryLen)
 #include <winuser.h>
 
 #define stricmp _stricmp
+#endif
 
+#ifdef __OS2__
+#define INCL_WIN
+#define INCL_PM
+#define INCL_DOSMODULEMGR
+#define INCL_DOSERRORS
+#define INCL_WINSTDFILE
+
+#include <os2.h>
+#include <stdlib.h>
+
+#include "resourceos2.h"
+
+#endif
+
+#ifdef _WIN32
 static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
+#endif
 
 #define MAXPATHLEN      (255+1)           /* Max path length */
 #define MAXKEYLEN       (15+1)            /* Max keyword length */
@@ -11994,7 +12359,9 @@ static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #define KEY_DRIVER		4
 #define KEY_NOWCHAR		5
 #define KEY_STEPAPI		6
-#define NUMOFKEYS		7
+#define KEY_NOTXN		7
+#define KEY_LONGNAM		8
+#define NUMOFKEYS		9
 
 typedef struct {
     BOOL supplied;
@@ -12003,6 +12370,9 @@ typedef struct {
 
 typedef struct {
     SQLHWND parent;
+#ifdef __OS2__
+    HMODULE hDLL;
+#endif
     LPCSTR  driver;
     ATTR    attr[NUMOFKEYS];
     char    DSN[MAXDSNAME];
@@ -12022,6 +12392,8 @@ static struct {
     { "Driver", KEY_DRIVER },
     { "NoWCHAR", KEY_NOWCHAR },
     { "StepAPI", KEY_STEPAPI },
+    { "NoTXN", KEY_NOTXN },
+    { "LongNames", KEY_LONGNAM },
     { NULL, 0 }
 };
 
@@ -12088,6 +12460,7 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
     }
     if (!SQLWriteDSNToIni(dsn, setupdlg->driver)) {
 	if (parent) {
+#ifdef _WIN32
 	    char buf[MAXPATHLEN], msg[MAXPATHLEN];
 
 	    LoadString(hModule, IDS_BADDSN, buf, sizeof (buf));
@@ -12096,6 +12469,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 	    MessageBox(parent, msg, buf,
 		       MB_ICONEXCLAMATION | MB_OK | MB_TASKMODAL |
 		       MB_SETFOREGROUND);
+#endif
+#ifdef __OS2__
+	    WinMessageBox(HWND_DESKTOP, parent, "Bad DSN", "Configure Error",
+			  0, MB_ERROR | MB_OK );
+#endif
 	}
 	return FALSE;
     }
@@ -12122,6 +12500,16 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
     if (parent || setupdlg->attr[KEY_STEPAPI].supplied) {
 	SQLWritePrivateProfileString(dsn, "StepAPI",
 				     setupdlg->attr[KEY_STEPAPI].attr,
+				     ODBC_INI);
+    }
+    if (parent || setupdlg->attr[KEY_NOTXN].supplied) {
+	SQLWritePrivateProfileString(dsn, "NoTXN",
+				     setupdlg->attr[KEY_NOTXN].attr,
+				     ODBC_INI);
+    }
+    if (parent || setupdlg->attr[KEY_LONGNAM].supplied) {
+	SQLWritePrivateProfileString(dsn, "LongNames",
+				     setupdlg->attr[KEY_LONGNAM].attr,
 				     ODBC_INI);
     }
     if (setupdlg->attr[KEY_DSN].supplied &&
@@ -12171,6 +12559,18 @@ GetAttributes(SETUPDLG *setupdlg)
 				   sizeof (setupdlg->attr[KEY_STEPAPI].attr),
 				   ODBC_INI);
     }
+    if (!setupdlg->attr[KEY_NOTXN].supplied) {
+	SQLGetPrivateProfileString(dsn, "NoTXN", "",
+				   setupdlg->attr[KEY_NOTXN].attr,
+				   sizeof (setupdlg->attr[KEY_NOTXN].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_LONGNAM].supplied) {
+	SQLGetPrivateProfileString(dsn, "LongNames", "",
+				   setupdlg->attr[KEY_LONGNAM].attr,
+				   sizeof (setupdlg->attr[KEY_LONGNAM].attr),
+				   ODBC_INI);
+    }
 }
 
 /**
@@ -12181,6 +12581,7 @@ GetAttributes(SETUPDLG *setupdlg)
 static void
 GetDBFile(HWND hdlg)
 {
+#ifdef _WIN32
     SETUPDLG *setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWL_USER);
     OPENFILENAME ofn;
 
@@ -12196,8 +12597,25 @@ GetDBFile(HWND hdlg)
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	setupdlg->attr[KEY_DBNAME].supplied = TRUE;
     }
+#endif
+#ifdef __OS2__
+    SETUPDLG *setupdlg = (SETUPDLG *) WinQueryWindowULong(hdlg, QWL_USER);
+    FILEDLG ofn;
+
+    memset(&ofn, 0, sizeof (ofn));
+    ofn.cbSize = sizeof (FILEDLG);
+    strcpy(ofn.szFullFile, setupdlg->attr[KEY_DBNAME].attr);
+    ofn.fl = FDS_OPEN_DIALOG | FDS_CENTER;
+    WinFileDlg(hdlg, hdlg, &ofn);
+    if (ofn.lReturn == DID_OK) {
+	strcpy(setupdlg->attr[KEY_DBNAME].attr, ofn.szFullFile);
+	WinSetDlgItemText(hdlg, EF_DATABASE, setupdlg->attr[KEY_DBNAME].attr);
+	setupdlg->attr[KEY_DBNAME].supplied = TRUE;
+    }
+#endif
 }
 
+#ifdef _WIN32
 /**
  * Dialog procedure for ConfigDSN().
  * @param hdlg handle of dialog window
@@ -12226,6 +12644,12 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		       BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_NOTXN,
+		       getbool(setupdlg->attr[KEY_NOTXN].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_LONGNAM,
+		       getbool(setupdlg->attr[KEY_LONGNAM].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
 	if (setupdlg->defDSN) {
 	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAME), FALSE);
@@ -12278,6 +12702,12 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
 		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_NOTXN].attr,
+		   IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
+		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -12288,6 +12718,110 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     }
     return FALSE;
 }
+#endif
+
+#ifdef __OS2__
+/**
+ * Dialog procedure for ConfigDSN().
+ * @param hdlg handle of dialog window
+ * @param wmsg type of message
+ * @param wparam wparam of message
+ * @param lparam lparam of message
+ * @result standard MRESULT
+ */
+
+static MRESULT EXPENTRY
+ConfigDlgProc(HWND hdlg, ULONG wmsg, MPARAM wparam, MPARAM lparam)
+{
+    SETUPDLG *setupdlg = NULL;
+
+    switch (wmsg) {
+    case WM_INITDLG:
+	WinSetWindowULong(hdlg, QWL_USER, (ULONG) lparam);
+	setupdlg = (SETUPDLG *) lparam;
+	GetAttributes(setupdlg);
+	WinSetDlgItemText(hdlg, EF_DSNNAME, setupdlg->attr[KEY_DSN].attr);
+	WinSetDlgItemText(hdlg, EF_DSNDESC, setupdlg->attr[KEY_DESC].attr);
+	WinSetDlgItemText(hdlg, EF_DATABASE, setupdlg->attr[KEY_DBNAME].attr);
+	WinSetDlgItemText(hdlg, EF_TIMEOUT, setupdlg->attr[KEY_BUSY].attr);
+	WinCheckButton(hdlg, IDC_NOWCHAR,
+		       getbool(setupdlg->attr[KEY_NOWCHAR].attr));
+	WinCheckButton(hdlg, IDC_STEPAPI,
+		       getbool(setupdlg->attr[KEY_STEPAPI].attr));
+	WinCheckButton(hdlg, IDC_NOTXN,
+		       getbool(setupdlg->attr[KEY_NOTXN].attr));
+	WinCheckButton(hdlg, IDC_LONGNAM,
+		       getbool(setupdlg->attr[KEY_LONGNAM].attr));
+	if (setupdlg->defDSN) {
+	    WinEnableWindow(WinWindowFromID(hdlg, EF_DSNNAME), FALSE);
+	} else {
+	    WinSendDlgItemMsg(hdlg, EF_DSNNAME,
+			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDSNAME - 1), 0L);
+	    WinSendDlgItemMsg(hdlg, EF_DSNDESC,
+			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDESC - 1), 0L);
+	    WinSendDlgItemMsg(hdlg, EF_DATABASE,
+			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDBNAME - 1), 0L);
+	    WinSendDlgItemMsg(hdlg, EF_TIMEOUT,
+			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXTONAME - 1), 0L);
+	}
+	return 0;
+    case WM_COMMAND:
+	switch (SHORT1FROMMP(wparam)) {
+	case IDC_BROWSE:
+	    GetDBFile(hdlg);
+	    break;
+	case DID_OK:
+	    setupdlg = (SETUPDLG *) WinQueryWindowULong(hdlg, QWL_USER);
+	    if (!setupdlg->defDSN) {
+		WinQueryDlgItemText(hdlg, EF_DSNNAME,
+				    sizeof (setupdlg->attr[KEY_DSN].attr),
+				    setupdlg->attr[KEY_DSN].attr);
+	    }
+	    WinQueryDlgItemText(hdlg, EF_DSNDESC,
+				sizeof (setupdlg->attr[KEY_DESC].attr),
+				setupdlg->attr[KEY_DESC].attr);
+	    WinQueryDlgItemText(hdlg, EF_DATABASE,
+				sizeof (setupdlg->attr[KEY_DBNAME].attr),
+				setupdlg->attr[KEY_DBNAME].attr);
+	    WinQueryDlgItemText(hdlg, EF_TIMEOUT,
+				sizeof (setupdlg->attr[KEY_BUSY].attr),
+				setupdlg->attr[KEY_BUSY].attr);
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_NOWCHAR, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_NOWCHAR].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_NOWCHAR].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_STEPAPI, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_STEPAPI].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_STEPAPI].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_NOTXN, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_NOTXN].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_NOTXN].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_LONGNAM, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_LONGNAM].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_LONGNAM].attr, "0");
+	    }
+	    SetDSNAttributes(hdlg, setupdlg);
+	    WinDismissDlg(hdlg, DID_OK);
+	    return 0;
+	case DID_CANCEL:
+	    WinDismissDlg(hdlg, DID_OK);
+	    return 0;
+	}
+	break;
+    }
+    return WinDefDlgProc(hdlg, wmsg, wparam, lparam);
+}
+#endif
 
 /**
  * ODBC INSTAPI procedure for DSN configuration.
@@ -12324,15 +12858,31 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
 	    success = SQLRemoveDSNFromIni(setupdlg->attr[KEY_DSN].attr);
 	}
     } else {
+#ifdef _WIN32
 	setupdlg->parent = hwnd;
+#endif
+#ifdef __OS2__
+	setupdlg->parent = (SQLHWND) hwnd;
+#endif
 	setupdlg->driver = driver;
 	setupdlg->newDSN = request == ODBC_ADD_DSN;
 	setupdlg->defDSN = stricmp(setupdlg->attr[KEY_DSN].attr,
 				   "Default") == 0;
 	if (hwnd) {
+#ifdef _WIN32
 	    success = DialogBoxParam(hModule, MAKEINTRESOURCE(CONFIGDSN),
 				     hwnd, (DLGPROC) ConfigDlgProc,
 				     (LONG) setupdlg) == IDOK;
+#endif
+#ifdef __OS2__
+	    HMODULE hDLL;
+
+	    DosQueryModuleHandle("SQLLODBC.DLL", &hDLL);
+	    setupdlg->hDLL = hDLL;
+	    success = WinDlgBox(HWND_DESKTOP, hwnd, ConfigDlgProc, hDLL,
+				DLG_SQLITEODBCCONFIGURATION, setupdlg);
+	    success = (success == DID_OK) ? TRUE : FALSE;
+#endif
 	} else if (setupdlg->attr[KEY_DSN].supplied) {
 	    success = SetDSNAttributes(hwnd, setupdlg);
 	} else {
@@ -12343,6 +12893,7 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
     return success;
 }
 
+#ifdef _WIN32
 /**
  * Dialog procedure for SQLDriverConnect().
  * @param hdlg handle of dialog window
@@ -12379,6 +12930,12 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_NOTXN,
+		       getbool(setupdlg->attr[KEY_NOTXN].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_LONGNAM,
+		       getbool(setupdlg->attr[KEY_LONGNAM].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	return TRUE;
     case WM_COMMAND:
 	switch (GET_WM_COMMAND_ID(wparam, lparam)) {
@@ -12402,6 +12959,12 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
 		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
 		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_NOTXN].attr,
+		   IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
+		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
 	    EndDialog(hdlg, GET_WM_COMMAND_ID(wparam, lparam) == IDOK);
@@ -12410,6 +12973,90 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     }
     return FALSE;
 }
+#endif
+
+#ifdef __OS2__
+/**
+ * Dialog procedure for SQLDriverConnect().
+ * @param hdlg handle of dialog window
+ * @param wmsg type of message
+ * @param wparam wparam of message
+ * @param lparam lparam of message
+ * @result standard MRESULT
+ */
+
+static MRESULT EXPENTRY
+DriverConnectProc(HWND hdlg, ULONG wmsg, MPARAM wparam, MPARAM lparam)
+{
+    SETUPDLG *setupdlg;
+
+    switch (wmsg) {
+    case WM_INITDLG:
+	WinSetWindowULong(hdlg, QWL_USER, (ULONG) lparam);
+	setupdlg = (SETUPDLG *) lparam;
+	WinSetDlgItemText(hdlg, EF_DSNNAME, setupdlg->attr[KEY_DSN].attr);
+	WinSetDlgItemText(hdlg, EF_DSNDESC, setupdlg->attr[KEY_DESC].attr);
+	WinSetDlgItemText(hdlg, EF_DATABASE, setupdlg->attr[KEY_DBNAME].attr);
+	WinSetDlgItemText(hdlg, EF_TIMEOUT, setupdlg->attr[KEY_BUSY].attr);
+	WinCheckButton(hdlg, IDC_NOWCHAR,
+		       getbool(setupdlg->attr[KEY_NOWCHAR].attr));
+	WinCheckButton(hdlg, IDC_STEPAPI,
+		       getbool(setupdlg->attr[KEY_STEPAPI].attr));
+	WinCheckButton(hdlg, IDC_NOTXN,
+		       getbool(setupdlg->attr[KEY_NOTXN].attr));
+	WinCheckButton(hdlg, IDC_LONGNAM,
+		       getbool(setupdlg->attr[KEY_LONGNAM].attr));
+	return 0;
+    case WM_COMMAND:
+	switch (SHORT1FROMMP(wparam)) {
+	case IDC_BROWSE:
+	    GetDBFile(hdlg);
+	    return 0;
+	case DID_OK:
+	    setupdlg = (SETUPDLG *) WinQueryWindowULong(hdlg, QWL_USER);
+	    WinQueryDlgItemText(hdlg, EF_DSNNAME,
+				sizeof (setupdlg->attr[KEY_DSN].attr),
+				setupdlg->attr[KEY_DSN].attr);
+	    WinQueryDlgItemText(hdlg, EF_DATABASE,
+				sizeof (setupdlg->attr[KEY_DBNAME].attr),
+				setupdlg->attr[KEY_DBNAME].attr);
+	    WinQueryDlgItemText(hdlg, EF_TIMEOUT,
+				sizeof (setupdlg->attr[KEY_BUSY].attr),
+				setupdlg->attr[KEY_BUSY].attr);
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_NOWCHAR, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_NOWCHAR].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_NOWCHAR].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_STEPAPI, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_STEPAPI].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_STEPAPI].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_NOTXN, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_NOTXN].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_NOTXN].attr, "0");
+	    }
+	    if ((ULONG)WinSendDlgItemMsg(hdlg, IDC_LONGNAM, BM_QUERYCHECK,
+					 0, 0) == 1) {
+		strcpy(setupdlg->attr[KEY_LONGNAM].attr, "1");
+	    } else {
+		strcpy(setupdlg->attr[KEY_LONGNAM].attr, "0");
+	    }
+	    WinDismissDlg(hdlg, DID_OK);
+	    return 0;
+	case DID_CANCEL:
+	    WinDismissDlg(hdlg, DID_CANCEL);
+	    return 0;
+	}
+    }
+    return WinDefDlgProc(hdlg, wmsg, wparam, lparam);
+}
+#endif
 
 /**
  * Internal connect using a driver connection string.
@@ -12470,9 +13117,19 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     }
 retry:
     if (prompt) {
+#ifdef _WIN32
 	ret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
 			     hwnd, (DLGPROC) DriverConnectProc,
 			     (LONG) setupdlg);
+#endif
+#ifdef __OS2__
+	HMODULE hDLL;
+
+	DosQueryModuleHandle("SQLLODBC.DLL", &hDLL);
+	setupdlg->hDLL = hDLL;
+	ret = WinDlgBox(HWND_DESKTOP, (HWND) hwnd, DriverConnectProc, hDLL,
+			DLG_SQLITEODBCCONFIGURATION, setupdlg);
+#endif
 	if (!ret || ret == -1) {
 	    xfree(setupdlg);
 	    return SQL_NO_DATA_FOUND;
@@ -12487,7 +13144,7 @@ retry:
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 			 "%s%s%s%s%s%sDatabase=%s;StepAPI=%s;"
-			 "Timeout=%s;NoWCHAR=%s",
+			 "NoTXN=%s;Timeout=%s;NoWCHAR=%s;LongNames=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? setupdlg->attr[KEY_DSN].attr : "",
 			 dsn_0 ? ";" : "",
@@ -12496,8 +13153,10 @@ retry:
 			 drv_0 ? ";" : "",
 			 setupdlg->attr[KEY_DBNAME].attr,
 			 setupdlg->attr[KEY_STEPAPI].attr,
+			 setupdlg->attr[KEY_NOTXN].attr,
 			 setupdlg->attr[KEY_BUSY].attr,
-			 setupdlg->attr[KEY_NOWCHAR].attr);
+			 setupdlg->attr[KEY_NOWCHAR].attr,
+			 setupdlg->attr[KEY_LONGNAM].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -12511,9 +13170,11 @@ retry:
 	}
     }
     d->nowchar = getbool(setupdlg->attr[KEY_NOWCHAR].attr);
+    d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
     rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
 		setupdlg->attr[KEY_DSN].attr,
 		setupdlg->attr[KEY_STEPAPI].attr,
+		setupdlg->attr[KEY_NOTXN].attr,
 		setupdlg->attr[KEY_BUSY].attr);
     if (rc != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {
@@ -12528,7 +13189,7 @@ retry:
 }
 
 #endif /* WITHOUT_DRIVERMGR */
-#endif /* _WIN32 */
+#endif /* _WIN32 || __OS2__ */
 
 #ifndef WITHOUT_DRIVERMGR
 
@@ -12579,7 +13240,7 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 {
     SQLRETURN ret;
     char *ci = NULL;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
     if (connIn) {
 	ci = uc_to_utf_c(connIn, connInLen);
@@ -12590,15 +13251,15 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 	    return SQL_ERROR;
 	}
     }
-    ret = drvdriverconnect(dbc, hwnd, ci, SQL_NTS,
-			   (char *) connOut, connOutMax, &len, drvcompl);
+    ret = drvdriverconnect(dbc, hwnd, (SQLCHAR *) ci, SQL_NTS,
+			   (SQLCHAR *) connOut, connOutMax, &len, drvcompl);
     uc_free(ci);
     if (ret == SQL_SUCCESS) {
 	SQLWCHAR *co = NULL;
 
 	if (connOut) {
 	    if (len > 0) {
-		co = uc_from_utf((char *) connOut, len);
+		co = uc_from_utf((SQLCHAR *) connOut, len);
 		if (co) {
 		    uc_strncpy(connOut, co, connOutMax);
 		    len = min(connOutMax, uc_strlen(co));
@@ -12704,7 +13365,7 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     prop = prop->pNext;
     memset(prop, 0, sizeof (ODBCINSTPROPERTY));
     prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
-    prop->aPromptData = malloc (sizeof (instYN));
+    prop->aPromptData = malloc(sizeof (instYN));
     memcpy(prop->aPromptData, instYN, sizeof (instYN));
     strncpy(prop->szName, "StepAPI", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
@@ -12713,11 +13374,19 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     prop = prop->pNext;
     memset(prop, 0, sizeof (ODBCINSTPROPERTY));
     prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
-    prop->aPromptData = malloc (sizeof (instYN));
+    prop->aPromptData = malloc(sizeof (instYN));
     memcpy(prop->aPromptData, instYN, sizeof (instYN));
     strncpy(prop->szName, "NoWCHAR", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
 #endif
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc(sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "LongNames", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
     return 1;
 }
 

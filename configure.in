@@ -47,7 +47,7 @@ for i in $SQLITE_DIR ; do
 done
 if test "$SQLITE_INC" = "UNKNOWN" -o "$SQLITE_LIB" = "UNKNOWN" ; then
    AC_MSG_RESULT(no)
-   AC_MSG_ERROR(SQLite header files and/or library not found)
+   AC_MSG_WARN(SQLite header files and/or library not found)
 else
    AC_MSG_RESULT(yes)
 fi
@@ -128,20 +128,6 @@ fi
 AC_SUBST(SQLITE3_INC)
 AC_SUBST(SQLITE3_LIB)
 
-# test for availability of library functions
-
-saved_CFLAGS=$CFLAGS
-CFLAGS="$CFLAGS -I$SQLITE3_INC"
-saved_LIBS=$LIBS
-LIBS="$LIBS -L$SQLITE3_LIBDIR"
-AC_CHECK_LIB(sqlite3,sqlite3AtoF,SQLITE3_ATOF=1,SQLITE3_ATOF=0)
-LIBS=$saved_LIBS
-CFLAGS=$saved_CFLAGS
-if test "$SQLITE3_ATOF" = 1 ; then
-   SQLITE3_FLAGS="$SQLITE3_FLAGS -DHAVE_SQLITE3ATOF"
-fi
-AC_SUBST(SQLITE3_FLAGS)
-
 #########
 # Any SQLite to be done ?
 
@@ -170,8 +156,16 @@ AC_MSG_CHECKING([for ODBC headers and libraries])
 ODBC_FLAGS=UNKNOWN
 ODBC_LIB=UNKNOWN
 for i in $ODBC_DIR ; do
-   if test -r "$i/include/sql.h" ; then
-      if test -r "$i/include/iodbcinst.h" ; then
+   if test -r "$i/include/iodbc/sql.h" -o -r "$i/include/sql.h" ; then
+      if test -r "$i/include/iodbc/iodbcinst.h" ; then
+         ODBC_FLAGS="-DHAVE_IODBC=1 -I$i/iodbc/include"
+         if test -r "$i/lib/libiodbcinst.la" ; then
+            ODBC_LIB="$i/lib/libiodbcinst.la"
+         else
+            ODBC_LIB=-lodbcinst
+         fi
+         break
+      elif test -r "$i/include/iodbcinst.h" ; then
          ODBC_FLAGS="-DHAVE_IODBC=1 -I$i/include"
          if test -r "$i/lib/libiodbcinst.la" ; then
             ODBC_LIB="$i/lib/libiodbcinst.la"
@@ -206,6 +200,75 @@ else
 fi
 
 ##########
+# Test ODBC features.
+#
+
+SAVED_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS $ODBC_FLAGS"
+
+AC_MSG_CHECKING([for SQLLEN availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLLEN len = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLLEN=1"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLULEN availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLULEN len = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLULEN=1"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLROWCOUNT availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLROWCOUNT rc = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLROWCOUNT=1"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLColAttribute signature has SQLLEN])
+AC_TRY_COMPILE([
+#include <stdio.h>
+#define ODBCVER 0x0300
+#include <sql.h>
+#include <sqlext.h>
+#include <sqltypes.h>
+],[
+SQLHSTMT stmt = SQL_NULL_HSTMT;
+SQLSMALLINT valLen;
+SQLLEN val2;
+extern SQLRETURN SQLColAttribute(SQLHSTMT hstmt,
+                                 SQLUSMALLINT col,
+                                 SQLUSMALLINT id,
+                                 SQLPOINTER charattr,
+                                 SQLSMALLINT buflen,
+                                 SQLSMALLINT *slen,
+                                 SQLLEN *numattr);
+SQLColAttribute(stmt, 1, 0, NULL, 0, &valLen, &val2);
+],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DCOLATTRIBUTE_LAST_ARG_TYPE=SQLLEN_PTR"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLBIGINT availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLBIGINT;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_LONG_LONG=1"
+],[AC_MSG_RESULT(no)])
+
+CFLAGS="$SAVED_CFLAGS"
+
+##########
 # Experimental: use dlopen for resolving SQLGetPrivateProfileString
 # dynamically
 #
@@ -224,6 +287,45 @@ fi
 AC_SUBST(ODBC_FLAGS)
 AC_SUBST(ODBC_LIB)
 AC_SUBST(VER_INFO)
+
+##########
+# Find out if char ptr array can be passed in place of
+# a va_list (needed for sqlite_exec_vprintf() and
+# sqlite_vmprintf())
+#
+AC_MSG_CHECKING([va_list usage])
+AC_TRY_RUN([
+#include <stdarg.h>
+#include <stdio.h>
+
+static int
+vatest(char **x, ...)
+{
+   va_list ap;
+   char *y;
+   int ret;
+
+   va_start(ap, x);
+   y = va_arg(ap, char *);
+   x = (char **) &x + 1;
+   ret = (y != *x);
+   va_end(ap);
+   return ret;
+}
+
+int
+main(int argc, char **argv)
+{
+   exit(vatest(NULL, vatest, 0.0, 0, NULL));
+}
+],[USE_VFUNCS=1],[USE_VFUNCS=0],[USE_VFUNCS=0])
+
+if test "$USE_VFUNCS" = "1" ; then
+   AC_MSG_RESULT(using sqlite_exec_vprintf/sqlite_vmprintf)
+else
+   AC_MSG_RESULT(NOT using sqlite_exec_vprintf/sqlite_vmprintf)
+   ODBC_FLAGS="$ODBC_FLAGS -DCANT_PASS_VALIST_AS_CHARPTR=1"
+fi
 
 ##########
 # Check for usleep()

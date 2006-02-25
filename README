@@ -2,9 +2,9 @@ SQLite ODBC Driver
 ------------------
 
 This is an experimental open source ODBC driver for the wonderful
-SQLite 2.8.* and SQLite 3.* (alpha) Database Engine/Library.
-So far it is more a proof of concept and might contain lots of memory
-leaks and all other kinds of bugs. Thus I highly appreciate feedback.
+SQLite 2.8.* and SQLite 3.* Database Engine/Library.
+The driver is usable but may contain lots of memory leaks and all
+other kinds of bugs. Thus I appreciate feedback.
 
 The current source can be downloaded from
 
@@ -14,9 +14,9 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.15, SQLite 3.0.7, MS VC++ 6.0
+The binaries were made with SQLite 2.8.17, SQLite 3.3.4, MS VC++ 6.0
 and tested on Windows NT 4.0 with the query tool of MS Excel 97, with
-StarOffice 5.2 and OpenOffice 1.1.
+StarOffice 5.2 and OpenOffice 1.1 and 2.0.
 Unzip the archive into a temporary directory and execute the INST.EXE
 program. This installs the SQLite ODBC driver and creates a System DSN.
 To remove the driver use the UNINST.EXE program. To create a SQLite
@@ -201,12 +201,34 @@ Names of Win32 Driver DLLs:
    sqliteodbcu.dll   Driver with UTF-8/UNICODE SQLite2 engine
    sqlite3odbc.dll   Driver with SQLite3 engine, no WCHAR support for now
 
+
+DNS-less connection to the driver
+
+  Using the SQLDriverConnect() API it should be possible to connect to
+  a SQLite database with these strings (Win32 and UN*X)
+
+    DSN=SQLite Datasource;Database=full-path-to-db;...
+    DSN=SQLite3 Datasource;Database=full-path-to-db;...
+
+  alternatively
+
+  Win32:
+
+    Driver=SQLite ODBC Driver;Database=full-path-to-db;...
+    Driver=SQLite3 ODBC Driver;Database=full-path-to-db;...
+
+  UN*X (Linux RPM):
+
+    Driver=SQLITE;Database=full-path-to-db;...
+    Driver=SQLITE3;Database=full-path-to-db;...
+
+
 TODO:
 
 - improve documentation
 
 
-October, 7th, 2004
+February, 25th, 2006
 Christian Werner
 mailto:chw@ch-werner.de
 

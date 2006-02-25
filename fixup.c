@@ -1,7 +1,7 @@
 /*
  * Simple string replacement utility
  *
- * $Id: fixup.c,v 1.1 2002/01/20 08:01:29 chw Exp chw $
+ * $Id: fixup.c,v 1.2 2005/06/14 06:07:43 chw Exp chw $
  */
 
 #include <string.h>
@@ -19,18 +19,29 @@ main(int argc, char **argv)
     }
     for (i = 1 + 1; i < argc; i += 2) {
 	if (argv[i][0] == '@') {
-	    int len;
-	    FILE *f = fopen(argv[i] + 1, "r");
+	    int len, off = 1;
+	    FILE *f;
 
+	    if (argv[i][1] == '@') {
+		off++;
+	    }
+	    f = fopen(argv[i] + off, "r");
 	    if (f == NULL) {
-		fprintf(stderr, "unable to read %s\n", argv[i] + 1);
+		fprintf(stderr, "unable to read %s\n", argv[i] + off);
 		exit(1);
 	    }
 	    line[0] = '\0';
 	    fgets(line, sizeof (line), f);
+	    fclose(f);
 	    len = strlen(line);
 	    if (len) {
 		line[len - 1] = '\0';
+	    }
+	    if (off > 1) {
+		int x = 0, y = 0, z = 0;
+
+		sscanf(line, "%d.%d.%d", &x, &y, &z);
+		sprintf(line, "%d", x * 100000 + y * 1000 + z);
 	    }
 	    argv[i] = strdup(line);
 	}

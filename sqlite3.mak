@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 3.0.7
+# VC++ 6.0 Makefile for SQLite 3.3.4
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -45,21 +45,27 @@ TCCXD = $(TCCX) -D_DLL
 
 # Object files for the SQLite library.
 
-LIBOBJ = attach.obj auth.obj btree.obj build.obj date.obj delete.obj \
-	 expr.obj func.obj hash.obj insert.obj main.obj opcodes.obj \
-	 os_win.obj pager.obj parse.obj pragma.obj printf.obj \
-	 random.obj select.obj table.obj tokenize.obj trigger.obj \
-	 update.obj util.obj vacuum.obj vdbe.obj vdbeapi.obj \
-	 vdbeaux.obj vdbemem.obj where.obj utf.obj legacy.obj
+LIBOBJ = alter.obj analyze.obj attach.obj auth.obj btree.obj \
+	 build.obj callback.obj complete.obj \
+	 date.obj delete.obj expr.obj func.obj hash.obj insert.obj \
+	 main.obj opcodes.obj os.obj os_win.obj pager.obj parse.obj \
+	 pragma.obj prepare.obj printf.obj random.obj select.obj table.obj \
+	 tokenize.obj trigger.obj update.obj util.obj vacuum.obj \
+	 vdbe.obj vdbeapi.obj vdbeaux.obj vdbefifo.obj vdbemem.obj \
+	 where.obj utf.obj legacy.obj
 
 # All of the source code files.
 
 SRC = \
+  $(TOP)/src/alter.c \
+  $(TOP)/src/analyze.c \
   $(TOP)/src/attach.c \
   $(TOP)/src/auth.c \
   $(TOP)/src/btree.c \
   $(TOP)/src/btree.h \
   $(TOP)/src/build.c \
+  $(TOP)/src/callback.c \
+  $(TOP)/src/complete.c \
   $(TOP)/src/date.c \
   $(TOP)/src/delete.c \
   $(TOP)/src/expr.c \
@@ -69,11 +75,13 @@ SRC = \
   $(TOP)/src/insert.c \
   $(TOP)/src/legacy.c \
   $(TOP)/src/main.c \
+  $(TOP)/src/os.c \
   $(TOP)/src/os_win.c \
   $(TOP)/src/pager.c \
   $(TOP)/src/pager.h \
   $(TOP)/src/parse.y \
   $(TOP)/src/pragma.c \
+  $(TOP)/src/prepare.c \
   $(TOP)/src/printf.c \
   $(TOP)/src/random.c \
   $(TOP)/src/select.c \
@@ -91,6 +99,7 @@ SRC = \
   $(TOP)/src/vdbe.h \
   $(TOP)/src/vdbeapi.c \
   $(TOP)/src/vdbeaux.c \
+  $(TOP)/src/vdbefifo.c \
   $(TOP)/src/vdbemem.c \
   $(TOP)/src/vdbeInt.h \
   $(TOP)/src/where.c
@@ -105,7 +114,6 @@ HDR = \
    opcodes.h \
    $(TOP)/src/os.h \
    $(TOP)/src/os_common.h \
-   $(TOP)/src/os_win.h \
    $(TOP)/src/sqliteInt.h  \
    $(TOP)/src/vdbe.h  \
    parse.h
@@ -141,6 +149,16 @@ lemon:	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
 	$(BCC) -o lemon $(TOP)/tool/lemon.c
 	copy $(TOP)\tool\lempar.c .
 
+keywordhash.h:	$(TOP)/tool/mkkeywordhash.c
+	$(BCC) -o mkkwhash $(OPTS) $(TOP)/tool/mkkeywordhash.c
+	.\mkkwhash > keywordhash.h
+
+alter.obj:	$(TOP)/src/alter.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/alter.c
+
+analyze.obj:	$(TOP)/src/analyze.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/analyze.c
+
 attach.obj:	$(TOP)/src/attach.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/attach.c
 
@@ -152,6 +170,13 @@ btree.obj:	$(TOP)/src/btree.c $(HDR) $(TOP)/src/pager.h
 
 build.obj:	$(TOP)/src/build.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/build.c
+
+callback.obj:	$(TOP)/src/callback.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/callback.c
+
+complete.obj:	$(TOP)/src/complete.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/complete.c
+
 
 date.obj:	$(TOP)/src/date.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/date.c
@@ -177,6 +202,9 @@ main.obj:	$(TOP)/src/main.c $(HDR)
 opcodes.obj:	$(TOP)/opcodes.c $(HDR)
 	$(TCCXD) -c $(TOP)/opcodes.c
 
+os.obj:	$(TOP)/src/os.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/os.c
+
 os_win.obj:	$(TOP)/src/os_win.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/os_win.c
 
@@ -195,6 +223,9 @@ parse.c:	$(TOP)/src/parse.y lemon
 	copy $(TOP)\src\parse.y .
 	.\lemon parse.y
 
+prepare.obj:	$(TOP)/src/prepare.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/prepare.c
+
 printf.obj:	$(TOP)/src/printf.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/printf.c
 
@@ -207,7 +238,7 @@ select.obj:	$(TOP)/src/select.c $(HDR)
 table.obj:	$(TOP)/src/table.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/table.c
 
-tokenize.obj:	$(TOP)/src/tokenize.c $(HDR)
+tokenize.obj:	$(TOP)/src/tokenize.c keywordhash.h $(HDR)
 	$(TCCXD) -c $(TOP)/src/tokenize.c
 
 trigger.obj:	$(TOP)/src/trigger.c $(HDR)
@@ -231,6 +262,9 @@ vdbeapi.obj:	$(TOP)/src/vdbeapi.c $(VDBEHDR)
 vdbeaux.obj:	$(TOP)/src/vdbeaux.c $(VDBEHDR)
 	$(TCCXD) -c $(TOP)/src/vdbeaux.c
 
+vdbefifo.obj:	$(TOP)/src/vdbefifo.c $(VDBEHDR)
+	$(TCCXD) -c $(TOP)/src/vdbefifo.c
+
 vdbemem.obj:	$(TOP)/src/vdbemem.c $(VDBEHDR)
 	$(TCCXD) -c $(TOP)/src/vdbemem.c
 
@@ -245,7 +279,8 @@ legacy.obj:	$(TOP)/src/legacy.c $(HDR)
 
 sqlite3.h:	$(TOP)/src/sqlite.h.in
 	..\fixup < $(TOP)\src\sqlite.h.in > sqlite3.h \
-	    --VERS-- @$(TOP)\VERSION
+	    --VERS-- @$(TOP)\VERSION \
+	    --VERSION-NUMBER-- @@$(TOP)\VERSION
 
 config.h:
 	echo #include "stdio.h" >temp.c
@@ -256,8 +291,8 @@ config.h:
 	.\temp >config.h
 	@del temp.*
 
-opcodes.h:	$(TOP)/src/vdbe.c
-	..\mkopc <$(TOP)/src/vdbe.c
+opcodes.h:	$(TOP)/src/vdbe.c parse.h
+	..\mkopc3 <$(TOP)/src/vdbe.c parse.h
 	..\fixup < opcodes.c > opcodes.new \
 	    sqliteOpcodeNames sqlite3OpcodeNames
 	del opcodes.c
@@ -270,4 +305,9 @@ clean:
 	del *.lib
 	del *.exe
 	del sqlite3.h
+	del keywordhash.h
+	del opcodes.h
+	del opcodes.c
 	del config.h
+	del parse.h
+	del parse.c

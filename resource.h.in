@@ -12,6 +12,10 @@
 #define IDC_BROWSE			407
 #define IDC_STEPAPI			408
 #define IDC_NOWCHAR			409
+#define IDC_SYNCP			410
+#define IDC_SYNCPTEXT			411
+#define IDC_NOTXN			412
+#define IDC_LONGNAM			413
 #define IDS_MSGTITLE                    500
 #define IDS_BADDSN                      501
 #define IDC_STATIC                      -1

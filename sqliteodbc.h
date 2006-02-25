@@ -15,14 +15,28 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.34 2004/09/16 13:58:06 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.40 2006/02/24 12:50:16 chw Exp chw $
  *
- * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
  * DISCLAIMER OF ALL WARRANTIES.
  */
+
+#ifdef __OS2__
+#define INCL_WIN
+#define INCL_PM
+#define INCL_DOSMODULEMGR
+#define INCL_DOSERRORS
+#define INCL_WINSTDFILE
+#define ALLREADY_HAVE_OS2_TYPES
+#define DONT_TD_VOID
+#include <os2.h>
+#include <stdlib.h>
+#define ODBCVER 0x0300
+#include "resourceos2.h"
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -52,6 +66,20 @@
 
 #ifndef SQL_API
 #define SQL_API
+#endif
+
+#ifndef HAVE_SQLLEN
+#define SQLLEN SQLINTEGER
+#endif
+
+#define SQLLEN_PTR SQLLEN *
+
+#ifndef HAVE_SQLULEN
+#define SQLULEN SQLUINTEGER
+#endif
+
+#ifndef HAVE_SQLROWCOUNT
+#define SQLROWCOUNT SQLUINTEGER
 #endif
 
 struct dbc;
@@ -94,8 +122,10 @@ typedef struct dbc {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar;		/**< Don't try to use WCHAR */
+    int longnames;		/**< Don't shorten column names */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
+    int trans_disable;		/**< True for no transaction support */
     struct stmt *vm_stmt;	/**< Current STMT executing VM */
     int vm_rownum;		/**< Current row number */
 #if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
@@ -137,7 +167,7 @@ typedef struct {
 typedef struct {
     SQLSMALLINT type;	/**< ODBC type */
     SQLINTEGER max;	/**< Max. size of value buffer */
-    SQLINTEGER *lenp;	/**< Value return, actual size of value buffer */
+    SQLLEN *lenp;	/**< Value return, actual size of value buffer */
     SQLPOINTER valp;	/**< Value buffer */
     int index;		/**< Index of column in result */
     int offs;		/**< Byte offset for SQLGetData() */
@@ -173,7 +203,7 @@ typedef struct stmt {
     SQLCHAR *query;		/**< Current query, raw string */
     char **parmnames;		/**< Parameter names from current query */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
-    int isselect;		/**< True if query is a SELECT statement */
+    int isselect;		/**< > 0 if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
     COL *cols;			/**< Result column array */
     COL *dyncols;		/**< Column array, but malloc()ed */
@@ -193,6 +223,7 @@ typedef struct stmt {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
     int nowchar;		/**< Don't try to use WCHAR */
+    int longnames;		/**< Don't shorten column names */
     int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */
     SQLUSMALLINT *row_status;	/**< Row status pointer */

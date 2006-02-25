@@ -15,9 +15,9 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.4 2004/09/22 12:17:31 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.11 2006/02/24 12:48:25 chw Exp chw $
  *
- * Copyright (c) 2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -55,6 +55,20 @@
 #define SQL_API
 #endif
 
+#ifndef HAVE_SQLLEN
+#define SQLLEN SQLINTEGER
+#endif
+
+#define SQLLEN_PTR SQLLEN *
+
+#ifndef HAVE_SQLULEN
+#define SQLULEN SQLUINTEGER
+#endif
+
+#ifndef HAVE_SQLROWCOUNT
+#define SQLROWCOUNT SQLUINTEGER
+#endif
+
 struct dbc;
 struct stmt;
 
@@ -81,6 +95,7 @@ typedef struct dbc {
     ENV *env;			/**< Pointer to environment */
     struct dbc *next;		/**< Pointer to next DBC */
     sqlite3 *sqlite;		/**< SQLITE database handle */
+    int version;		/**< SQLITE version number */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
     int timeout;		/**< Lock timeout value */
@@ -93,9 +108,10 @@ typedef struct dbc {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
-    int nowchar;		/**< Don't try to use WCHAR */
+    int longnames;		/**< Don't shorten column names */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
+    int trans_disable;		/**< True for no transaction support */
     struct stmt *cur_s3stmt;	/**< Current STMT executing sqlite statement */
     int s3stmt_rownum;		/**< Current row number */
     FILE *trace;		/**< sqlite3_trace() file pointer or NULL */
@@ -135,7 +151,7 @@ typedef struct {
 typedef struct {
     SQLSMALLINT type;	/**< ODBC type */
     SQLINTEGER max;	/**< Max. size of value buffer */
-    SQLINTEGER *lenp;	/**< Value return, actual size of value buffer */
+    SQLLEN *lenp;	/**< Value return, actual size of value buffer */
     SQLPOINTER valp;	/**< Value buffer */
     int index;		/**< Index of column in result */
     int offs;		/**< Byte offset for SQLGetData() */
@@ -170,7 +186,7 @@ typedef struct stmt {
     SQLCHAR cursorname[32];	/**< Cursor name */
     SQLCHAR *query;		/**< Current query, raw string */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
-    int isselect;		/**< True if query is a SELECT statement */
+    int isselect;		/**< > 0 if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
     COL *cols;			/**< Result column array */
     COL *dyncols;		/**< Column array, but malloc()ed */
@@ -189,6 +205,7 @@ typedef struct stmt {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
+    int longnames;		/**< Don't shorten column names */
     int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */
     SQLUSMALLINT *row_status;	/**< Row status pointer */
@@ -208,6 +225,9 @@ typedef struct stmt {
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
     int curtype;		/**< Cursor type */
     sqlite3_stmt *s3stmt;	/**< SQLite statement handle or NULL */
+    char *bincell;		/**< Cache for blob data */
+    char *bincache;		/**< Cache for blob data */
+    int binlen;			/**< Length of blob data */
 } STMT;
 
 #endif

@@ -1,6 +1,38 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Feb 25 2006 version 0.66 released
+
+	* update to SQLite 3.3.4
+	* added DSN option "LongNames" to switch behaviour
+	  regarding column name truncation
+	* eliminated warnings when compiled with GCC 4.x
+	* added handling for Unicode 2 word sequences
+	* added alpha SQL_BINARY support for SQLite 3 driver
+	* fixes regarding SQLParamData/SQLPutData for data-at-execution
+	  parameters
+	* GCC 4 related fixes regarding signedness warnings
+	* added mkopc3.c utility to create opcode.[ch] files for
+	  newer SQLite 3 (> 3.0.8) sources
+	* added SQL_BIT data type handling
+	* added SQL_BIGINT data type handling for SQLite 3
+	* fixes in fixupsql()
+	* some defines to deal with newer ODBC headers
+	* fixes w.r.t. va_list handling for sqlite_exec_vprintf,
+	  sqlite_vmprintf etc.
+	* update to SQLite 2.8.16
+	* fixes w.r.t. blob handling in SQLite2 driver
+	* added DSN option "NoTXN" to disable BEGIN/COMMIT/ROLLBACK
+	* added SQL_ATTR_NOSCAN handling
+	* added DSN option for PRAGMA synchronous (SQLite3 only)
+	* minor fixes concerning return code of SQLFetch() and friends
+	  w.r.t. non-SELECT statements
+	* added SQL_DESC_COUNT handling as requested by Vadim Zeitlin
+	* added OS/2 port in SQLite2 driver contributed by Lorne Sunley
+	* handle MEMO like TEXT in columns
+	* use BEGIN EXCLUSIVE transaction when SQLite >= 3.0.8
+	* fixed memory leak in vm_step/s3stmt_step
+
 Thu Oct 07 2004 version 0.65 released
 
 	* first (alpha) version of SQLite3 driver for Win32

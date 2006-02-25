@@ -38,7 +38,7 @@ clean:
 		del *.res
 		del resource.h
 		del *.exe
-		cd sqlite
+		cd sqlite3
 		nmake -f ..\sqlite3.mak clean
 		cd ..
 
@@ -65,8 +65,8 @@ addsysdsn.exe:	adddsn.exe
 fixup.exe:	fixup.c
 		$(CC) $(CFLAGSEXE) fixup.c
 
-mkopc.exe:	mkopc.c
-		$(CC) $(CFLAGSEXE) mkopc.c
+mkopc3.exe:	mkopc3.c
+		$(CC) $(CFLAGSEXE) mkopc3.c
 
 sqlite3odbc.c:	resource.h
 
@@ -85,7 +85,7 @@ resource.h:	resource.h.in VERSION_C fixup.exe
 		    --VERS-- @VERSION \
 		    --VERS_C-- @VERSION_C
 
-sqlite3\libsqlite3.lib:	fixup.exe mkopc.exe
+sqlite3\libsqlite3.lib:	fixup.exe mkopc3.exe
 		cd sqlite3
 		nmake -f ..\sqlite3.mak
 		cd ..

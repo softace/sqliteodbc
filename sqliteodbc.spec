@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.65
+%define version 0.66
 %define release 1
 
 Name: %{name}
@@ -76,7 +76,7 @@ EOD
 	 /usr/bin/odbcinst -i -l -s -n "SQLite3 Datasource" -f $INST || true
       }
    fi
-   rm -f $INST
+   rm -f $INST || true
 fi
 
 %preun
@@ -87,6 +87,7 @@ if [ "$1" = "0" ] ; then
 	/usr/bin/odbcinst -u -d -n SQLITE3 || true
 	/usr/bin/odbcinst -u -l -s -n "SQLite3 Datasource" || true
     }
+    true
 fi
 
 %files
