@@ -1157,9 +1157,6 @@ fixupdyncols(STMT *s, sqlite3 *sqlite)
 	    s->dyncols[i].autoinc = 0;
 	}
     }
-    if (!doautoinc) {
-	return;
-    }
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
 	if (flagp == NULL) {
@@ -1169,9 +1166,6 @@ fixupdyncols(STMT *s, sqlite3 *sqlite)
 	flagp = flags;
     }
     memset(flagp, 0, sizeof (flags[0]) * s->dcols);
-    for (i = 0; i < s->dcols; i++) {
-	s->dyncols[i].autoinc = 0;
-    }
     for (i = 0; i < s->dcols; i++) {
 	int ret, lastpk = -1, autoinccount = 0;
 	char *sql;
