@@ -41,10 +41,38 @@ sqlite3odbc.lo:	sqlite3odbc.c sqlite3odbc.h
 install-2:	libsqliteodbc.la
 		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
 
+drvinst-2:	install-2
+		sh drvdsninst.sh SQLITE "SQLite Datasource" \
+			libsqliteodbc.la $(prefix)/lib
+
+drvuninst-2:	uninstall-2
+		sh drvdsnuninst.sh SQLITE "SQLite Datasource"
+
+uninstall-2:
+		$(LIBTOOL) --mode=uninstall \
+		    $(RM) $(prefix)/lib/libsqliteodbc.la
+
 install-3:	libsqlite3odbc.la
 		$(LIBTOOL) $(INSTALL) libsqlite3odbc.la $(prefix)/lib
 
+uninstall-3:
+		$(LIBTOOL) --mode=uninstall \
+		    $(RM) $(prefix)/lib/libsqlite3odbc.la
+
+drvinst-3:	install-3
+		sh drvdsninst.sh SQLITE3 "SQLite3 Datasource" \
+			libsqlite3odbc.la $(prefix)/lib
+
+drvuninst-3:	uninstall-3
+		sh drvdsnuninst.sh SQLITE3 "SQLite3 Datasource"
+
 install:	@INST_TARGETS@
+
+uninstall:	@UNINST_TARGETS@
+
+drvinst:	@DRVINST_TARGETS@
+
+drvuninst:	@DRVUNINST_TARGETS@
 
 doxy:
 		doxygen doxygen.conf

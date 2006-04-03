@@ -1,0 +1,132 @@
+# Makefile for SQLite ODBC Driver
+# using MinGW cross compiler
+
+MINGW =		/opt/mingw/i386-mingw32msvc
+CC =		$(MINGW)/bin/gcc
+STRIP =		$(MINGW)/bin/strip
+RC =		$(MINGW)/bin/windres
+MAKENSIS =	makensis
+
+CFLAGS=		-g -O2 -Wall
+
+SQLITE_INC =	sqlite
+SQLITE_LIB =	sqlite/libsqlite.a
+SQLITE_FLAGS =	-DHAVE_LIBVERSION=1 \
+		-DHAVE_ENCDEC=1 \
+		-DHAVE_SQLITEATOF=1 \
+		-DHAVE_SQLITEMPRINTF=1
+
+SQLITE3_INC =	sqlite3
+SQLITE3_LIB =	sqlite3/libsqlite3.a
+
+ODBC_FLAGS =	-DHAVE_LONG_LONG=1
+ODBC_LIB =	-lodbc
+
+all:		sqliteodbc.dll sqlite3odbc.dll \
+		sqlite.exe sqlite3.exe \
+		inst.exe instq.exe uninst.exe uninstq.exe \
+		adddsn.exe remdsn.exe \
+		addsysdsn.exe remsysdsn.exe
+
+sqliteodbc.o:	sqliteodbc.c sqliteodbc.h resource.h
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
+		    $(SQLITE_FLAGS) sqliteodbc.c
+
+sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--out-implib,libsqliteodbc.a -Wl,--strip-all \
+		    -o sqliteodbc.dll \
+		    sqliteodbc.o sqliteodbcres.o \
+		    -lodbc32 -lodbccp32 -lcomdlg32 \
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE_LIB)
+
+sqlite.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
+		$(CC) $(CFLAGS) -Isqlite -o sqlite.exe \
+		    sqlite/src/shell.c -L. -lsqliteodbc
+		$(STRIP) sqlite.exe
+
+sqliteodbcu.dll:	sqliteodbc.o sqliteodbcures.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--out-implib,libsqliteodbcu.a -Wl,--strip-all \
+		    -o sqliteodbcu.dll \
+		    sqliteodbc.o sqliteodbcures.o \
+		    -lodbc32 -lodbccp32 -lcomdlg32 \
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE_LIB)
+
+sqliteu.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
+		$(CC) $(CFLAGS) -Isqlite -o sqliteu.exe \
+		    sqlite/src/shell.c -L. -lsqliteodbcu
+		$(STRIP) sqliteu.exe
+
+sqliteodbcres.o:	sqliteodbc.rc resource.h
+		$(RC) -o sqliteodbcres.o -I$(SQLITE_INC) sqliteodbc.rc
+
+sqliteodbcures.o:	sqliteodbc.rc resource.h
+		$(RC) -o sqliteodbcures.o -I$(SQLITE_INC) sqliteodbc.rc
+
+resource.h:	resource.h.in
+		VERS=`cat $(SQLITE_INC)/VERSION` ;\
+		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\)[.]\([0-9]\).*/\1,\2/g'` ;\
+		sed -e 's/--VERS_C--/'$$VERS_C'/g' < resource.h.in | \
+		sed -e 's/--VERS--/'$$VERS'/g' > resource.h
+
+sqlite3odbc.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
+		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
+		    sqlite3odbc.c
+
+sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--out-implib,libsqlite3odbc.a -Wl,--strip-all \
+		    -o sqlite3odbc.dll \
+		    sqlite3odbc.o sqlite3odbcres.o \
+		    -lodbc32 -lodbccp32 -lcomdlg32 \
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_LIB)
+		$(STRIP) sqlite3odbc.dll
+
+sqlite3.exe:		sqliteodbc.dll sqlite3/src/shell.c sqlite3/sqlite3.h
+		$(CC) $(CFLAGS) -Isqlite3 -o sqlite3.exe \
+		    sqlite3/src/shell.c -L. -lsqlite3odbc
+		$(STRIP) sqlite3.exe
+
+sqlite3odbcres.o:	sqlite3odbc.rc resource3.h
+		$(RC) -o sqlite3odbcres.o -I$(SQLITE3_INC) sqlite3odbc.rc
+
+resource3.h:	resource.h.in
+		VERS=`cat $(SQLITE3_INC)/VERSION` ;\
+		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\)[.]\([0-9]\).*/\1,\2/g'` ;\
+		sed -e 's/--VERS_C--/'$$VERS_C'/g' < resource.h.in | \
+		sed -e 's/--VERS--/'$$VERS'/g' > resource3.h
+
+inst.exe:	inst.c
+		$(CC) $(CFLAGS) -mwindows -o inst.exe inst.c \
+		-lodbc32 -lodbccp32 -lkernel32 -luser32
+		$(STRIP) inst.exe
+
+instq.exe:	inst.exe
+		cp -p inst.exe instq.exe
+
+uninst.exe:	inst.exe
+		cp -p inst.exe uninst.exe
+
+uninstq.exe:	inst.exe
+		cp -p inst.exe uninstq.exe
+
+adddsn.exe:	adddsn.c
+		$(CC) $(CFLAGS) -mwindows -o adddsn.exe adddsn.c \
+		-lodbc32 -lodbccp32 -lkernel32 -luser32
+		$(STRIP) adddsn.exe
+
+remdsn.exe:	adddsn.exe
+		cp -p adddsn.exe remdsn.exe
+
+addsysdsn.exe:	adddsn.exe
+		cp -p adddsn.exe addsysdsn.exe
+
+remsysdsn.exe:	adddsn.exe
+		cp -p adddsn.exe remsysdsn.exe
+
+clean:
+		rm -f *.o sqliteodbc*.dll sqlite3odbc.dll *inst.exe \
+		    *dsn.exe sqlite*.exe *~ core
+		rm -f resource.h resource3.h
+

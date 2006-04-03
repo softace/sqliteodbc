@@ -1,10 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
-This is an experimental open source ODBC driver for the wonderful
+This is an open source ODBC driver for the wonderful
 SQLite 2.8.* and SQLite 3.* Database Engine/Library.
-The driver is usable but may contain lots of memory leaks and all
-other kinds of bugs. Thus I appreciate feedback.
+The driver is usable but may contain lots of memory
+leaks and all other kinds of bugs. Use it on your own
+risk.
 
 The current source can be downloaded from
 
@@ -14,20 +15,21 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.17, SQLite 3.3.4, MS VC++ 6.0
-and tested on Windows NT 4.0 with the query tool of MS Excel 97, with
-StarOffice 5.2 and OpenOffice 1.1 and 2.0.
-Unzip the archive into a temporary directory and execute the INST.EXE
-program. This installs the SQLite ODBC driver and creates a System DSN.
-To remove the driver use the UNINST.EXE program. To create a SQLite
-data source use the ODBC control panel applet and provide the name of
-the SQLite database file to be worked on as an absolute pathname including
-the drive letter, eg as "C:\TEMP\SQLite.DB". The busy (or lock) timeout
-for the database can be specified in the respective field. If empty
-a default value of 1000 milliseconds is used.
+The binaries were made with SQLite 2.8.17, SQLite 3.3.4, MingW
+cross compiler and tested on Windows NT 4.0 with the query tool
+of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.0.
+Execute the sqliteodbc.exe NSIS installer to unpack the necessary
+files. This installs the SQLite ODBC driver and creates a System DSN.
+To remove the driver use the start menu entries or the UNINST.EXE
+program. To create a SQLite data source use the ODBC control panel
+applet and provide the name of the SQLite database file to be worked
+on as an absolute pathname including the drive letter, eg as
+"C:\TEMP\SQLite.DB". The busy (or lock) timeout for the database
+can be specified in the respective field. If empty a default value
+of 1000 milliseconds is used.
 
-Other tests were made on Linux with the "isql" command line tool and the
-"DataManager" GUI tool of unixODBC 2.1.0.
+Other tests were made on Linux with the "isql" command line tool
+and the "DataManager" GUI tool of unixODBC 2.1.0.
 
 
 Since October 14th, 2001, the driver supports the data types SQL_INTEGER,
@@ -86,8 +88,8 @@ SQLite library exporting ODBC/SQL UNICODE functions.
 
 The UNICODE version is experimental and allows to turn off
 wide character SQL data types by its configuration dialog
-(checkmark labelled "No WCHAR"). So far it has been only
-tested on Win32.
+(checkmark labelled "No WCHAR"). It is known to work on Win32.
+It may work on UN*X to using the CVS version of unixODBC.
 
 To setup a SQLite data source using unixODBC (www.unixodbc.org):
 
@@ -202,6 +204,14 @@ Names of Win32 Driver DLLs:
    sqlite3odbc.dll   Driver with SQLite3 engine, no WCHAR support for now
 
 
+Build instructions for MingW cross compiler for Win32 targets:
+
+  A script named mingw-cross-build.sh is provided which contains
+  all necessary information. It downloads the required SQLite
+  source tarballs and builds SQLite and the ODBC drivers. The
+  final step is creating an NSIS installer.
+
+
 DNS-less connection to the driver
 
   Using the SQLDriverConnect() API it should be possible to connect to
@@ -228,7 +238,7 @@ TODO:
 - improve documentation
 
 
-February, 25th, 2006
+April, 3rd, 2006
 Christian Werner
 mailto:chw@ch-werner.de
 

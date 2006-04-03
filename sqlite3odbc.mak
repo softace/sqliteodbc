@@ -36,7 +36,7 @@ clean:
 		del *.ilk
 		del *.pdb
 		del *.res
-		del resource.h
+		del resource3.h
 		del *.exe
 		cd sqlite3
 		nmake -f ..\sqlite3.mak clean
@@ -68,9 +68,9 @@ fixup.exe:	fixup.c
 mkopc3.exe:	mkopc3.c
 		$(CC) $(CFLAGSEXE) mkopc3.c
 
-sqlite3odbc.c:	resource.h
+sqlite3odbc.c:	resource3.h
 
-sqlite3odbc.res:	sqlite3odbc.rc resource.h
+sqlite3odbc.res:	sqlite3odbc.rc resource3.h
 		$(RC) -I. -Isqlite3 -fo sqlite3odbc.res -r sqlite3odbc.rc
 
 sqlite3odbc.dll:	sqlite3\libsqlite3.lib $(OBJECTS) sqlite3odbc.res
@@ -80,8 +80,8 @@ sqlite3odbc.dll:	sqlite3\libsqlite3.lib $(OBJECTS) sqlite3odbc.res
 VERSION_C:	VERSION
 		.\fixup < VERSION > VERSION_C . ,
 
-resource.h:	resource.h.in VERSION_C fixup.exe
-		.\fixup < resource.h.in > resource.h \
+resource3.h:	resource.h.in VERSION_C fixup.exe
+		.\fixup < resource.h.in > resource3.h \
 		    --VERS-- @VERSION \
 		    --VERS_C-- @VERSION_C
 

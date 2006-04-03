@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.5 2004/09/22 09:37:56 chw Exp chw $
+ * $Id: inst.c,v 1.7 2006/04/03 15:22:25 chw Exp chw $
  *
- * Copyright (c) 2001-2004 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -35,6 +35,8 @@ static char *DriverDLL[3] = {
     "sqliteodbcu.dll",
     "sqlite3odbc.dll"
 };
+
+static int quiet = 0;
 
 /**
  * Handler for ODBC installation error messages.
@@ -75,7 +77,7 @@ ProcessErrorMessages(char *name)
 static BOOL
 InUn(int remove, char *drivername, char *dllname, char *dsname)
 {
-    char path[301], driver[300], attr[300], inst[400], *p;
+    char path[301], driver[300], attr[300], inst[400];
     WORD pathmax = sizeof (path) - 1, pathlen;
     DWORD usecnt, mincnt;
 
@@ -92,6 +94,7 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    }
 	    ++p;
 	}
+	usecnt = 0;
 	SQLInstallDriverEx(driver, NULL, path, pathmax, &pathlen,
 			   ODBC_INSTALL_INQUIRY, &usecnt);
 	sprintf(driver, "%s;Driver=%s\\%s;Setup=%s\\%s;",
@@ -105,6 +108,13 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    ++p;
 	}
 	sprintf(inst, "%s\\%s", path, dllname);
+	if (!remove && usecnt > 0) {
+	    /* first install try: copy over driver dll, keeping DSNs */
+	    if (GetFileAttributes(dllname) != 0xFFFFFFFF &&
+		CopyFile(dllname, inst, 0)) {
+		return TRUE;
+	    }
+	}
 	mincnt = remove ? 1 : 0;
 	while (usecnt != mincnt) {
 	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
@@ -120,10 +130,12 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 		char buf[512];
 
 		DeleteFile(inst);
-		sprintf(buf, "%s uninstalled.", drivername);
-		MessageBox(NULL, buf, "Info",
-			   MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
-			   MB_SETFOREGROUND);
+		if (!quiet) {
+		    sprintf(buf, "%s uninstalled.", drivername);
+		    MessageBox(NULL, buf, "Info",
+			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_SETFOREGROUND);
+		}
 	    }
 	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
 	    p = attr;
@@ -186,7 +198,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpszCmdLine, int nCmdShow)
 {
     char path[300], *p;
-    int i, remove, quiet;
+    int i, remove;
     BOOL ret[3];
 
     GetModuleFileName(NULL, path, sizeof (path));
@@ -198,6 +210,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     p = strrchr(path, '\\');
     if (p == NULL) {
 	p = path;
+    } else {
+	*p = '\0';
+	++p;
+	SetCurrentDirectory(path);
     }
     remove = strstr(p, "uninst") != NULL;
     quiet = strstr(p, "instq") != NULL;

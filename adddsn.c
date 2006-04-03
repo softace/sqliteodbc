@@ -2,9 +2,9 @@
  * @file adddsn.c
  * DSN creation utility for Win32.
  *
- * $Id: adddsn.c,v 1.2 2003/10/24 16:37:39 chw Exp chw $
+ * $Id: adddsn.c,v 1.3 2006/03/29 06:04:47 chw Exp chw $
  *
- * Copyright (c) 2003 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2003-2006 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -66,9 +66,7 @@ int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpszCmdLine, int nCmdShow)
 {
-    char tmp[1024], *p, *drv, *cfg, st[16], *msg;
-    SQLINTEGER naterr;
-    SQLSMALLINT len;
+    char tmp[1024], *p, *drv, *cfg, *msg;
     int i, op;
 
     GetModuleFileName(NULL, tmp, sizeof (tmp));
@@ -79,16 +77,16 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     p = strrchr(tmp, '\\');
     if (p == NULL) {
-        p = tmp;
+	p = tmp;
     }
     op = ODBC_ADD_DSN;
     msg = "Adding DSN";
     if (strstr(p, "rem") != NULL) {
-        msg = "Removing DSN";
-        op = ODBC_REMOVE_DSN;
+	msg = "Removing DSN";
+	op = ODBC_REMOVE_DSN;
     }
     if (strstr(p, "sys") != NULL) {
-        if (op == ODBC_REMOVE_DSN) {
+	if (op == ODBC_REMOVE_DSN) {
 	    op = ODBC_REMOVE_SYS_DSN;
 	} else {
 	    op = ODBC_ADD_SYS_DSN;
@@ -99,11 +97,11 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     i = strspn(tmp, "\"");
     drv = tmp + i;
     if (i > 0) {
-        i = strcspn(drv, "\"");
+	i = strcspn(drv, "\"");
 	drv[i] = '\0';
 	cfg = drv + i + 1;
     } else {
-        i = strcspn(drv, " \t");
+	i = strcspn(drv, " \t");
 	if (i > 0) {
 	    drv[i] = '\0';
 	    cfg = drv + i + 1;
@@ -112,7 +110,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	}
     }
     if (strlen(drv) == 0) {
-        MessageBox(NULL, "No driver name given", msg,
+	MessageBox(NULL, "No driver name given", msg,
 		   MB_ICONERROR|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	exit(1);
     }
@@ -132,7 +130,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     p = cfg;
     if (SQLConfigDataSource(NULL, (WORD) op, drv, cfg)) {
-        exit(0);
+	exit(0);
     }
     ProcessErrorMessages(msg);
     exit(1);

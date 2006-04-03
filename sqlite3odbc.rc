@@ -1,6 +1,6 @@
 #include <winresrc.h>
 #include <winver.h>
-#include "resource.h"
+#include "resource3.h"
 #include "sqlite3.h"
 
 /////////////////////////////////////////////////////////////////////////////
@@ -84,7 +84,7 @@ BEGIN
             VALUE "FileDescription", "SQLite3 ODBC Driver\0"
             VALUE "FileVersion", VERSION "\0"
             VALUE "InternalName", "SQLITE3ODBC\0"
-            VALUE "LegalCopyright", "Copyright © 2004 <chw@ch-werner.de>\0"
+            VALUE "LegalCopyright", "Copyright © 2004-2006 <chw@ch-werner.de>\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SQLITE3ODBC.DLL\0"
             VALUE "PrivateBuild", "\0"

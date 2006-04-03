@@ -1,6 +1,22 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Apr 03 2006 version 0.67 released
+
+	* reworked blob handling in SQLite 2+3 drivers,
+	  thanks Altan Özgür for testing
+	* added NSIS installer script
+	* Win32 version can now be made with MingW cross compiler
+	* eliminated some more warnings in Win32 DSN config
+	* improved SQLite 3 tracing for DSN option "tracefile"
+	* added shell scripts drvdsninst.sh/drvdsnuninst.sh
+	  and Makefile targets drvinst/drvuninst
+	* added configure option --enable/disable-winterface to
+	  turn on (= enable, default) or off (= disable) SQLite 2.x
+	  SQLITE_UTF8 mapping to SQL*W() functions
+	* fixes in accordance with MSDN KB#294169 Unicode length
+	  arguments mainly in SQLColAttribute[s]*W()
+
 Sat Feb 25 2006 version 0.66 released
 
 	* update to SQLite 3.3.4

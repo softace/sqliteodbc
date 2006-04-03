@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.11 2006/02/24 12:48:25 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.12 2006/04/02 15:52:47 chw Exp chw $
  *
  * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -169,9 +169,10 @@ typedef struct {
     void *param;	/**< Parameter buffer */
     void *param0;	/**< Parameter buffer, initial value */
     int inc;		/**< Increment for paramset size > 1 */
-    void *ind;		/**< Indicator for SQL_LEN_DATA_AT_EXEC */
     int need;		/**< True when SQL_LEN_DATA_AT_EXEC */
     int offs, len;	/**< Offset/length for SQLParamData()/SQLPutData() */
+    void *parbuf;	/**< Buffer for SQL_LEN_DATA_AT_EXEC etc. */
+    char strbuf[64];	/**< String buffer for scalar data */
 } BINDPARM;
 
 /**
