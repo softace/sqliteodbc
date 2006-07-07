@@ -25,8 +25,8 @@ BCC = gcc -g -O2
 #### If the target operating system supports the "usleep()" system
 #    call, then define the HAVE_USLEEP macro for all C modules.
 #
-#USLEEP = 
-USLEEP = -DHAVE_USLEEP=1
+USLEEP = 
+#USLEEP = -DHAVE_USLEEP=1
 
 #### If you want the SQLite library to be safe for use within a 
 #    multi-threaded program, then define the following macro
@@ -57,7 +57,7 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS = -DNDEBUG=1
+OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.

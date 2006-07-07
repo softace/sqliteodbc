@@ -106,7 +106,7 @@ Section "-Main (required)" InstallationInfo
  SetOutPath "$INSTDIR"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
 
- ExecWait '"$INSTDIR/instq.exe"'
+ ExecWait '"$INSTDIR\instq.exe"'
 
 SectionEnd
 
@@ -177,11 +177,11 @@ SectionEnd
 
 Section "Uninstall"
 
-ExecWait '"$INSTDIR/uninstq.exe"'
+ExecWait '"$INSTDIR\uninstq.exe"'
    
 ; Delete Files 
-RMDir /r "$INSTDIR/*" 
-RMDir /r "$INSTDIR/*.*" 
+RMDir /r "$INSTDIR\*" 
+RMDir /r "$INSTDIR\*.*" 
  
 ; Remove the installation directory
 RMDir /r "$INSTDIR"

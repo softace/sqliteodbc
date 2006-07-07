@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 3.3.4
+# VC++ 6.0 Makefile for SQLite 3.3.5
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -39,7 +39,8 @@ TCC = cl -Gs -GX -D_WIN32 -DOS_WIN=1 -nologo -Zi
 
 # This is how we compile
 
-TCCX = $(TCC) $(OPTS) -DWIN32=1 -DTHREADSAFE=1 -DOS_WIN=1 -I. -I$(TOP)/src
+TCCX = $(TCC) $(OPTS) -DWIN32=1 -DTHREADSAFE=1 -DOS_WIN=1 \
+	-DSQLITE_ENABLE_COLUMN_METADATA=1 -I. -I$(TOP)/src
 
 TCCXD = $(TCCX) -D_DLL
 

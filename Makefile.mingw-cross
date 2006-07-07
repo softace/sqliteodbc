@@ -14,10 +14,12 @@ SQLITE_LIB =	sqlite/libsqlite.a
 SQLITE_FLAGS =	-DHAVE_LIBVERSION=1 \
 		-DHAVE_ENCDEC=1 \
 		-DHAVE_SQLITEATOF=1 \
-		-DHAVE_SQLITEMPRINTF=1
+		-DHAVE_SQLITEMPRINTF=1 \
+		-DHAVE_SQLITETRACE=1
 
 SQLITE3_INC =	sqlite3
 SQLITE3_LIB =	sqlite3/libsqlite3.a
+SQLITE3_FLAGS=	-DHAVE_SQLITE3COLUMNTABLENAME=1
 
 ODBC_FLAGS =	-DHAVE_LONG_LONG=1
 ODBC_LIB =	-lodbc
@@ -32,6 +34,10 @@ sqliteodbc.o:	sqliteodbc.c sqliteodbc.h resource.h
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
 		    $(SQLITE_FLAGS) sqliteodbc.c
 
+sqliteodbcu.o:	sqliteodbc.c sqliteodbc.h resource.h
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
+		    $(SQLITE_FLAGS) -o sqliteodbcu.o sqliteodbc.c
+
 sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--out-implib,libsqliteodbc.a -Wl,--strip-all \
@@ -45,15 +51,15 @@ sqlite.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
 		    sqlite/src/shell.c -L. -lsqliteodbc
 		$(STRIP) sqlite.exe
 
-sqliteodbcu.dll:	sqliteodbc.o sqliteodbcures.o
+sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--out-implib,libsqliteodbcu.a -Wl,--strip-all \
 		    -o sqliteodbcu.dll \
-		    sqliteodbc.o sqliteodbcures.o \
+		    sqliteodbcu.o sqliteodbcures.o \
 		    -lodbc32 -lodbccp32 -lcomdlg32 \
 		    -lkernel32 -luser32 -lmsvcrt $(SQLITE_LIB)
 
-sqliteu.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
+sqliteu.exe:		sqliteodbcu.dll sqlite/src/shell.c sqlite/sqlite.h
 		$(CC) $(CFLAGS) -Isqlite -o sqliteu.exe \
 		    sqlite/src/shell.c -L. -lsqliteodbcu
 		$(STRIP) sqliteu.exe
@@ -72,7 +78,7 @@ resource.h:	resource.h.in
 
 sqlite3odbc.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
 		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
-		    sqlite3odbc.c
+		    $(SQLITE3_FLAGS) sqlite3odbc.c
 
 sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \

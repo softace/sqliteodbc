@@ -32,7 +32,7 @@ if [ ! -r "$DRVSHLIB" ] ; then
     exit 1
 fi
 
-cat > drvinst.$$ << __EOD__
+cat > /tmp/drvinst.$$ << __EOD__
 $DRVNAME_BR
 Description=$DRVNAME
 Driver=$DRVSHLIB
@@ -41,16 +41,16 @@ FileUsage=1
 __EOD__
 
 odbcinst -q -d -n "$DRVNAME" | fgrep "$DRVNAME_BR" > /dev/null || {
-    odbcinst -i -d -n "$DRVNAME" -f drvinst.$$ || true
+    odbcinst -i -d -n "$DRVNAME" -f /tmp/drvinst.$$ || true
 }
-rm -f drvinst.$$
+rm -f /tmp/drvinst.$$
 
-cat > dsninst.$$ << __EOD__
+cat > /tmp/dsninst.$$ << __EOD__
 $DSNNAME_BR
 Driver=$DRVNAME
 __EOD__
 
 odbcinst -q -s -n "$DSNNAME" | fgrep "$DSNNAME_BR" > /dev/null || {
-    odbcinst -i -l -s -n "$DSNNAME" -f dsninst.$$ || true
+    odbcinst -i -l -s -n "$DSNNAME" -f /tmp/dsninst.$$ || true
 }
-rm -f dsninst.$$
+rm -f /tmp/dsninst.$$

@@ -15,7 +15,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
 
-The binaries were made with SQLite 2.8.17, SQLite 3.3.4, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.3.6, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.0.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -81,7 +81,7 @@ development RPMs since the ODBC header files are required for
 the build of the SQLite ODBC driver.
 
 Since May 15th, 2003, (version 0.51), there are two versions
-of the driver for Win32 platforms: the first (sqliteodbc.dll)
+of the SQLite 2.x driver for Win32 platforms: the first (sqliteodbc.dll)
 linked against ISO8859-1 SQLite library exporting ODBC/SQL ANSI
 functions, and the second (sqliteodbcu.dll) linked against UTF-8
 SQLite library exporting ODBC/SQL UNICODE functions.
@@ -238,7 +238,7 @@ TODO:
 - improve documentation
 
 
-April, 3rd, 2006
+July, 7th, 2006
 Christian Werner
 mailto:chw@ch-werner.de
 

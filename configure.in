@@ -20,14 +20,21 @@ if test -n "$SQLITE_DIR" ; then
    fi
 fi
 
+SQLITE_INC=UNKNOWN
+SQLITE_LIB=UNKNOWN
+
 if test -z "$SQLITE_DIR" ; then
-   SQLITE_DIR="../sqlite /usr /usr/local /opt"
+   if test -r "$includedir/sqlite.h" -a -r "$libdir/libsqlite.la" ; then
+      SQLITE_INC="$includedir"
+      SQLITE_LIB="$libdir/libsqlite.la"
+      SQLITE_LIBDIR="$libdir"
+      SQLITE_DIR=""
+   else
+      SQLITE_DIR="../sqlite /usr /usr/local /opt"
+   fi
 fi
 
 AC_MSG_CHECKING([for SQLite header and library])
-SQLITE_INC=UNKNOWN
-SQLITE_LIB=UNKNOWN
-SQLITE_LIBDIR=../sqlite
 for i in $SQLITE_DIR ; do
    if test -r "$i/sqlite.h" ; then
       if test -r "$i/libsqlite.la" ; then
@@ -37,11 +44,15 @@ for i in $SQLITE_DIR ; do
          break
       fi
    elif test -r "$i/include/sqlite.h" ; then
+      SQLITE_INC="$i/include"
       if test -r "$i/lib/libsqlite.la" ; then
-         SQLITE_INC="$i/include"
          SQLITE_LIB="$i/lib/libsqlite.la"
          SQLITE_LIBDIR="$i/lib"
          break
+      elif test -d "$i/lib" ; then
+         SQLITE_LIB="-lsqlite"
+         SQLITE_LIBDIR="$i/lib"
+	 break
       fi
    fi
 done
@@ -57,10 +68,14 @@ AC_SUBST(SQLITE_LIB)
 
 # test for availability of sqlite_libversion() et.al.
 
+if test -n "$SQLITE_LIBDIR" ; then
+   SQLITE_LIBDIR="-L$SQLITE_LIBDIR"
+fi
+
 saved_CFLAGS=$CFLAGS
 CFLAGS="$CFLAGS -I$SQLITE_INC"
 saved_LIBS=$LIBS
-LIBS="$LIBS -L$SQLITE_LIBDIR"
+LIBS="$LIBS $SQLITE_LIBDIR"
 AC_CHECK_LIB(sqlite,sqlite_libversion,SQLITE_LIBVERSION=1,SQLITE_LIBVERSION=0)
 AC_CHECK_LIB(sqlite,sqlite_compile,SQLITE_COMPILE=1,SQLITE_COMPILE=0)
 AC_CHECK_LIB(sqlite,sqlite_encode_binary,SQLITE_ENCDEC=1,SQLITE_ENCDEC=0)
@@ -95,14 +110,21 @@ if test -n "$SQLITE3_DIR" ; then
    fi
 fi
 
+SQLITE3_INC=UNKNOWN
+SQLITE3_LIB=UNKNOWN
+
 if test -z "$SQLITE3_DIR" ; then
-   SQLITE3_DIR="../sqlite /usr /usr/local /opt"
+   if test -r "$includedir/sqlite3.h" -a -r "$libdir/libsqlite3.la" ; then
+      SQLITE3_INC="$includedir"
+      SQLITE3_LIB="$libdir/libsqlite3.la"
+      SQLITE3_LIBDIR="$libdir"
+      SQLITE3_DIR=""
+   else
+      SQLITE3_DIR="../sqlite /usr /usr/local /opt"
+   fi
 fi
 
 AC_MSG_CHECKING([for SQLite3 header and library])
-SQLITE3_INC=UNKNOWN
-SQLITE3_LIB=UNKNOWN
-SQLITE3_LIBDIR=../sqlite
 for i in $SQLITE3_DIR ; do
    if test -r "$i/sqlite3.h" ; then
       if test -r "$i/libsqlite3.la" ; then
@@ -112,9 +134,13 @@ for i in $SQLITE3_DIR ; do
          break
       fi
    elif test -r "$i/include/sqlite3.h" ; then
+      SQLITE3_INC="$i/include"
       if test -r "$i/lib/libsqlite3.la" ; then
-         SQLITE3_INC="$i/include"
          SQLITE3_LIB="$i/lib/libsqlite3.la"
+         SQLITE3_LIBDIR="$i/lib"
+         break
+      elif test -d "$i/lib" ; then
+         SQLITE3_LIB="-lsqlite3"
          SQLITE3_LIBDIR="$i/lib"
          break
       fi
@@ -133,6 +159,23 @@ else
 fi
 AC_SUBST(SQLITE3_INC)
 AC_SUBST(SQLITE3_LIB)
+
+# test for availability of some sqlite3_*() funcs
+
+if test -n "$SQLITE3_LIBDIR" ; then
+   SQLITE_LIBDIR="-L$SQLITE3_LIBDIR"
+fi
+
+saved_CFLAGS=$CFLAGS
+CFLAGS="$CFLAGS -I$SQLITE3_INC"
+saved_LIBS=$LIBS
+LIBS="$LIBS $SQLITE3_LIBDIR"
+AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
+	     SQLITE3_COLUMNTABLENAME=1,
+	     SQLITE3_COLUMNTABLENAME=0)
+LIBS=$saved_LIBS
+CFLAGS=$saved_CFLAGS
+AC_SUBST(SQLITE3_COLUMNTABLENAME)
 
 #########
 # Any SQLite to be done ?
@@ -157,13 +200,30 @@ if test -n "$ODBC_DIR" ; then
    fi
 fi
 
+ODBC_FLAGS=UNKNOWN
+ODBC_LIB=UNKNOWN
+
 if test -z "$ODBC_DIR" ; then
-   ODBC_DIR="/usr /usr/local /opt"
+   if test -r "$includedir/sql.h" -a -r "$includedir/iodbcinst.h" -a -r "$libdir/libiodbcinst.la" ; then
+      ODBC_FLAGS="-DHAVE_IODBC=1 -I$includedir"
+      ODBC_LIB="$libdir/libiodbcinst.la"
+      ODBC_DIR=""
+   elif test -r "$includedir/iodbc/sql.h" -a -r "$includedir/iodbc/iodbcinst.h" -a -r "$libdir/libiodbcinst.la" ; then
+      ODBC_FLAGS="-DHAVE_IODBC=1 -I$includedir/iodbc"
+      ODBC_LIB="$libdir/libiodbcinst.la"
+      ODBC_DIR=""
+   elif test -r "$includedir/sql.h" -a -r "$includedir/odbcinst.h" -a -r "$libdir/libodbcinst.la" ; then
+      ODBC_FLAGS="-DHAVE_UNIXODBC=1 -I$includedir"
+      ODBC_LIB="$libdir/libodbcinst.la"
+      if test -r "$includedir/odbcinstext.h" ; then
+         ODBC_FLAGS="$ODBC_FLAGS -DHAVE_ODBCINSTEXT_H=1 -Imissing"
+      fi
+   else
+      ODBC_DIR="/usr /usr/local /opt"
+   fi
 fi
 
 AC_MSG_CHECKING([for ODBC headers and libraries])
-ODBC_FLAGS=UNKNOWN
-ODBC_LIB=UNKNOWN
 for i in $ODBC_DIR ; do
    if test -r "$i/include/iodbc/sql.h" -o -r "$i/include/sql.h" ; then
       if test -r "$i/include/iodbc/iodbcinst.h" ; then
@@ -171,7 +231,7 @@ for i in $ODBC_DIR ; do
          if test -r "$i/lib/libiodbcinst.la" ; then
             ODBC_LIB="$i/lib/libiodbcinst.la"
          else
-            ODBC_LIB=-lodbcinst
+            ODBC_LIB=-liodbcinst
          fi
          break
       elif test -r "$i/include/iodbcinst.h" ; then
@@ -179,7 +239,7 @@ for i in $ODBC_DIR ; do
          if test -r "$i/lib/libiodbcinst.la" ; then
             ODBC_LIB="$i/lib/libiodbcinst.la"
          else
-            ODBC_LIB=-lodbcinst
+            ODBC_LIB=-liodbcinst
          fi
          break
       elif test -r "$i/include/odbcinst.h" ; then
@@ -278,19 +338,38 @@ ODBC_FLAGS="$ODBC_FLAGS -DHAVE_LONG_LONG=1"
 CFLAGS="$SAVED_CFLAGS"
 
 ##########
-# Experimental: use dlopen for resolving SQLGetPrivateProfileString
-# dynamically
+# Experimental: dlopen for resolving SQLGetPrivateProfileString dynamically
 #
-AC_ARG_ENABLE(gppsbdl, [  --enable-gppsbdl        use dlopen for GPPS],
-   GPPSBDL=$enable_gppsbdl)
-if test "$GPPSBDL" = "yes" ; then
-   AC_CHECK_LIB(dl,dlopen,GPPSBDL=yes,GPPSBDL=no)
-fi
-if test "$GPPSBDL" = "yes" ; then
-   AC_MSG_CHECKING([use dlopen for GPPS])
+AC_CHECK_LIB(dl,dlopen,DLOPENFORGPPS=1,DLOPENFORGPPS=0)
+if test "$DLOPENFORGPPS" = "1" ; then
+   AC_MSG_CHECKING([for SQLGetPrivateProfileString via dlopen])
+   saved_LIBS=$LIBS
+   LIBS="$LIBS -ldl"
+   AC_TRY_RUN([
+#include <dlfcn.h>
+
+int
+main(int argc, char **argv)
+{
+   void *lib;
+   int (*gpps)();
+
+   lib = dlopen("libodbcinst.so", RTLD_LAZY);
+   if (!lib) {
+      lib = dlopen("libiodbcinst.so", RTLD_LAZY);
+   }
+   if (lib) {
+      gpps = (int (*)()) dlsym(lib, "SQLGetPrivateProfileString");
+      exit(0);
+   }
+   exit(1);
+}
+],[
    ODBC_FLAGS="$ODBC_FLAGS -DUSE_DLOPEN_FOR_GPPS"
    ODBC_LIB="-ldl"
    AC_MSG_RESULT(yes)
+],[AC_MSG_RESULT(no)],[AC_MSG_RESULT(no)])
+   LIBS=$saved_LIBS
 fi
 
 AC_SUBST(ODBC_FLAGS)
@@ -367,4 +446,6 @@ AC_ARG_ENABLE(winterface,
 #########
 # Generate the output files.
 #
+SPEC_CHANGELOG_TS=`LANG=C date -u "+%a %b %d %Y"`
+AC_SUBST(SPEC_CHANGELOG_TS)
 AC_OUTPUT(Makefile sqliteodbc.spec)

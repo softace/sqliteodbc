@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.67
+%define version 0.68
 %define release 1
 
 Name: %{name}
@@ -7,28 +7,30 @@ Summary: ODBC driver for SQLite
 Version: %{version}
 Release: %{release}
 Source: http://www.ch-werner.de/sqliteodbc/%{name}-%{version}.tar.gz
-Group: System/Libraries
+Group: Applications/Databases
 URL: http://www.ch-werner.de/sqliteodbc
 License: BSD
-BuildRoot: %{_tmppath}/%{name}-%{version}-root
+BuildRoot: %{_tmppath}/%{name}-%{version}-root-%(id -u)
 
 %description
-ODBC driver for SQLite interfacing SQLite 2.x and/or 3.x using
-unixODBC or iODBC. See http://www.sqlite.org for a description of
-SQLite, http://www.unixodbc.org for a description of unixODBC.
+ODBC driver for SQLite interfacing SQLite 2.x and/or 3.x using the
+unixODBC or iODBC driver managers. For more information refer to
+http://www.sqlite.org    -  SQLite engine
+http://www.unixodbc.org  -  unixODBC Driver Manager
+http://www.iodbc.org     -  iODBC Driver Manager
 
 %prep
 %setup -q
 
 %build
-CFLAGS="%optflags" ./configure --prefix=%{_prefix}
+%configure
 make
 
 %install
-mkdir -p $RPM_BUILD_ROOT%{_prefix}/lib
-make install prefix=$RPM_BUILD_ROOT%{_prefix}
-rm -f $RPM_BUILD_ROOT%{_prefix}/lib/libsqliteodbc*.{a,la}
-rm -f $RPM_BUILD_ROOT%{_prefix}/lib/libsqlite3odbc*.{a,la}
+mkdir -p $RPM_BUILD_ROOT%{_libdir}
+make install prefix=$RPM_BUILD_ROOT%{_prefix} libdir=$RPM_BUILD_ROOT%{_libdir}
+rm -f $RPM_BUILD_ROOT%{_libdir}/libsqliteodbc*.{a,la}
+rm -f $RPM_BUILD_ROOT%{_libdir}/libsqlite3odbc*.{a,la}
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -40,8 +42,8 @@ if [ -x /usr/bin/odbcinst ] ; then
       cat > $INST << 'EOD'
 [SQLITE]
 Description=SQLite ODBC 2.X
-Driver=%{_prefix}/lib/libsqliteodbc.so
-Setup=%{_prefix}/lib/libsqliteodbc.so
+Driver=%{_libdir}/libsqliteodbc.so
+Setup=%{_libdir}/libsqliteodbc.so
 FileUsage=1
 EOD
       /usr/bin/odbcinst -q -d -n SQLITE | grep '^\[SQLITE\]' >/dev/null || {
@@ -60,8 +62,8 @@ EOD
       cat > $INST << 'EOD'
 [SQLITE3]
 Description=SQLite ODBC 3.X
-Driver=%{_prefix}/lib/libsqlite3odbc.so
-Setup=%{_prefix}/lib/libsqlite3odbc.so
+Driver=%{_libdir}/libsqlite3odbc.so
+Setup=%{_libdir}/libsqlite3odbc.so
 FileUsage=1
 EOD
       /usr/bin/odbcinst -q -d -n SQLITE3 | grep '^\[SQLITE3\]' >/dev/null || {
@@ -95,3 +97,6 @@ fi
 %doc README license.terms ChangeLog
 %{_libdir}/*.so*
 
+%changelog
+* Fri Jul 07 2006 ...
+- automatically recreated by configure ...

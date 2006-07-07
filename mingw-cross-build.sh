@@ -9,7 +9,7 @@
 #  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
 
 VER2=2.8.17
-VER3=3.3.4
+VER3=3.3.6
 
 echo "===================="
 echo "Preparing sqlite ..."
@@ -37,22 +37,36 @@ patch sqlite/main.mk <<'EOD'
 EOD
 patch sqlite/src/shell.c <<'EOD'
 --- sqlite/src/shell.c.orig	2005-04-24 00:43:22.000000000 +0200
-+++ sqlite/src/shell.c	2006-03-18 09:07:30.000000000 +0100
-@@ -1297,7 +1297,7 @@
++++ sqlite/src/shell.c	2006-05-23 08:22:01.000000000 +0200
+@@ -1180,6 +1180,7 @@
+   "   -separator 'x'       set output field separator (|)\n"
+   "   -nullvalue 'text'    set text string for NULL values\n"
+   "   -version             show SQLite version\n"
++  "   -encoding            show SQLite encoding\n"
+   "   -help                show this text, also show dot-commands\n"
+ ;
+ static void usage(int showDetail){
+@@ -1297,7 +1298,10 @@
      }else if( strcmp(z,"-echo")==0 ){
        data.echoOn = 1;
      }else if( strcmp(z,"-version")==0 ){
 -      printf("%s\n", sqlite_version);
 +      printf("%s\n", sqlite_libversion());
++      return 1;
++    }else if( strcmp(z,"-encoding")==0 ){
++      printf("%s\n", sqlite_libencoding());
        return 1;
      }else if( strcmp(z,"-help")==0 ){
        usage(1);
-@@ -1332,7 +1332,7 @@
+@@ -1330,9 +1334,9 @@
+       char *zHome;
+       char *zHistory = 0;
        printf(
-         "SQLite version %s\n"
+-        "SQLite version %s\n"
++        "SQLite version %s encoding %s\n"
          "Enter \".help\" for instructions\n",
 -        sqlite_version
-+        sqlite_libversion()
++        sqlite_libversion(), sqlite_libencoding()
        );
        zHome = find_home_dir();
        if( zHome && (zHistory = malloc(strlen(zHome)+20))!=0 ){

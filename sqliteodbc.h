@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.41 2006/04/02 15:52:47 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.42 2006/05/23 06:07:54 chw Exp chw $
  *
  * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -40,6 +40,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#include <stdio.h>
+#endif
 #else
 #include <sys/time.h>
 #include <sys/types.h>
@@ -176,11 +179,12 @@ typedef struct {
 /**
  * @typedef BINDPARM
  * @struct BINDPARM
- * Internal structure for bound parameter (SQLBindParam).
+ * Internal structure for bound parameter (SQLBindParameter).
  */
 
 typedef struct {
     int type, stype;	/**< ODBC and SQL types */
+    int coldef, scale;	/**< from SQLBindParameter() */
     int max, *lenp;	/**< Max. size, actual size of parameter buffer */
     void *param;	/**< Parameter buffer */
     void *param0;	/**< Parameter buffer, initial value */
@@ -223,7 +227,7 @@ typedef struct stmt {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
-    int nowchar;		/**< Don't try to use WCHAR */
+    int nowchar[2];		/**< Don't try to use WCHAR */
     int longnames;		/**< Don't shorten column names */
     int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */

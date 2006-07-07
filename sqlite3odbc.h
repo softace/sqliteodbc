@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.12 2006/04/02 15:52:47 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.14 2006/06/29 13:27:41 chw Exp chw $
  *
  * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -160,11 +160,12 @@ typedef struct {
 /**
  * @typedef BINDPARM
  * @struct BINDPARM
- * Internal structure for bound parameter (SQLBindParam).
+ * Internal structure for bound parameter (SQLBindParameter).
  */
 
 typedef struct {
     int type, stype;	/**< ODBC and SQL types */
+    int coldef, scale;	/**< from SQLBindParameter() */
     int max, *lenp;	/**< Max. size, actual size of parameter buffer */
     void *param;	/**< Parameter buffer */
     void *param0;	/**< Parameter buffer, initial value */
@@ -229,6 +230,7 @@ typedef struct stmt {
     char *bincell;		/**< Cache for blob data */
     char *bincache;		/**< Cache for blob data */
     int binlen;			/**< Length of blob data */
+    int guessed_types;		/**< Flag for drvprepare()/drvexecute() */
 } STMT;
 
 #endif

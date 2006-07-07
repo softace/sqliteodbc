@@ -1,6 +1,24 @@
 SQLite ODBC Driver
 ------------------
 
+Fri Jul 07 2006 version 0.68 released
+
+	* update to SQLite 3.3.6, 2.8.17
+	* increased default lock timeout to 100000 milliseconds
+	* use sqlite3_column_table_name when available
+	* improved type mapping/type detect for SQLite3 driver,
+	  thanks Rainer Keuchel for ideas/initial coding
+	* fixed buggy memcpy() in getrowdata(), thanks Rainer Keuchel
+	* tweaks in SQLTables()
+	* improved .spec file w.r.t. standard RPM/configure places,
+	* UN*X version: try to use dlopen() for SQLGetPrivateProfileString()
+	  in order to become agnostic of unixODBC vs iODBC
+	* fixes in SQLite3 driver regarding percent substitution
+	  for queries with no parameters (eg strftime SQL function)
+	* fixes w.r.t. SQL_C_DEFAULT type mapping
+	* fixes in SQLParamData()/SQLPutData() again
+	* minor changes in Win32 dialog handling
+
 Mon Apr 03 2006 version 0.67 released
 
 	* reworked blob handling in SQLite 2+3 drivers,

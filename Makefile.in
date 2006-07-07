@@ -1,6 +1,8 @@
 # Makefile template for SQLite ODBC Driver
 
 prefix =	@prefix@
+exec_prefix =	@exec_prefix@
+libdir =	@libdir@
 CC =		@CC@
 INSTALL =	@INSTALL@
 LIBTOOL =	./libtool
@@ -14,6 +16,7 @@ SQLITE_FLAGS =	-DHAVE_LIBVERSION=@SQLITE_LIBVERSION@ \
 		-DHAVE_SQLITETRACE=@SQLITE_TRACE@
 SQLITE3_INC =	@SQLITE3_INC@
 SQLITE3_LIB =	@SQLITE3_LIB@
+SQLITE3_FLAGS = -DHAVE_SQLITE3COLUMNTABLENAME=@SQLITE3_COLUMNTABLENAME@
 ODBC_FLAGS =	@ODBC_FLAGS@
 ODBC_LIB =	@ODBC_LIB@
 VER_INFO =	@VER_INFO@
@@ -22,12 +25,12 @@ all:		@LIB_TARGETS@
 
 libsqliteodbc.la:	sqliteodbc.lo
 		$(LIBTOOL) $(CC) $(CFLAGS) -o libsqliteodbc.la \
-		    sqliteodbc.lo -rpath $(prefix)/lib $(SQLITE_LIB) \
+		    sqliteodbc.lo -rpath $(libdir) $(SQLITE_LIB) \
 		    $(ODBC_LIB) -release $(VER_INFO)
 
 libsqlite3odbc.la:	sqlite3odbc.lo
 		$(LIBTOOL) $(CC) $(CFLAGS) -o libsqlite3odbc.la \
-		    sqlite3odbc.lo -rpath $(prefix)/lib $(SQLITE3_LIB) \
+		    sqlite3odbc.lo -rpath $(libdir) $(SQLITE3_LIB) \
 		    $(ODBC_LIB) -release $(VER_INFO)
 
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
@@ -36,32 +39,32 @@ sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 
 sqlite3odbc.lo:	sqlite3odbc.c sqlite3odbc.h
 		$(LIBTOOL) $(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
-		    sqlite3odbc.c
+		    $(SQLITE3_FLAGS) sqlite3odbc.c
 
 install-2:	libsqliteodbc.la
-		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(prefix)/lib
+		$(LIBTOOL) $(INSTALL) libsqliteodbc.la $(libdir)
 
 drvinst-2:	install-2
 		sh drvdsninst.sh SQLITE "SQLite Datasource" \
-			libsqliteodbc.la $(prefix)/lib
+			libsqliteodbc.la $(libdir)
 
 drvuninst-2:	uninstall-2
 		sh drvdsnuninst.sh SQLITE "SQLite Datasource"
 
 uninstall-2:
 		$(LIBTOOL) --mode=uninstall \
-		    $(RM) $(prefix)/lib/libsqliteodbc.la
+		    $(RM) $(libdir)/libsqliteodbc.la
 
 install-3:	libsqlite3odbc.la
-		$(LIBTOOL) $(INSTALL) libsqlite3odbc.la $(prefix)/lib
+		$(LIBTOOL) $(INSTALL) libsqlite3odbc.la $(libdir)
 
 uninstall-3:
 		$(LIBTOOL) --mode=uninstall \
-		    $(RM) $(prefix)/lib/libsqlite3odbc.la
+		    $(RM) $(libdir)/libsqlite3odbc.la
 
 drvinst-3:	install-3
 		sh drvdsninst.sh SQLITE3 "SQLite3 Datasource" \
-			libsqlite3odbc.la $(prefix)/lib
+			libsqlite3odbc.la $(libdir)
 
 drvuninst-3:	uninstall-3
 		sh drvdsnuninst.sh SQLITE3 "SQLite3 Datasource"
