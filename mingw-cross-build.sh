@@ -22,6 +22,7 @@ rm -f sqlite
 tar xzf sqlite-${VER2}.tar.gz
 ln -sf sqlite-${VER2} sqlite
 
+# enable sqlite_encode_binary et.al.
 patch sqlite/main.mk <<'EOD'
 --- sqlite/main.mk.orig	2005-04-24 00:43:23.000000000 +0200
 +++ sqlite/main.mk	2006-03-16 14:29:55.000000000 +0100
@@ -35,6 +36,7 @@ patch sqlite/main.mk <<'EOD'
           select.o table.o tokenize.o trigger.o update.o util.o \
           vacuum.o vdbe.o vdbeaux.o where.o tclsqlite.o
 EOD
+# display encoding
 patch sqlite/src/shell.c <<'EOD'
 --- sqlite/src/shell.c.orig	2005-04-24 00:43:22.000000000 +0200
 +++ sqlite/src/shell.c	2006-05-23 08:22:01.000000000 +0200
@@ -71,6 +73,41 @@ patch sqlite/src/shell.c <<'EOD'
        zHome = find_home_dir();
        if( zHome && (zHistory = malloc(strlen(zHome)+20))!=0 ){
 EOD
+# use open file dialog when no database name given
+# need to link with -lcomdlg32 when enabled
+true || patch sqlite/src/shell.c <<'EOD'
+--- sqlite/src/shell.c-orig        2006-07-23 11:18:13.000000000 +0200
++++ sqlite/src/shell.c     2006-07-23 11:30:26.000000000 +0200
+@@ -20,6 +20,10 @@
+ #include "sqlite.h"
+ #include <ctype.h>
+ 
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++# include <windows.h>
++#endif
++
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__)
+ # include <signal.h>
+ # include <pwd.h>
+@@ -1246,6 +1250,17 @@
+   if( i<argc ){
+     data.zDbFilename = argv[i++];
+   }else{
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++    static OPENFILENAME ofn;
++    static char zDbFn[1024];
++    ofn.lStructSize = sizeof(ofn);
++    ofn.lpstrFile = (LPTSTR) zDbFn;
++    ofn.nMaxFile = sizeof(zDbFn);
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    if( GetOpenFileName(&ofn) ){
++      data.zDbFilename = zDbFn;
++    } else
++#endif
+     data.zDbFilename = ":memory:";
+   }
+   if( i<argc ){
+EOD
 
 echo "====================="
 echo "Preparing sqlite3 ..."
@@ -82,6 +119,42 @@ test -r sqlite-${VER3}.tar.gz || exit 1
 rm -f sqlite3
 tar xzf sqlite-${VER3}.tar.gz
 ln -sf sqlite-${VER3} sqlite3
+
+# use open file dialog when no database name given
+# need to link with -lcomdlg32 when enabled
+true || patch sqlite3/src/shell.c <<'EOD'
+--- sqlite3/src/shell.c-orig        2006-06-06 14:32:21.000000000 +0200
++++ sqlite3/src/shell.c     2006-07-23 11:04:50.000000000 +0200
+@@ -21,6 +21,10 @@
+ #include "sqlite3.h"
+ #include <ctype.h>
+ 
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++# include <windows.h>
++#endif
++
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__)
+ # include <signal.h>
+ # include <pwd.h>
+@@ -1676,6 +1676,17 @@
+   if( i<argc ){
+     data.zDbFilename = argv[i++];
+   }else{
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++    static OPENFILENAME ofn;
++    static char zDbFn[1024];
++    ofn.lStructSize = sizeof(ofn);
++    ofn.lpstrFile = (LPTSTR) zDbFn;
++    ofn.nMaxFile = sizeof(zDbFn);
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    if( GetOpenFileName(&ofn) ){
++      data.zDbFilename = zDbFn;
++    } else
++#endif
+ #ifndef SQLITE_OMIT_MEMORYDB
+     data.zDbFilename = ":memory:";
+ #else
+EOD
 
 echo "========================"
 echo "Cleanup before build ..."

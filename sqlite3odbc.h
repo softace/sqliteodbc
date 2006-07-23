@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.14 2006/06/29 13:27:41 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.16 2006/07/23 08:10:03 chw Exp chw $
  *
  * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -27,6 +27,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <stdio.h>
+#include <io.h>
 #else
 #include <sys/time.h>
 #include <sys/types.h>
@@ -109,6 +110,7 @@ typedef struct dbc {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int longnames;		/**< Don't shorten column names */
+    int nocreat;		/**< Don't auto create database file */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
     int trans_disable;		/**< True for no transaction support */

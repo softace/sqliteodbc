@@ -7,7 +7,10 @@ STRIP =		$(MINGW)/bin/strip
 RC =		$(MINGW)/bin/windres
 MAKENSIS =	makensis
 
-CFLAGS=		-g -O2 -Wall
+DRV_VER=	$(shell cat VERSION)
+
+CFLAGS=		-g -O2 -Wall -DDRIVER_VER_INFO=\"$(DRV_VER)\"
+
 
 SQLITE_INC =	sqlite
 SQLITE_LIB =	sqlite/libsqlite.a
@@ -48,7 +51,7 @@ sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 
 sqlite.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
 		$(CC) $(CFLAGS) -Isqlite -o sqlite.exe \
-		    sqlite/src/shell.c -L. -lsqliteodbc
+		    sqlite/src/shell.c -L. -lsqliteodbc # -lcomdlg32
 		$(STRIP) sqlite.exe
 
 sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
@@ -61,7 +64,7 @@ sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
 
 sqliteu.exe:		sqliteodbcu.dll sqlite/src/shell.c sqlite/sqlite.h
 		$(CC) $(CFLAGS) -Isqlite -o sqliteu.exe \
-		    sqlite/src/shell.c -L. -lsqliteodbcu
+		    sqlite/src/shell.c -L. -lsqliteodbcu # -lcomdlg32
 		$(STRIP) sqliteu.exe
 
 sqliteodbcres.o:	sqliteodbc.rc resource.h
@@ -71,8 +74,8 @@ sqliteodbcures.o:	sqliteodbc.rc resource.h
 		$(RC) -o sqliteodbcures.o -I$(SQLITE_INC) sqliteodbc.rc
 
 resource.h:	resource.h.in
-		VERS=`cat $(SQLITE_INC)/VERSION` ;\
-		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\)[.]\([0-9]\).*/\1,\2/g'` ;\
+		VERS=`cat VERSION` ;\
+		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\+\)[.]\([0-9]\+\).*/\1,\2/g'` ;\
 		sed -e 's/--VERS_C--/'$$VERS_C'/g' < resource.h.in | \
 		sed -e 's/--VERS--/'$$VERS'/g' > resource.h
 
@@ -91,15 +94,15 @@ sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
 
 sqlite3.exe:		sqliteodbc.dll sqlite3/src/shell.c sqlite3/sqlite3.h
 		$(CC) $(CFLAGS) -Isqlite3 -o sqlite3.exe \
-		    sqlite3/src/shell.c -L. -lsqlite3odbc
+		    sqlite3/src/shell.c -L. -lsqlite3odbc # -lcomdlg32
 		$(STRIP) sqlite3.exe
 
 sqlite3odbcres.o:	sqlite3odbc.rc resource3.h
 		$(RC) -o sqlite3odbcres.o -I$(SQLITE3_INC) sqlite3odbc.rc
 
 resource3.h:	resource.h.in
-		VERS=`cat $(SQLITE3_INC)/VERSION` ;\
-		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\)[.]\([0-9]\).*/\1,\2/g'` ;\
+		VERS=`cat VERSION` ;\
+		VERS_C=`echo $$VERS | sed -e 's/\([0-9]\+\)[.]\([0-9]\+\).*/\1,\2/g'` ;\
 		sed -e 's/--VERS_C--/'$$VERS_C'/g' < resource.h.in | \
 		sed -e 's/--VERS--/'$$VERS'/g' > resource3.h
 

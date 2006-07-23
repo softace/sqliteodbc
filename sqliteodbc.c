@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.107 2006/07/07 16:29:29 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.108 2006/07/23 08:11:58 chw Exp chw $
  *
  * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -28,7 +28,9 @@
 #ifdef _WIN32
 #include "resource.h"
 #define ODBC_INI "ODBC.INI"
+#ifndef DRIVER_VER_INFO
 #define DRIVER_VER_INFO VERSION
+#endif
 #else
 #ifdef __OS2__
 #define ODBC_INI "ODBC.INI"

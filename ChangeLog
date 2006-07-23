@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jul 23 2006 version 0.69 released
+
+	* added "NoCreat" DSN option in SQLite3 driver to prevent
+	  from implicit creation of empty database files
+	* fixed severe bug in conditional compile for (un)defined
+	  HAVE_SQLITE3COLUMNTABLENAME, thanks Tim Tassonis for reporting
+	* detect and handle SQLITE_SCHEMA errors from sqlite3_prepare()
+
 Fri Jul 07 2006 version 0.68 released
 
 	* update to SQLite 3.3.6, 2.8.17

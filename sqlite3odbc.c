@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.32 2006/07/07 16:30:14 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.35 2006/07/23 10:08:35 chw Exp chw $
  *
  * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -622,6 +622,9 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 		    while (ISSPACE(*sql)) {
 			sql++;
 		    }
+		}
+		if (rc == SQLITE_DONE) {
+		    rc = SQLITE_OK;
 		}
 		break;
 	    }
@@ -2084,6 +2087,11 @@ dbopen(DBC *d, char *name, char *dsn, char *sflag, char *spflag, char *ntflag,
 	sqlite3_close(d->sqlite);
 	d->sqlite = NULL;
     }
+    if (d->nocreat && access(name, 004) < 0) {
+	rc = SQLITE_CANTOPEN;
+	setstatd(d, rc, "cannot open database", (*d->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
     rc = sqlite3_open(name, &d->sqlite);
     if (rc != SQLITE_OK) {
 connfail:
@@ -2441,7 +2449,7 @@ s3stmt_start(STMT *s, char **params)
     char *sql = NULL;
     const char *endp;
     sqlite3_stmt *s3stmt = NULL;
-    int rc;
+    int rc, nretry = 0;
 
 #ifdef CANT_PASS_VALIST_AS_CHARPTR
     /* adjust with MAX_PARAMS_FOR_MPRINTF */
@@ -2469,7 +2477,9 @@ s3stmt_start(STMT *s, char **params)
 	return nomem(s);
     }
     dbtraceapi(d, "sqlite3_prepare", sql);
-    rc = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &endp);
+    do {
+	rc = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &endp);
+    } while (rc == SQLITE_SCHEMA && (++nretry) < 2);
     dbtracerc(d, rc, NULL);
     sqlite3_free(sql);
     if (rc != SQLITE_OK) {
@@ -6502,7 +6512,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     int len;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
-    char sflag[32], spflag[32], ntflag[32], lnflag[32];
+    char sflag[32], spflag[32], ntflag[32], lnflag[32], ncflag[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -6546,6 +6556,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     getdsnattr(buf, "notxn", ntflag, sizeof (ntflag));
     lnflag[0] = '\0';
     getdsnattr(buf, "longnames", lnflag, sizeof (lnflag));
+    ncflag[0] = '\0';
+    getdsnattr(buf, "nocreat", ncflag, sizeof (ncflag));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "1000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -6559,6 +6571,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 			       ntflag, sizeof (ntflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "longnames", "",
 			       lnflag, sizeof (lnflag), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "nocreat", "",
+			       ncflag, sizeof (ncflag), ODBC_INI);
 #endif
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
@@ -6571,6 +6585,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
 	d->trace = fopen(tracef, "a");
     }
     d->longnames = getbool(lnflag);
+    d->nocreat = getbool(ncflag);
     return dbopen(d, dbname, (char *) dsn, sflag, spflag, ntflag, busy);
 }
 
@@ -6659,7 +6674,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH];
-    char sflag[32], spflag[32], ntflag[32], lnflag[32];
+    char sflag[32], spflag[32], ntflag[32], lnflag[32], ncflag[32];
 
     if (dbc == SQL_NULL_HDBC || hwnd != NULL) {
 	return SQL_INVALID_HANDLE;
@@ -6747,6 +6762,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   lnflag, sizeof (lnflag), ODBC_INI);
     }
 #endif
+    ncflag[0] = '\0';
+    getdsnattr(buf, "nocreat", ncflag, sizeof (ncflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !ncflag[0]) {
+	SQLGetPrivateProfileString(dsn, "nocreat", "",
+				   ncflag, sizeof (ncflag), ODBC_INI);
+    }
+#endif
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
 	strncpy(dbname, buf, sizeof (dbname));
@@ -6766,9 +6789,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
-			 "SyncPragma=%s;NoTXN=%s;LongNames=%s;Tracefile=%s",
+			 "SyncPragma=%s;NoTXN=%s;LongNames=%s;NoCreat=%s;"
+			 "Tracefile=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
-			 lnflag, tracef);
+			 lnflag, ncflag, tracef);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -6785,6 +6809,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	d->trace = fopen(tracef, "a");
     }
     d->longnames = getbool(lnflag);
+    d->nocreat = getbool(ncflag);
     return dbopen(d, dbname, dsn, sflag, spflag, ntflag, busy);
 }
 #endif
@@ -9937,7 +9962,7 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		    }
 		}
 		if (q) {
-#if !defined(HAVE_SQLITE3COLUMNTABLENAME) && !(HAVE_SQLITE3COLUMNTABLENAME)
+#if !defined(HAVE_SQLITE3COLUMNTABLENAME) || !(HAVE_SQLITE3COLUMNTABLENAME)
 		    dyncols[i].table = p;
 #endif
 		    strncpy(p, colname, q - colname);
@@ -9947,7 +9972,7 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		    dyncols[i].column = p;
 		    p += strlen(p) + 1;
 		} else {
-#if !defined(HAVE_SQLITE3COLUMNTABLENAME) && !(HAVE_SQLITE3COLUMNTABLENAME)
+#if !defined(HAVE_SQLITE3COLUMNTABLENAME) || !(HAVE_SQLITE3COLUMNTABLENAME)
 		    dyncols[i].table = "";
 #endif
 		    strcpy(p, colname);
@@ -10030,7 +10055,7 @@ noconn:
     errp = NULL;
     freeresult(s, -1);
     if (s->isselect > 0) {
-	int ret, ncols;
+	int ret, ncols, nretry = 0;
 	const char *rest;
 	char *sql, *sqltofree = NULL, **params = NULL;
 	sqlite3_stmt *s3stmt = NULL;
@@ -10080,7 +10105,9 @@ noconn:
 	    return nomem(s);
 	}
 	dbtraceapi(d, "sqlite3_prepare", sql);
-	ret = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &rest);
+	do {
+	    ret = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &rest);
+	} while (ret == SQLITE_SCHEMA && (++nretry) < 2);
 	dbtracerc(d, ret, NULL);
 	if (sqltofree) {
 	    sqlite3_free(sql);
@@ -10452,7 +10479,8 @@ static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #define KEY_SYNCP		6
 #define KEY_NOTXN		7
 #define KEY_LONGNAM		8
-#define NUMOFKEYS		9
+#define KEY_NOCREAT		9
+#define NUMOFKEYS	       10	
 
 typedef struct {
     BOOL supplied;
@@ -10482,6 +10510,7 @@ static struct {
     { "SyncPragma", KEY_SYNCP },
     { "NoTXN", KEY_NOTXN },
     { "LongNames", KEY_LONGNAM },
+    { "NoCreat", KEY_NOCREAT },
     { NULL, 0 }
 };
 
@@ -10594,6 +10623,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_LONGNAM].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_NOCREAT].supplied) {
+	SQLWritePrivateProfileString(dsn, "NoCreat",
+				     setupdlg->attr[KEY_NOCREAT].attr,
+				     ODBC_INI);
+    }
     if (setupdlg->attr[KEY_DSN].supplied &&
 	stricmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
@@ -10651,6 +10685,12 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "LongNames", "",
 				   setupdlg->attr[KEY_LONGNAM].attr,
 				   sizeof (setupdlg->attr[KEY_LONGNAM].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_NOCREAT].supplied) {
+	SQLGetPrivateProfileString(dsn, "NoCreat", "",
+				   setupdlg->attr[KEY_NOCREAT].attr,
+				   sizeof (setupdlg->attr[KEY_NOCREAT].attr),
 				   ODBC_INI);
     }
 }
@@ -10712,6 +10752,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		       BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(hdlg, IDC_LONGNAM,
 		       getbool(setupdlg->attr[KEY_LONGNAM].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_NOCREAT,
+		       getbool(setupdlg->attr[KEY_NOCREAT].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, 0);
@@ -10784,6 +10827,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
 		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_NOCREAT].attr,
+		   IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -10890,6 +10936,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_LONGNAM,
 		       getbool(setupdlg->attr[KEY_LONGNAM].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_NOCREAT,
+		       getbool(setupdlg->attr[KEY_NOCREAT].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -10933,6 +10982,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
 		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_NOCREAT].attr,
+		   IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -11018,7 +11070,8 @@ retry:
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
 			 "%s%s%s%s%s%sDatabase=%s;StepAPI=%s;"
-			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;LongNames=%s",
+			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;LongNames=%s;"
+			 "NoCreat=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? setupdlg->attr[KEY_DSN].attr : "",
 			 dsn_0 ? ";" : "",
@@ -11030,7 +11083,8 @@ retry:
 			 setupdlg->attr[KEY_SYNCP].attr,
 			 setupdlg->attr[KEY_NOTXN].attr,
 			 setupdlg->attr[KEY_BUSY].attr,
-			 setupdlg->attr[KEY_LONGNAM].attr);
+			 setupdlg->attr[KEY_LONGNAM].attr,
+			 setupdlg->attr[KEY_NOCREAT].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -11055,6 +11109,7 @@ retry:
 	}
     }
     d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
+    d->nocreat = getbool(setupdlg->attr[KEY_NOCREAT].attr);
     rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
 		setupdlg->attr[KEY_DSN].attr,
 		setupdlg->attr[KEY_STEPAPI].attr,
