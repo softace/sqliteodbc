@@ -1,6 +1,16 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Aug 20 2006 version 0.70 released
+
+	* update to SQLite 3.3.7
+	* fix for SQLBindCol(,,NULL,,) which must unbind column
+	* added missing SQL_CATALOG_NAME/SQL_COLLATION_SEQ in SQLGetInfo()
+	* added SQLiteODBCInstaller for Win32 as contributed
+	  by Gunter Hinrichsen
+	* added install/uninstall functions in Win32 versions in
+	  order to allow driver install/remove by rundll32
+
 Sun Jul 23 2006 version 0.69 released
 
 	* added "NoCreat" DSN option in SQLite3 driver to prevent

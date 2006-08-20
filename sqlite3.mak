@@ -1,4 +1,4 @@
-# VC++ 6.0 Makefile for SQLite 3.3.5
+# VC++ 6.0 Makefile for SQLite 3.3.7
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -40,7 +40,8 @@ TCC = cl -Gs -GX -D_WIN32 -DOS_WIN=1 -nologo -Zi
 # This is how we compile
 
 TCCX = $(TCC) $(OPTS) -DWIN32=1 -DTHREADSAFE=1 -DOS_WIN=1 \
-	-DSQLITE_ENABLE_COLUMN_METADATA=1 -I. -I$(TOP)/src
+	-DSQLITE_ENABLE_COLUMN_METADATA=1 \
+	-DSQLITE_OMIT_LOAD_EXTENSION=1 -I. -I$(TOP)/src
 
 TCCXD = $(TCCX) -D_DLL
 
@@ -53,7 +54,7 @@ LIBOBJ = alter.obj analyze.obj attach.obj auth.obj btree.obj \
 	 pragma.obj prepare.obj printf.obj random.obj select.obj table.obj \
 	 tokenize.obj trigger.obj update.obj util.obj vacuum.obj \
 	 vdbe.obj vdbeapi.obj vdbeaux.obj vdbefifo.obj vdbemem.obj \
-	 where.obj utf.obj legacy.obj
+	 where.obj utf.obj legacy.obj vtab.obj
 
 # All of the source code files.
 
@@ -103,6 +104,7 @@ SRC = \
   $(TOP)/src/vdbefifo.c \
   $(TOP)/src/vdbemem.c \
   $(TOP)/src/vdbeInt.h \
+  $(TOP)/src/vtab.c \
   $(TOP)/src/where.c
 
 # Header files used by all library source files.
@@ -277,6 +279,9 @@ utf.obj:	$(TOP)/src/utf.c $(HDR)
 
 legacy.obj:	$(TOP)/src/legacy.c $(HDR)
 	$(TCCXD) -c $(TOP)/src/legacy.c
+
+vtab.obj:	$(TOP)/src/vtab.c $(HDR)
+	$(TCCXD) -c $(TOP)/src/vtab.c
 
 sqlite3.h:	$(TOP)/src/sqlite.h.in
 	..\fixup < $(TOP)\src\sqlite.h.in > sqlite3.h \

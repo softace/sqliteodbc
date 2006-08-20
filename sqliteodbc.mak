@@ -36,7 +36,7 @@ OBJECTS=	sqliteodbc.obj
 		$(CC) $(CFLAGS) /c $<
 
 all:		$(DRVDLL) inst.exe uninst.exe adddsn.exe remdsn.exe \
-		addsysdsn.exe remsysdsn.exe
+		addsysdsn.exe remsysdsn.exe SQLiteODBCInstaller.exe
 
 clean:
 		del *.obj
@@ -76,6 +76,10 @@ fixup.exe:	fixup.c
 
 mkopc.exe:	mkopc.c
 		$(CC) $(CFLAGSEXE) mkopc.c
+
+SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c
+		$(CC) $(CFLAGSEXE) SQLiteODBCInstaller.c \
+		kernel32.lib user32.lib
 
 sqliteodbc.c:	resource.h
 

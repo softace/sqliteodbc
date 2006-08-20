@@ -31,7 +31,8 @@ all:		sqliteodbc.dll sqlite3odbc.dll \
 		sqlite.exe sqlite3.exe \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
-		addsysdsn.exe remsysdsn.exe
+		addsysdsn.exe remsysdsn.exe \
+		SQLiteODBCInstaller.exe
 
 sqliteodbc.o:	sqliteodbc.c sqliteodbc.h resource.h
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
@@ -133,6 +134,11 @@ addsysdsn.exe:	adddsn.exe
 
 remsysdsn.exe:	adddsn.exe
 		cp -p adddsn.exe remsysdsn.exe
+
+SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c
+		$(CC) $(CFLAGS) -o SQLiteODBCInstaller.exe \
+		SQLiteODBCInstaller.c -lkernel32 -luser32
+		$(STRIP) SQLiteODBCInstaller.exe
 
 clean:
 		rm -f *.o sqliteodbc*.dll sqlite3odbc.dll *inst.exe \

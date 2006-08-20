@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.35 2006/07/23 10:08:35 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.37 2006/08/15 08:44:34 chw Exp chw $
  *
  * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -5446,6 +5446,9 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
     case SQL_MAX_ROW_SIZE_INCLUDES_LONG:
+#ifdef SQL_CATALOG_NAME
+    case SQL_CATALOG_NAME:
+#endif
 	strmak(val, "N", valMax, valLen);
 	break;
     case SQL_DATA_SOURCE_READ_ONLY:
@@ -5689,6 +5692,9 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	       valMax, valLen);
 	break;
     case SQL_SPECIAL_CHARACTERS:
+#ifdef SQL_COLLATION_SEQ
+    case SQL_COLLATION_SEQ:
+#endif
 	strmak(val, "", valMax, valLen);
 	break;
     case SQL_BATCH_SUPPORT:
@@ -7732,17 +7738,26 @@ SQLBindCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	    return SQL_ERROR;
 	}
     }
-    if (max < 0) {
-	setstat(s, -1, "invalid length", "HY090");
-	return SQL_ERROR;
-    }
-    s->bindcols[col].type = type;
-    s->bindcols[col].max = max;
-    s->bindcols[col].lenp = lenp;
-    s->bindcols[col].valp = val;
-    s->bindcols[col].offs = 0;
-    if (lenp) {
-	*lenp = 0;
+    if (val == NULL) {
+	/* unbind column */
+	s->bindcols[col].type = -1;
+	s->bindcols[col].max = 0;
+	s->bindcols[col].lenp = NULL;
+	s->bindcols[col].valp = NULL;
+	s->bindcols[col].offs = 0;
+    } else {
+	if (max < 0) {
+	    setstat(s, -1, "invalid length", "HY090");
+	    return SQL_ERROR;
+	}
+	s->bindcols[col].type = type;
+	s->bindcols[col].max = max;
+	s->bindcols[col].lenp = lenp;
+	s->bindcols[col].valp = val;
+	s->bindcols[col].offs = 0;
+	if (lenp) {
+	    *lenp = 0;
+	}
     }
     return SQL_SUCCESS; 
 }
@@ -11210,6 +11225,210 @@ DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)
     return LibMain(hinst, reason, reserved);
 }
 
+/**
+ * Handler for driver installer/uninstaller error messages.
+ * @param name name of API function for which to show error messages
+ * @result true when error message retrieved
+ */
+
+static BOOL
+InUnError(char *name)
+{
+    WORD err = 1;
+    DWORD code;
+    char errmsg[301];
+    WORD errlen, errmax = sizeof (errmsg) - 1;
+    int rc;
+    BOOL ret = FALSE;
+
+    do {
+	errmsg[0] = '\0';
+	rc = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
+	if (rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO) {
+	    MessageBox(NULL, errmsg, name,
+		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+	    ret = TRUE;
+	}
+	err++;
+    } while (rc != SQL_NO_DATA);
+    return ret;
+}
+
+/**
+ * Built in driver installer/uninstaller.
+ * @param remove true for uninstall
+ * @param cmdline command line string of rundll32
+ */
+
+static BOOL
+InUn(int remove, char *cmdline)
+{
+    static char *drivername = "SQLite3 ODBC Driver";
+    static char *dsname = "SQLite3 Datasource";
+    char *dllname, *p;
+    char dllbuf[301], path[301], driver[300], attr[300], inst[400];
+    WORD pathmax = sizeof (path) - 1, pathlen;
+    DWORD usecnt, mincnt;
+    int quiet = 0;
+
+    dllbuf[0] = '\0';
+    GetModuleFileName(hModule, dllbuf, sizeof (dllbuf));
+    p = strrchr(dllbuf, '\\');
+    dllname = p ? (p + 1) : dllbuf; 
+    quiet = cmdline && strstr(cmdline, "quiet");
+    if (SQLInstallDriverManager(path, pathmax, &pathlen)) {
+	sprintf(driver, "%s;Driver=%s;Setup=%s;",
+		drivername, dllname, dllname);
+	p = driver;
+	while (*p) {
+	    if (*p == ';') {
+		*p = '\0';
+		++p;
+	    }
+	    ++p;
+	}
+	usecnt = 0;
+	path[0] = '\0';
+	SQLInstallDriverEx(driver, NULL, path, pathmax, NULL,
+			   ODBC_INSTALL_INQUIRY, &usecnt);
+	pathlen = strlen(path);
+	while (pathlen > 0 && path[pathlen - 1] == '\\') {
+	    --pathlen;
+	    path[pathlen] = '\0';
+	}
+	sprintf(driver, "%s;Driver=%s\\%s;Setup=%s\\%s;",
+		drivername, path, dllname, path, dllname);
+	p = driver;
+	while (*p) {
+	    if (*p == ';') {
+		*p = '\0';
+		++p;
+	    }
+	    ++p;
+	}
+	sprintf(inst, "%s\\%s", path, dllname);
+	if (!remove && usecnt > 0) {
+	    /* first install try: copy over driver dll, keeping DSNs */
+	    if (GetFileAttributes(dllname) != 0xFFFFFFFF &&
+		CopyFile(dllname, inst, 0)) {
+		if (!quiet) {
+		    char buf[512];
+
+		    sprintf(buf, "%s replaced.", drivername);
+		    MessageBox(NULL, buf, "Info",
+			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_SETFOREGROUND);
+		}
+		return TRUE;
+	    }
+	}
+	mincnt = remove ? 1 : 0;
+	while (usecnt != mincnt) {
+	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
+		break;
+	    }
+	}
+	if (remove) {
+	    if (usecnt && !SQLRemoveDriver(driver, TRUE, &usecnt)) {
+		InUnError("SQLRemoveDriver");
+		return FALSE;
+	    }
+	    if (!usecnt) {
+		char buf[512];
+
+		DeleteFile(inst);
+		if (!quiet) {
+		    sprintf(buf, "%s uninstalled.", drivername);
+		    MessageBox(NULL, buf, "Info",
+			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_SETFOREGROUND);
+		}
+	    }
+	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	    p = attr;
+	    while (*p) {
+		if (*p == ';') {
+		    *p = '\0';
+		    ++p;
+		}
+		++p;
+	    }
+	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
+	    return TRUE;
+	}
+	if (GetFileAttributes(dllname) == 0xFFFFFFFF) {
+	    return FALSE;
+	}
+	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllname, inst, 0)) {
+	    char buf[512];
+
+	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);
+	    MessageBox(NULL, buf, "CopyFile",
+		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+	    return FALSE;
+	}
+	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,
+				ODBC_INSTALL_COMPLETE, &usecnt)) {
+	    InUnError("SQLInstallDriverEx");
+	    return FALSE;
+	}
+	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	p = attr;
+	while (*p) {
+	    if (*p == ';') {
+		*p = '\0';
+		++p;
+	    }
+	    ++p;
+	}
+	SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
+	if (!SQLConfigDataSource(NULL, ODBC_ADD_SYS_DSN, drivername, attr)) {
+	    InUnError("SQLConfigDataSource");
+	    return FALSE;
+	}
+	if (!quiet) {
+	    char buf[512];
+
+	    sprintf(buf, "%s installed.", drivername);
+	    MessageBox(NULL, buf, "Info",
+		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+		       MB_SETFOREGROUND);
+	}
+    } else {
+	InUnError("SQLInstallDriverManager");
+	return FALSE;
+    }
+    return TRUE;
+}
+
+/**
+ * RunDLL32 entry point for driver installation.
+ * @param hwnd window handle of caller
+ * @param hinst of this DLL
+ * @param lpszCmdLine rundll32 command line tail
+ * @param nCmdShow ignored
+ */
+
+void CALLBACK
+install(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
+{
+    InUn(0, lpszCmdLine);
+}
+
+/**
+ * RunDLL32 entry point for driver uninstallation.
+ * @param hwnd window handle of caller
+ * @param hinst of this DLL
+ * @param lpszCmdLine rundll32 command line tail
+ * @param nCmdShow ignored
+ */
+
+void CALLBACK
+uninstall(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
+{
+    InUn(1, lpszCmdLine);
+}
+
 #endif /* _WIN32 */
 
 #if defined(HAVE_ODBCINSTEXT_H) && HAVE_ODBCINSTEXT_H
@@ -11254,6 +11473,13 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     prop->aPromptData = malloc(sizeof (instYN));
     memcpy(prop->aPromptData, instYN, sizeof (instYN));
     strncpy(prop->szName, "LongNames", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc(sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "NoCreat", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
     prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
     prop = prop->pNext;

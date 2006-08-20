@@ -79,6 +79,7 @@ Section "-Main (required)" InstallationInfo
  File "remdsn.exe"
  File "addsysdsn.exe"
  File "remsysdsn.exe"
+ File "SQLiteODBCInstaller.exe"
  File "license.terms"
  File "license.txt"
  File "README"
@@ -163,6 +164,7 @@ Section /o "Source Code" SourceInstall
  File "mf-sqlite3.mingw-cross"
  File "mingw-cross-build.sh"
  File "sqliteodbc.nsi"
+ File "SQLiteODBCInstaller.c"
  File /r "missing"
 SectionEnd
 

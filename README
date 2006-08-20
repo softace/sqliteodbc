@@ -13,9 +13,9 @@ The current source can be downloaded from
 
 WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
-    http://www.ch-werner.de/sqliteodbc/sqliteodbc-win32.zip
+    http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.3.6, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.3.7, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.0.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -26,7 +26,7 @@ applet and provide the name of the SQLite database file to be worked
 on as an absolute pathname including the drive letter, eg as
 "C:\TEMP\SQLite.DB". The busy (or lock) timeout for the database
 can be specified in the respective field. If empty a default value
-of 1000 milliseconds is used.
+of 100000 milliseconds is used.
 
 Other tests were made on Linux with the "isql" command line tool
 and the "DataManager" GUI tool of unixODBC 2.1.0.
@@ -212,6 +212,24 @@ Build instructions for MingW cross compiler for Win32 targets:
   final step is creating an NSIS installer.
 
 
+Win32 install/remove by RUNDLL32
+
+  Each driver DLL provides entry points for ODBC driver installation
+  and removal which can be invoked from RUNDLL32.EXE, eg
+
+  ### install sqliteodbc.dll
+  C:\> rundll32 [path]sqliteodbc.dll,install [quiet]
+
+  ### remove sqlite3odbc.dll
+  C:\> rundll32 [path]sqlite3odbc.dll,uninstall [quiet]
+
+  If [path] is not provided newer Windows OSes tend to favor the
+  sqlite*odbc*dll in system directories over the current directory,
+  thus better provide an absolute path to the DLL of interest.
+  If the word "quiet" appears anywhere after the DLL/function
+  name, no info message boxes pop up (but errors are shown).
+
+
 DNS-less connection to the driver
 
   Using the SQLDriverConnect() API it should be possible to connect to
@@ -238,7 +256,7 @@ TODO:
 - improve documentation
 
 
-2006-07-23
+2006-08-20
 Christian Werner
 mailto:chw@ch-werner.de
 

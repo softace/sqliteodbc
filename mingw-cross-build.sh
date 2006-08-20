@@ -9,7 +9,7 @@
 #  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
 
 VER2=2.8.17
-VER3=3.3.6
+VER3=3.3.7
 
 echo "===================="
 echo "Preparing sqlite ..."
