@@ -1,6 +1,31 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Jan 11 2007 version 0.71 released
+
+	* update to SQLite 3.3.10
+	* MingW Win32 build: added shell function in
+	  order to run driver DLL as SQLite shell from rundll32
+	* WIN32 thread safety as suggested by Dmitriy Ivanov:
+	  serialize most SQL*() APIs using critical section on ENV struct
+	* implemented SQLGetDiagField(W)(), initial code kindly
+	  donated by Arnold Schulz
+	* more tweaks regarding Win32 code page vs. UTF-8
+	* added patches from Debian 0.70 testing
+	* on Win32 don't assume that database, DSN, and driver names
+	  are UTF-8 encoded in SQLite3 driver
+	* fixes in corner cases of SQL query substitution
+	  with 0 parameters and SQL patterns (%)
+	* added "ShortNames" DSN option in SQLite 3 driver
+	* allow naming a column (no pattern) in SQLColumns()
+	* UN*X standard behaviour now is not to build drivers
+	  with wide char interfaces, this must be turned on
+	  explicitely by specifying "--enable-winterface" at
+	  configure time
+	* now provide SQL*W functions in Win32 SQLite3 driver, quick
+	  and dirty ported from sqliteodbc.c, not optimized for
+	  SQLite 3.x wide char APIs
+
 Sun Aug 20 2006 version 0.70 released
 
 	* update to SQLite 3.3.7

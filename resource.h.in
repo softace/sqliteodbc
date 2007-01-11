@@ -17,6 +17,7 @@
 #define IDC_NOTXN			412
 #define IDC_LONGNAM			413
 #define IDC_NOCREAT			414
+#define IDC_SHORTNAM			415
 #define IDS_MSGTITLE                    500
 #define IDS_BADDSN                      501
 #define IDC_STATIC                      -1

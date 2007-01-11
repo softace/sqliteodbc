@@ -302,6 +302,33 @@ AC_MSG_RESULT(yes)
 ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLROWCOUNT=1"
 ],[AC_MSG_RESULT(no)])
 
+AC_MSG_CHECKING([for SQLSETPOSIROW availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLSETPOSIROW rc = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLSETPOSIROW=1"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLROWOFFSET availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLROWOFFSET rc = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLROWOFFSET=1"
+],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for SQLROWSETSIZE availability])
+AC_TRY_COMPILE([
+#include <sql.h>
+#include <sqltypes.h>
+],[SQLROWSETSIZE rc = 1;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLROWSETSIZE=1"
+],[AC_MSG_RESULT(no)])
+
 AC_MSG_CHECKING([for SQLColAttribute signature has SQLLEN])
 AC_TRY_COMPILE([
 #include <stdio.h>
@@ -439,9 +466,10 @@ AC_CHECK_FUNC(gmtime_r, [ODBC_FLAGS="$ODBC_FLAGS -DHAVE_GMTIME_R=1"])
 # Allow omission of SQL*W() functions for SQLITE_UTF8 encoding
 #
 AC_ARG_ENABLE(winterface,
-   [  --disable-winterface    don't make SQL*W() functions],
+   [  --enable-winterface     make SQL*W() functions],
    [ test $enable_winterface = "no" &&
-     ODBC_FLAGS="$ODBC_FLAGS -DWITHOUT_WINTERFACE=1" ])
+     ODBC_FLAGS="$ODBC_FLAGS -DWITHOUT_WINTERFACE=1" ],
+   [ ODBC_FLAGS="$ODBC_FLAGS -DWITHOUT_WINTERFACE=1" ])
 
 #########
 # Generate the output files.

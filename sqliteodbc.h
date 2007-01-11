@@ -15,9 +15,9 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.42 2006/05/23 06:07:54 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.44 2007/01/08 10:07:49 chw Exp chw $
  *
- * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -85,6 +85,18 @@
 #define SQLROWCOUNT SQLUINTEGER
 #endif
 
+#ifndef HAVE_SQLSETPOSIROW
+#define SQLSETPOSIROW SQLUSMALLINT
+#endif
+
+#ifndef HAVE_SQLROWOFFSET
+#define SQLROWOFFSET SQLLEN
+#endif
+
+#ifndef HAVE_SQLROWSETSIZE
+#define SQLROWSETSIZE SQLULEN
+#endif
+
 struct dbc;
 struct stmt;
 
@@ -97,6 +109,10 @@ struct stmt;
 typedef struct {
     int magic;			/**< Magic cookie */
     int ov3;			/**< True for SQL_OV_ODBC3 */
+#ifdef _WIN32
+    CRITICAL_SECTION cs;	/**< For serializing most APIs */
+    DWORD owner;		/**< Current owner of CS or 0 */
+#endif
     struct dbc *dbcs;		/**< Pointer to first DBC */
 } ENV;
 

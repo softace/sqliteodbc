@@ -32,7 +32,9 @@ InstallDir "$PROGRAMFILES\${PROD_NAME0}"
  
 ;--------------------------------
 ; Modern UI Configuration
- 
+
+!define MUI_ICON "sqliteodbc.ico"
+!define MUI_UNICON "sqliteodbc.ico" 
 !define MUI_WELCOMEPAGE_TITLE "SQLite ODBC Installation"
 !define MUI_WELCOMEPAGE_TEXT "This program will guide you through the \
 installation of SQLite ODBC Driver.\r\n\r\n$_CLICK"
@@ -95,6 +97,13 @@ Section "-Main (required)" InstallationInfo
    "$INSTDIR\uninstall.exe"
  CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\View README.lnk" \
    "$INSTDIR\readme.txt"
+ SetOutPath "$SMPROGRAMS\${PROD_NAME0}\Shells"
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 3.lnk" \
+   "$INSTDIR\sqlite3.exe"
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2.lnk" \
+   "$INSTDIR\sqlite.exe"
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2 (UTF-8).lnk" \
+   "$INSTDIR\sqliteu.exe"
  
 ; Write uninstall information to the registry
  WriteRegStr HKLM \

@@ -15,9 +15,9 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.16 2006/07/23 08:10:03 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.20 2007/01/08 10:07:49 chw Exp chw $
  *
- * Copyright (c) 2004-2006 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -70,6 +70,18 @@
 #define SQLROWCOUNT SQLUINTEGER
 #endif
 
+#ifndef HAVE_SQLSETPOSIROW
+#define SQLSETPOSIROW SQLUSMALLINT
+#endif
+
+#ifndef HAVE_SQLROWOFFSET
+#define SQLROWOFFSET SQLLEN
+#endif
+
+#ifndef HAVE_SQLROWSETSIZE
+#define SQLROWSETSIZE SQLULEN
+#endif
+
 struct dbc;
 struct stmt;
 
@@ -82,6 +94,10 @@ struct stmt;
 typedef struct {
     int magic;			/**< Magic cookie */
     int ov3;			/**< True for SQL_OV_ODBC3 */
+#ifdef _WIN32
+    CRITICAL_SECTION cs;	/**< For serializing most APIs */
+    DWORD owner;		/**< Current owner of CS or 0 */
+#endif
     struct dbc *dbcs;		/**< Pointer to first DBC */
 } ENV;
 
@@ -109,6 +125,8 @@ typedef struct dbc {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
+    int nowchar;		/**< Don't try to use WCHAR */
+    int shortnames;		/**< Always use short column names */
     int longnames;		/**< Don't shorten column names */
     int nocreat;		/**< Don't auto create database file */
     int curtype;		/**< Default cursor type */
@@ -209,6 +227,7 @@ typedef struct stmt {
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
+    int nowchar[2];		/**< Don't try to use WCHAR */
     int longnames;		/**< Don't shorten column names */
     int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */

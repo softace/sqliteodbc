@@ -1,4 +1,4 @@
-# Makefile for SQLite ODBC Driver
+# Makefile for SQLite ODBC Drivers
 # using MinGW cross compiler
 
 MINGW =		/opt/mingw/i386-mingw32msvc
@@ -24,7 +24,7 @@ SQLITE3_INC =	sqlite3
 SQLITE3_LIB =	sqlite3/libsqlite3.a
 SQLITE3_FLAGS=	-DHAVE_SQLITE3COLUMNTABLENAME=1
 
-ODBC_FLAGS =	-DHAVE_LONG_LONG=1
+ODBC_FLAGS =	-DHAVE_LONG_LONG=1 -DHAVE_SQLROWOFFSET=1
 ODBC_LIB =	-lodbc
 
 all:		sqliteodbc.dll sqlite3odbc.dll \
@@ -50,9 +50,10 @@ sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 		    -lodbc32 -lodbccp32 -lcomdlg32 \
 		    -lkernel32 -luser32 -lmsvcrt $(SQLITE_LIB)
 
-sqlite.exe:		sqliteodbc.dll sqlite/src/shell.c sqlite/sqlite.h
+sqlite.exe:		sqliteodbc.dll sqlite/src/minshell.c sqlite/sqlite.h \
+			sqliteres.o
 		$(CC) $(CFLAGS) -Isqlite -o sqlite.exe \
-		    sqlite/src/shell.c -L. -lsqliteodbc # -lcomdlg32
+		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbc
 		$(STRIP) sqlite.exe
 
 sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
@@ -63,9 +64,10 @@ sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
 		    -lodbc32 -lodbccp32 -lcomdlg32 \
 		    -lkernel32 -luser32 -lmsvcrt $(SQLITE_LIB)
 
-sqliteu.exe:		sqliteodbcu.dll sqlite/src/shell.c sqlite/sqlite.h
+sqliteu.exe:		sqliteodbcu.dll sqlite/src/minshell.c sqlite/sqlite.h \
+			sqliteres.o
 		$(CC) $(CFLAGS) -Isqlite -o sqliteu.exe \
-		    sqlite/src/shell.c -L. -lsqliteodbcu # -lcomdlg32
+		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbcu
 		$(STRIP) sqliteu.exe
 
 sqliteodbcres.o:	sqliteodbc.rc resource.h
@@ -93,9 +95,9 @@ sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
 		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_LIB)
 		$(STRIP) sqlite3odbc.dll
 
-sqlite3.exe:		sqliteodbc.dll sqlite3/src/shell.c sqlite3/sqlite3.h
+sqlite3.exe:		sqlite3odbc.dll sqlite3/src/minshell.c sqliteres.o
 		$(CC) $(CFLAGS) -Isqlite3 -o sqlite3.exe \
-		    sqlite3/src/shell.c -L. -lsqlite3odbc # -lcomdlg32
+		    sqlite3/src/minshell.c sqliteres.o -L. -lsqlite3odbc
 		$(STRIP) sqlite3.exe
 
 sqlite3odbcres.o:	sqlite3odbc.rc resource3.h
@@ -107,8 +109,14 @@ resource3.h:	resource.h.in
 		sed -e 's/--VERS_C--/'$$VERS_C'/g' < resource.h.in | \
 		sed -e 's/--VERS--/'$$VERS'/g' > resource3.h
 
-inst.exe:	inst.c
-		$(CC) $(CFLAGS) -mwindows -o inst.exe inst.c \
+sqliteres.rc:
+		@echo "ico ICON sqlite.ico" > sqliteres.rc
+
+sqliteres.o:	sqliteres.rc
+		$(RC) -o sqliteres.o sqliteres.rc
+
+inst.exe:	inst.c sqliteres.o
+		$(CC) $(CFLAGS) -mwindows -o inst.exe inst.c sqliteres.o \
 		-lodbc32 -lodbccp32 -lkernel32 -luser32
 		$(STRIP) inst.exe
 
@@ -121,8 +129,8 @@ uninst.exe:	inst.exe
 uninstq.exe:	inst.exe
 		cp -p inst.exe uninstq.exe
 
-adddsn.exe:	adddsn.c
-		$(CC) $(CFLAGS) -mwindows -o adddsn.exe adddsn.c \
+adddsn.exe:	adddsn.c sqliteres.o
+		$(CC) $(CFLAGS) -mwindows -o adddsn.exe adddsn.c sqliteres.o \
 		-lodbc32 -lodbccp32 -lkernel32 -luser32
 		$(STRIP) adddsn.exe
 
@@ -135,13 +143,13 @@ addsysdsn.exe:	adddsn.exe
 remsysdsn.exe:	adddsn.exe
 		cp -p adddsn.exe remsysdsn.exe
 
-SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c
+SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c sqliteres.o
 		$(CC) $(CFLAGS) -o SQLiteODBCInstaller.exe \
-		SQLiteODBCInstaller.c -lkernel32 -luser32
+		SQLiteODBCInstaller.c sqliteres.o -lkernel32 -luser32
 		$(STRIP) SQLiteODBCInstaller.exe
 
 clean:
 		rm -f *.o sqliteodbc*.dll sqlite3odbc.dll *inst.exe \
-		    *dsn.exe sqlite*.exe *~ core
+		    *dsn.exe sqlite*.exe sqliteres.rc *~ core
 		rm -f resource.h resource3.h
 

@@ -56,10 +56,10 @@ SUCH DAMAGE.
 #include "windows.h"
 
 // Version of Installer
-#define SQLINST_VERSION				"1.1"
+#define SQLINST_VERSION				"1.2"
 
 // Known Argument Types
-#define SQLINST_ARGID_COUNT			8
+#define SQLINST_ARGID_COUNT			9
 #define SQLINST_ARGID_UNKNOWN		(-1)
 #define SQLINST_ARGID_HELP			(0)
 #define SQLINST_ARGID_VERSION		(1)
@@ -69,17 +69,19 @@ SUCH DAMAGE.
 #define SQLINST_ARGID_DRIVER		(5)
 #define SQLINST_ARGID_QUIET			(6)
 #define SQLINST_ARGID_SHOW_MSG_BOX	(7)
+#define SQLINST_ARGID_DLL			(8)
 
 // Some internel values....
-#define SQLINST_MAX_BUFFER			(64)
+#define SQLINST_MAX_BUFFER			(1024)
 #define SQLINST_MAX_ARG_VALUE		(5)
 #define SQLINST_MAX_ARGS			(10)
 
 // Known driver
-#define SQLINST_DRIVER_COUNT		(3)
+#define SQLINST_DRIVER_COUNT		(4)
 #define SQLINST_DRIVER_SQL2			(0x01)
 #define SQLINST_DRIVER_SQL2_UTF		(0x02)
 #define SQLINST_DRIVER_SQL3			(0x04)
+#define SQLINST_DRIVER_DLL			(0x08)
 
 // Actions: What have I todo?
 #define SQLINST_ACTION_NOT_KNOWN	(0)
@@ -106,12 +108,13 @@ struct SQLiteDriverData_Struct
 	const char		*pDLLName;
 };
 
-// Define availably Driver
+// Define availably Driver (SQLINST_DRIVER_DLL = use given DLL)
 static const struct SQLiteDriverData_Struct	g_SQLiteDriverData[SQLINST_DRIVER_COUNT] = \
 {
-	{ "sql2"	, SQLINST_DRIVER_SQL2		, "SQLite ODBC Driver"			, "SQLite Datasource"		, "sqliteodbc.dll"	},
-	{ "sql2u"	, SQLINST_DRIVER_SQL2_UTF	, "SQLite ODBC (UTF-8) Driver"	, "SQLite UTF-8 Datasource"	, "sqliteodbcu.dll"	},
-	{ "sql3"	, SQLINST_DRIVER_SQL3		, "SQLite3 ODBC Driver"			, "SQLite3 Datasource"		, "sqlite3odbc.dll"	}
+	{	"sql2"	, SQLINST_DRIVER_SQL2		, "SQLite ODBC Driver"			, "SQLite Datasource"		, "sqliteodbc.dll"	},	
+	{	"sql2u"	, SQLINST_DRIVER_SQL2_UTF	, "SQLite ODBC (UTF-8) Driver"		, "SQLite UTF-8 Datasource"	, "sqliteodbcu.dll"	},
+	{	"sql3"	, SQLINST_DRIVER_SQL3		, "SQLite3 ODBC Driver"			, "SQLite3 Datasource"		, "sqlite3odbc.dll"	},
+	{	""	, SQLINST_DRIVER_DLL		, ""					, ""				, ""			}
 };
 
 struct ArgData_Struct
@@ -126,14 +129,15 @@ struct ArgData_Struct
 
 static const struct ArgData_Struct g_ArgData[SQLINST_ARGID_COUNT] =\
 {
-	{ "h", SQLINST_ARGID_HELP			, "-h = print help" },
-	{ "v", SQLINST_ARGID_VERSION		, "-v = print version" },
-	{ "i", SQLINST_ARGID_INSTALL		, "-i = install" },
-	{ "u", SQLINST_ARGID_UNINSTALL	, "-u = uninstall" },
-	{ "a", SQLINST_ARGID_ALL			, "-a = (un)install all driver (default)" },
-	{ "d", SQLINST_ARGID_DRIVER		, "-d = (un)install only given driver" },
-	{ "q", SQLINST_ARGID_QUIET		, "-q = quiet" },
-	{ "m", SQLINST_ARGID_SHOW_MSG_BOX	, "-m = show errors in windows messageboxes!" }
+	{	"h", SQLINST_ARGID_HELP			, "-h = print help"	},
+	{	"v", SQLINST_ARGID_VERSION		, "-v = print version"	},
+	{	"i", SQLINST_ARGID_INSTALL		, "-i = install"	},
+	{	"u", SQLINST_ARGID_UNINSTALL		, "-u = uninstall"	},
+	{	"a", SQLINST_ARGID_ALL			, "-a = (un)install all driver (default)"	},
+	{	"d", SQLINST_ARGID_DRIVER		, "-d = (un)install only given driver"		},
+	{	"l", SQLINST_ARGID_DLL			, "-l = (un)install given dll. (full path and dll name)"	},
+	{	"q", SQLINST_ARGID_QUIET		, "-q = quiet"		},
+	{	"m", SQLINST_ARGID_SHOW_MSG_BOX	, "-m = show errors in windows messageboxes!"		}
 };
 
 // Pointer to versionstring
@@ -160,6 +164,9 @@ struct RunningOptionData_Struct
 	// Which Drivers? (SQLINST_DRIVER_*)
 	unsigned char FollowDriver;
 
+	// Install follow dll (Used when: FollowDriver & SQLINST_DRIVER_DLL)
+	char DirectDll[SQLINST_MAX_BUFFER];
+
 	// Shut up...
 	BOOL Quiet;
 };
@@ -176,6 +183,8 @@ char GetArgID( const char *pArgName );
 void SaveValues( struct ParstArgsData_Struct *pDestArg, const char *pValues );
 // Put Messsage to user
 void MessageToUser( const char *pMessage );
+// Remove path
+void MakeTempFile( char *pDestBuffer, int MaxDestBuffer, const char *pSourceBuffer );
 
 // Error Message Buffer
 #define SQLINST_MAX_ERROR_BUFFER	4096
@@ -265,7 +274,11 @@ int main(int argc, char* argv[])
 					// (Un)Install all Drivers
 					for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 					{
-						RunData.FollowDriver |= g_SQLiteDriverData[Driver].ArgFlag;
+						// If not special entry
+						if ( strlen(g_SQLiteDriverData[Driver].pDLLName) )
+						{
+							RunData.FollowDriver |= g_SQLiteDriverData[Driver].ArgFlag;
+						}
 					} // for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 				break;
 
@@ -287,6 +300,12 @@ int main(int argc, char* argv[])
 						Found =  FALSE;
 						for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 						{
+							// Ignore special entry.
+							if ( !strlen(g_SQLiteDriverData[Driver].pDLLName) )
+							{
+								continue;
+							}
+
 							// If Identical set Flag
 							if ( 0 == strcmp( g_SQLiteDriverData[Driver].pArgOptionName, Arguments[Count].ArgValue[Value]) )
 							{
@@ -309,6 +328,23 @@ int main(int argc, char* argv[])
 					} // for ( Value = 0; Value < Arguments[Count].ArgValueCount; Value++ )
 				break;
 
+				case SQLINST_ARGID_DLL:
+					// Need one given DLL
+					if ( 1 == Arguments[Count].ArgValueCount )
+					{
+						// Copy DLL to run struct
+						RunData.FollowDriver |= SQLINST_DRIVER_DLL;
+						strncpy( RunData.DirectDll, Arguments[Count].ArgValue[0], SQLINST_MAX_BUFFER );
+						RunData.DirectDll[SQLINST_MAX_BUFFER-1] = 0;
+					}
+					else
+					{
+						_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Argument: %s need dllname! Use -h for help!\n", Arguments[Count].ArgName );
+						g_ErrorMessage[SQLINST_MAX_ERROR_BUFFER-1] = 0;
+						MessageToUser( g_ErrorMessage );
+					}
+				break;
+
 				case SQLINST_ARGID_QUIET:
 					RunData.Quiet = TRUE;
 				break;
@@ -325,7 +361,11 @@ int main(int argc, char* argv[])
 			// Install all Drivers
 			for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 			{
-				RunData.FollowDriver |= g_SQLiteDriverData[Driver].ArgFlag;
+				// If not special entry
+				if ( strlen(g_SQLiteDriverData[Driver].pDLLName) )
+				{
+					RunData.FollowDriver |= g_SQLiteDriverData[Driver].ArgFlag;
+				}
 			} // for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 		} // if ( !RunData.FollowDriver )
 
@@ -353,7 +393,7 @@ int main(int argc, char* argv[])
 	} // if ( ArgCount )
 
 	// Print help
-	printf( "SQLiteODBCInstaller [-i or -u] [-a or -d=driverlist]\n" );
+	printf( "SQLiteODBCInstaller [-i or -u] [-a, -d=driverlist or -l=fullpath\\dllname]\n" );
 	printf( "Version: %s\n", g_Version );
 	printf( "\n");
 
@@ -370,6 +410,12 @@ int main(int argc, char* argv[])
 			printf( "     {" );
 			for ( Driver = 0; Driver < SQLINST_DRIVER_COUNT; Driver++ )
 			{
+				// Ignore special entry.
+				if ( !strlen(g_SQLiteDriverData[Driver].pDLLName) )
+				{
+					continue;
+				}
+
 				// Seperator ";" if needed
 				if ( Driver ) { printf( "; "); }
 				// Data
@@ -389,6 +435,9 @@ int main(int argc, char* argv[])
 	printf( "\n");
 	printf( "Example 3: Install only SQLite2 and SQLite2 UTF8 driver\n");
 	printf( "SQLiteODBCInstaller -i -d=sql2,sql2u\n");
+	printf( "\n");
+	printf( "Example 4: Install dll directly\n");
+	printf( "SQLiteODBCInstaller -i -l=\"c:\\download\\sqlite3odbc.dll\"\n");
 	printf( "\n");
 
 	return 0;
@@ -502,7 +551,6 @@ char *SeperateArgAndValue( char *pArgName )
 		// Check some end chars 
 		switch ( pArgName[StringPos] )
 		{
-			case ' ':
 			case '\t':
 			case '=':
 				// Arg-Type?
@@ -537,6 +585,7 @@ void SaveValues( struct ParstArgsData_Struct *pDestArg, const char *pValues )
 	unsigned int StringPos;	// Position in string
 	BOOL BreakMe; // Break while
 	const char *pValueStart;
+	unsigned char Quote;
 
 	// Parse from start
 	StringPos = 0;
@@ -548,6 +597,7 @@ void SaveValues( struct ParstArgsData_Struct *pDestArg, const char *pValues )
 		ValueLength = 0;
 		BreakMe = FALSE;
 		pValueStart	= &pValues[StringPos]; 
+		Quote = 0;
 
 		// Parse string
 		while ( pValues[StringPos] && !BreakMe )
@@ -558,7 +608,21 @@ void SaveValues( struct ParstArgsData_Struct *pDestArg, const char *pValues )
 				case ' ':
 				case '\n':
 				case ',':
-					BreakMe = TRUE;
+					if ( !Quote )
+					{
+						BreakMe = TRUE;
+					}
+				break;
+
+				case '"':
+					if ( Quote )
+					{
+						BreakMe = TRUE;
+					}
+					else
+					{
+						Quote = 1;
+					}
 				break;
 
 				default:
@@ -593,6 +657,7 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 	char SystemPath[1024];	// System path (C:\Windows\System32)
 	char WorkPath[1024];	// My own path
 	char TempPath[1024];	// Temp path for working
+	char TempFile[1024];	// TempFile
 	char SourceFile[2048];	// SourceFile
 	char DestFile[2048];	// DestFile
 	HMODULE	hDll;			// DLL-Handle
@@ -624,8 +689,16 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 		switch ( pRunData->DoFollow )
 		{
 			case SQLINST_ACTION_INSTALL:
-				_snprintf( SourceFile, 2048, "%s\\%s", WorkPath, g_SQLiteDriverData[Driver].pDLLName );
-				SourceFile[2048-1] = 0;
+				if ( g_SQLiteDriverData[Driver].ArgFlag == SQLINST_DRIVER_DLL )
+				{
+					_snprintf( SourceFile, 2048, "%s", pRunData->DirectDll );
+					SourceFile[2048-1] = 0;
+				}
+				else
+				{
+					_snprintf( SourceFile, 2048, "%s\\%s", WorkPath, g_SQLiteDriverData[Driver].pDLLName );
+					SourceFile[2048-1] = 0;
+				}
 
 				// Try to load the DLL
 				hDll = LoadLibrary( SourceFile );
@@ -663,8 +736,18 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 			break;
 
 			case SQLINST_ACTION_UNINSTALL:
-				_snprintf( SourceFile, 2048, "%s\\%s", SystemPath, g_SQLiteDriverData[Driver].pDLLName );
-				_snprintf( DestFile, 2048, "%s\\%s", TempPath, g_SQLiteDriverData[Driver].pDLLName );
+				if ( g_SQLiteDriverData[Driver].ArgFlag == SQLINST_DRIVER_DLL )
+				{
+					MakeTempFile( TempFile, 1024, pRunData->DirectDll );
+					_snprintf( SourceFile, 2048, "%s", pRunData->DirectDll );
+					_snprintf( DestFile, 2048, "%s\\%s", TempPath, TempFile );
+				}
+				else
+				{
+					_snprintf( SourceFile, 2048, "%s\\%s", SystemPath, g_SQLiteDriverData[Driver].pDLLName );
+					_snprintf( DestFile, 2048, "%s\\%s", TempPath, g_SQLiteDriverData[Driver].pDLLName );
+				}
+
 				SourceFile[2048-1] = 0;
 				DestFile[2048-1] = 0;
 
@@ -673,7 +756,7 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 				if ( !CopyFile( SourceFile, DestFile, FALSE ) )
 				{
 					// Could not copy File
-					_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Error: Could not copy %s to temppath!\n", g_SQLiteDriverData[Driver].pDLLName );
+					_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Error: Could not copy %s to temppath!\n", SourceFile );
 					g_ErrorMessage[SQLINST_MAX_ERROR_BUFFER-1] = 0;
 					MessageToUser( g_ErrorMessage );
 					continue;
@@ -718,7 +801,7 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 			break;
 
 			default:
-				_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Internel error: %s: Can not run: %d\n", "RunUnInstaller", pRunData->DoFollow );
+				_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Internel error: %s: Can not run: %d\n", __FUNCTION__, pRunData->DoFollow );
 				g_ErrorMessage[SQLINST_MAX_ERROR_BUFFER-1] = 0;
 				MessageToUser( g_ErrorMessage );
 				// Break with error
@@ -743,4 +826,44 @@ void MessageToUser( const char *pMessage )
 	{
 		printf ( "%s", pMessage );
 	} // if ( g_ShowErrorInWindowsMessageBoxes )
+}
+
+// Remove path
+void MakeTempFile( char *pDestBuffer, int MaxDestBuffer, const char *pSourceBuffer )
+{
+	int StartPosition;	// Position in String
+
+	// in case of doubt return nothing
+	pDestBuffer[0] = 0;
+
+	// Start with last char
+	StartPosition	= (int)strlen(pSourceBuffer);
+	if ( !StartPosition )
+	{
+		return;
+	}
+	StartPosition--; // 0-Index
+
+	// Find filename beginning:
+	while ( StartPosition >= 0 )
+	{
+		if	(	'\\'	== pSourceBuffer[StartPosition]	||
+				'/'		== pSourceBuffer[StartPosition]	||
+				':'		== pSourceBuffer[StartPosition]
+			)
+		{
+			// Found
+			break;
+		}
+	
+		StartPosition--;
+	} // while ( SrcPosition >= 0 )
+	// if -1 or skip "\" or "/" or ":"
+	StartPosition++;
+
+	// Copy Filename (Or nothing: "C:\path\")
+	strncpy( pDestBuffer, &pSourceBuffer[StartPosition], MaxDestBuffer );
+
+	// return in evry situation a string
+	pDestBuffer[MaxDestBuffer-1] = 0;
 }

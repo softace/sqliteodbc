@@ -1,15 +1,7 @@
 #!/usr/make
 #
-# Makefile for SQLITE
-#
-# This is a template makefile for SQLite.  Most people prefer to
-# use the autoconf generated "configure" script to generate the
-# makefile automatically.  But that does not work for everybody
-# and in every situation.  If you are having problems with the
-# "configure" script, you might want to try this makefile as an
-# alternative.  Create a copy of this file, edit the parameters
-# below and type "make".
-#
+# Makefile for SQLITE, use in conjunction with mingw-cross-build.sh
+# since some patches are needed (libshell.c etc.)
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -119,6 +111,12 @@ ENCODING = ISO8859
 #
 # NAWK = nawk
 NAWK = awk
+
+#### Special libshell target
+LIBOBJ += libshell.o
+
+libshell.o:	$(TOP)/src/libshell.c sqlite3.h
+	$(TCCX) -c $(TOP)/src/libshell.c
 
 # You should not have to change anything below this line
 ###############################################################################
