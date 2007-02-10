@@ -1,6 +1,28 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Feb 10 2007 version 0.72 released
+
+	* update to SQLite 3.3.12
+	* added case for SQL_DESC_NUM_PREC_RADIX in SQLColAttribute[s]
+	* Win32 MinGW build: turn on SQLITE_SOUNDEX
+	* UN*X: try libodbcinst.so.1/libiodbcinst.so.2 before
+	  libodbcinst.so/libiodbcinst.so for SQLGetPrivateProfileString(),
+	  the latter are normally only in development packages
+	* unquote table names for SQLForeignKeys() and
+	  pragma foreign_key_list()
+	* added Win32 build of experimental sqlite+tcc module
+	* fixes/additions in configure.in/Makefile.in
+	* minor changes regarding WITHOUT_DRIVERMGR compile-time switch
+	* added new compile-time switches WITHOUT_INSTALLER and
+	  WITHOUT_SHELL for Win32
+	* added blobtoxy and impexp loadable modules, Win32 names
+	  are sqlite3_mod_blobtoxy.dll and sqlite3_mod_impexp.dll
+	* added DSN option LoadExt for specification of loadable
+	  extensions as comma separated list of pathnames
+	* added Win32 build of FTS1/FTS2 to DLLs
+	  sqlite3_mod_fts1.dll and sqlite3_mod_fts2.dll
+
 Thu Jan 11 2007 version 0.71 released
 
 	* update to SQLite 3.3.10

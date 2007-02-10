@@ -28,9 +28,10 @@ make
 
 %install
 mkdir -p $RPM_BUILD_ROOT%{_libdir}
-make install prefix=$RPM_BUILD_ROOT%{_prefix} libdir=$RPM_BUILD_ROOT%{_libdir}
+make install DESTDIR=$RPM_BUILD_ROOT
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsqliteodbc*.{a,la}
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsqlite3odbc*.{a,la}
+rm -f $RPM_BUILD_ROOT%{_libdir}/libsqlite3_mod_*.{a,la}
 
 %clean
 rm -rf $RPM_BUILD_ROOT

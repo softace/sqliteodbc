@@ -1,0 +1,12 @@
+Experimental combination of SQLite 3.3.x and TinyCC 0.9.23 using the new
+SQLite loadable extension mechanism. An extension module creates an SQLite
+scalar function 'tcc_compile' which takes one argument which is a string
+made up of C source code to be on-the-fly compiled using TinyCC
+(www.tinycc.org). The SQLite API is visible during compilation when
+'sqlite3.h' is included. See the file 'strict_typing.sql' for a working
+example.
+
+Caution: So far, only partially tested on Linux i386 and Win32.
+
+Win32 notes: The sqlite+tcc.dll module must be kept in the same path
+as the TCC include and lib directories.

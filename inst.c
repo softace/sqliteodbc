@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.7 2006/04/03 15:22:25 chw Exp chw $
+ * $Id: inst.c,v 1.8 2007/01/15 09:07:40 chw Exp chw $
  *
  * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -67,6 +67,55 @@ ProcessErrorMessages(char *name)
 }
 
 /**
+ * Copy or delete SQLite3 module DLLs
+ * @param dllname file name of driver DLL
+ * @param path install directory for modules
+ * @param del flag, when true, delete DLLs in install directory
+ */
+
+static BOOL
+CopyOrDelModules(char *dllname, char *path, BOOL del)
+{
+    char firstpat[MAX_PATH];
+    WIN32_FIND_DATA fdata;
+    HANDLE h;
+    DWORD err;
+
+    if (strncmp(dllname, "sqlite3", 7)) {
+	return TRUE;
+    }
+    firstpat[0] = '\0';
+    if (del) {
+	strcpy(firstpat, path);
+	strcat(firstpat, "\\");
+    }
+    strcat(firstpat, "sqlite3_mod*.dll");
+    h = FindFirstFile(firstpat, &fdata);
+    if (h == INVALID_HANDLE_VALUE) {
+	return TRUE;
+    }
+    do {
+	if (del) {
+	    DeleteFile(fdata.cFileName);
+	} else {
+	    char buf[1024];
+
+	    sprintf(buf, "%s\\%s", path, fdata.cFileName);
+	    if (!CopyFile(fdata.cFileName, buf, 0)) {
+		sprintf(buf, "Copy %s to %s failed", fdata.cFileName, path);
+		MessageBox(NULL, buf, "CopyFile",
+			   MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+		FindClose(h);
+		return FALSE;
+	    }
+	}
+    } while (FindNextFile(h, &fdata));
+    err = GetLastError();
+    FindClose(h);
+    return err == ERROR_NO_MORE_FILES;
+}
+
+/**
  * Driver installer/uninstaller.
  * @param remove true for uninstall
  * @param drivername print name of driver
@@ -111,7 +160,8 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	if (!remove && usecnt > 0) {
 	    /* first install try: copy over driver dll, keeping DSNs */
 	    if (GetFileAttributes(dllname) != 0xFFFFFFFF &&
-		CopyFile(dllname, inst, 0)) {
+		CopyFile(dllname, inst, 0) &&
+		CopyOrDelModules(dllname, path, 0)) {
 		return TRUE;
 	    }
 	}
@@ -130,6 +180,7 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 		char buf[512];
 
 		DeleteFile(inst);
+		CopyOrDelModules(dllname, path, 1);
 		if (!quiet) {
 		    sprintf(buf, "%s uninstalled.", drivername);
 		    MessageBox(NULL, buf, "Info",
@@ -158,6 +209,9 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    sprintf(buf, "Copy %s to %s failed", dllname, inst);
 	    MessageBox(NULL, buf, "CopyFile",
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+	    return FALSE;
+	}
+	if (!CopyOrDelModules(dllname, path, 0)) {
 	    return FALSE;
 	}
 	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,

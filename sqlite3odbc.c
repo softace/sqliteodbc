@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.50 2007/01/11 10:20:54 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.58 2007/02/07 16:03:04 chw Exp chw $
  *
  * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -198,10 +198,14 @@ xstrdup_(const char *str, char *file, int line)
 #endif
 
 #ifdef _WIN32
+
 #define vsnprintf   _vsnprintf
 #define snprintf    _snprintf
 #define strcasecmp  _stricmp
 #define strncasecmp _strnicmp
+
+static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
+
 #endif
 
 #ifdef _WIN32
@@ -924,7 +928,13 @@ drvgetgpps(DBC *d)
     void *lib;
     int (*gpps)();
 
-    lib = dlopen("libodbcinst.so", RTLD_LAZY);
+    lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    if (!lib) {
+	lib = dlopen("libodbcinst.so", RTLD_LAZY);
+    }
+    if (!lib) {
+	lib = dlopen("libiodbcinst.so.2", RTLD_LAZY);
+    }
     if (!lib) {
 	lib = dlopen("libiodbcinst.so", RTLD_LAZY);
     }
@@ -1411,6 +1421,29 @@ ln_strtod(const char *data, char **endp)
 #else
     return strtod(data, endp);
 #endif
+}
+
+/**
+ * Strip quotes from quoted string in-place.
+ * @param str string
+ */
+
+static char *
+unquote(char *str)
+{
+    if (str) {
+	int len = strlen(str);
+
+	if (len > 1) {
+	    if ((str[0] == '\'' && str[len - 1] == '\'') ||
+		(str[0] == '"' && str[len - 1] == '"') ||
+		(str[0] == '[' && str[len - 1] == ']')) {
+		str[len - 1] = '\0';
+		strcpy(str, str + 1);
+	    }
+	}
+    }
+    return str;
 }
 
 /**
@@ -2789,6 +2822,77 @@ connfail:
 }
 
 /**
+ * Load SQLite extension modules, if any
+ * @param d DBC pointer
+ * @param exts string, comma separated extension names
+ */
+
+static void
+dbloadext(DBC *d, char *exts)
+{
+#if defined(HAVE_SQLITE3LOADEXTENSION) && HAVE_SQLITE3LOADEXTENSION
+    char *p;
+    char path[SQL_MAX_MESSAGE_LENGTH];
+    int plen = 0;
+
+    if (!d->sqlite) {
+	return;
+    }
+    sqlite3_enable_load_extension(d->sqlite, 1);
+#ifdef _WIN32
+    GetModuleFileName(hModule, path, sizeof (path));
+    p = strrchr(path, '\\');
+    plen = p ? ((p + 1) - path) : 0;
+#endif
+    do {
+	p = strchr(exts, ',');
+	if (p) {
+	    strncpy(path + plen, exts, p - exts);
+	    path[plen + (p - exts)] = '\0';
+	} else {
+	    strcpy(path + plen, exts);
+	}
+	if (exts[0]) {
+	    char *errmsg = NULL;
+	    int rc;
+#ifdef _WIN32
+	    char *q;
+
+	    q = path + plen;
+	    if (!(q[0] &&
+		  ((q[1] == ':' && (q[2] == '\\' || q[2] == '/')) ||
+		   q[0] == '\\' || q[0] == '/' || q[0] == '.'))) {
+		q = path;
+	    }
+	    rc = sqlite3_load_extension(d->sqlite, q, 0, &errmsg);
+#else
+	    rc = sqlite3_load_extension(d->sqlite, path, 0, &errmsg);
+#endif
+	    if (rc != SQLITE_OK) {
+#ifdef _WIN32
+		char buf[512], msg[512];
+
+		LoadString(hModule, IDS_EXTERR, buf, sizeof (buf));
+		wsprintf(msg, buf, q, errmsg ?
+			 errmsg : "no error info available");
+		LoadString(hModule, IDS_EXTTITLE, buf, sizeof (buf));
+		MessageBox(NULL, msg, buf,
+			   MB_ICONEXCLAMATION | MB_OK | MB_TASKMODAL |
+			   MB_SETFOREGROUND);
+#else
+		fprintf(stderr, "extension '%s' did not load%s%s\n",
+			path, errmsg ? ": " : "", errmsg ? errmsg : "");
+#endif
+	    }
+	}
+	if (p) {
+	    exts = p + 1;
+	}
+    } while (p);
+#endif /* HAVE_SQLITE3LOADEXTENSION */
+}
+
+/**
  * Find out column type
  * @s3stmt SQLite statement pointer
  * @col column number
@@ -3445,11 +3549,12 @@ seqerr:
 		    } else {
 			*((char *) p->param + p->len) = '\0';
 		    }
-#else
-		    *((char *) p->param + p->len) = '\0';
-#endif
 		    p->need = (type == SQL_C_CHAR || type == SQL_C_WCHAR)
 			    ? -1 : 0;
+#else
+		    *((char *) p->param + p->len) = '\0';
+		    p->need = (type == SQL_C_CHAR) ? -1 : 0;
+#endif
 #ifdef _WIN32
 		    if (p->type == SQL_C_WCHAR &&
 			(p->stype == SQL_VARCHAR ||
@@ -5220,7 +5325,7 @@ nodata:
 	}
 	plen = strlen(pname);
 	for (i = 1; i <= nrows; i++) {
-	    char *ptab = rowp[i * ncols + namec];
+	    char *ptab = unquote(rowp[i * ncols + namec]);
 
 	    if (plen && ptab) {
 		int len = strlen(ptab);
@@ -5333,7 +5438,7 @@ nodata:
 		continue;
 	    }
 	    for (k = 1; k <= nnrows; k++) {
-		char *ptab = rowpp[k * nncols + namec];
+		char *ptab = unquote(rowpp[k * nncols + namec]);
 
 		if (plen && ptab) {
 		    len = strlen(ptab);
@@ -5393,7 +5498,7 @@ nodata:
 	    }
 	    for (k = 1; k <= nnrows; k++) {
 		int pos = 0, roffs = (offs + 1) * s->ncols;
-		char *ptab = rowpp[k * nncols + namec];
+		char *ptab = unquote(rowpp[k * nncols + namec]);
 		char buf[32];
 
 		if (plen && ptab) {
@@ -8611,13 +8716,7 @@ getdsnattr(char *dsn, char *attr, char *out, int outLen)
 	if ((str = strchr(str, '=')) == NULL) {
 	    return 0;
 	}
-	if (str - start == len &&
-#ifdef _WIN32
-	    _strnicmp(start, attr, len) == 0
-#else
-	    strncasecmp(start, attr, len) == 0
-#endif
-	   ) {
+	if (str - start == len && strncasecmp(start, attr, len) == 0) {
 	    start = ++str;
 	    while (*str && *str != ';') {
 		++str;
@@ -8649,8 +8748,10 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 {
     DBC *d;
     int len;
+    SQLRETURN ret;
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
+    char loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], nwflag[32];
     char snflag[32], lnflag[32], ncflag[32];
 
@@ -8718,6 +8819,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     getdsnattr(buf, "longnames", lnflag, sizeof (lnflag));
     ncflag[0] = '\0';
     getdsnattr(buf, "nocreat", ncflag, sizeof (ncflag));
+    loadext[0] = '\0';
+    getdsnattr(buf, "loadext", loadext, sizeof (loadext));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "1000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -8741,6 +8844,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 			       lnflag, sizeof (lnflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "nocreat", "",
 			       ncflag, sizeof (ncflag), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "loadext", "",
+			       loadext, sizeof (loadext), ODBC_INI);
 #endif
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
@@ -8756,7 +8861,11 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     d->shortnames = getbool(snflag);
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
-    return dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag, busy);
+    ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag, busy);
+    if (ret == SQL_SUCCESS) {
+	dbloadext(d, loadext);
+    }
+    return ret;
 }
 
 #ifndef WINTERFACE
@@ -8905,9 +9014,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 {
     DBC *d;
     int len;
-    char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
+    SQLRETURN ret;
+    char buf[SQL_MAX_MESSAGE_LENGTH * 2], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
-    char tracef[SQL_MAX_MESSAGE_LENGTH];
+    char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
     char ncflag[32], nwflag[32];
 
@@ -9021,6 +9131,15 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   nwflag, sizeof (nwflag), ODBC_INI);
     }
 #endif
+    loadext[0] = '\0';
+    getdsnattr(buf, "loadext", loadext, sizeof (loadext));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !loadext[0]) {
+	SQLGetPrivateProfileString(dsn, "loadext", "",
+				   loadext, sizeof (loadext), ODBC_INI);
+    }
+#endif
+
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
 	strncpy(dbname, buf, sizeof (dbname));
@@ -9041,9 +9160,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	count = snprintf(buf, sizeof (buf),
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
-			 "NoCreat=%s;NoWCHAR=%s;Tracefile=%s",
+			 "NoCreat=%s;NoWCHAR=%s;Tracefile=%s;"
+			 "LoadExt=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
-			 snflag, lnflag, ncflag, nwflag, tracef);
+			 snflag, lnflag, ncflag, nwflag, tracef, loadext);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -9063,7 +9183,11 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
     d->nowchar = getbool(nwflag);
-    return dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, busy);
+    ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, busy);
+    if (ret == SQL_SUCCESS) {
+	dbloadext(d, loadext);
+    }
+    return ret;
 }
 #endif
 
@@ -10155,6 +10279,10 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	    break;
 #endif
 	default:
+	    if (val == NULL) {
+		/* fall through, unbinding column */
+		break;
+	    }
 	    setstat(s, -1, "invalid type %d", "HY003", type);
 	    return SQL_ERROR;
 	}
@@ -10663,7 +10791,7 @@ nodata:
 	    }
 	} else if (strcmp(rowp[k], "dflt_value") == 0) {
 	    for (i = 1; i <= nrows; i++) {
-		char *dflt = rowp[i * ncols + k];
+		char *dflt = unquote(rowp[i * ncols + k]);
 		int ir;
 
 		if (crow > 0 && i != crow) {
@@ -12414,6 +12542,34 @@ checkLen:
 	}
 	*valLen = strlen(c->table);
 	goto checkLen;
+#ifdef SQL_DESC_NUM_PREC_RADIX
+    case SQL_DESC_NUM_PREC_RADIX:
+	if (val2) {
+	    switch (c->type) {
+#ifdef WINTERFACE
+	    case SQL_WCHAR:
+	    case SQL_WVARCHAR:
+#ifdef SQL_LONGVARCHAR
+	    case SQL_WLONGVARCHAR:
+#endif
+#endif
+	    case SQL_CHAR:
+	    case SQL_VARCHAR:
+#ifdef SQL_LONGVARCHAR
+	    case SQL_LONGVARCHAR:
+#endif
+	    case SQL_BINARY:
+	    case SQL_VARBINARY:
+	    case SQL_LONGVARBINARY:
+		*val2 = 0;
+		break;
+	    default:
+		*val2 = 2;
+	    }
+	}
+	*valLen = sizeof (int);
+	return SQL_SUCCESS;
+#endif
     }
     setstat(s, -1, "unsupported column attributes %d", "HY091", id);
     return SQL_ERROR;
@@ -12741,6 +12897,31 @@ checkLen:
     case SQL_DESC_NULLABLE:
 	v = SQL_NULLABLE;
 	break;
+#ifdef SQL_DESC_NUM_PREC_RADIX
+    case SQL_DESC_NUM_PREC_RADIX:
+	switch (c->type) {
+#ifdef WINTERFACE
+	case SQL_WCHAR:
+	case SQL_WVARCHAR:
+#ifdef SQL_LONGVARCHAR
+	case SQL_WLONGVARCHAR:
+#endif
+#endif
+	case SQL_CHAR:
+	case SQL_VARCHAR:
+#ifdef SQL_LONGVARCHAR
+	case SQL_LONGVARCHAR:
+#endif
+	case SQL_BINARY:
+	case SQL_VARBINARY:
+	case SQL_LONGVARBINARY:
+	    v = 0;
+	    break;
+	default:
+	    v = 2;
+	}
+	break;
+#endif
     default:
 	setstat(s, -1, "unsupported column attribute %d", "HY091", id);
 	return SQL_ERROR;
@@ -13718,10 +13899,6 @@ done:
 #include <windowsx.h>
 #include <winuser.h>
 
-#define stricmp _stricmp
-
-static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
-
 #define MAXPATHLEN      (255+1)           /* Max path length */
 #define MAXKEYLEN       (15+1)            /* Max keyword length */
 #define MAXDESC         (255+1)           /* Max description length */
@@ -13743,11 +13920,12 @@ static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #define KEY_LONGNAM		9
 #define KEY_NOCREAT	       10
 #define KEY_NOWCHAR	       11
-#define NUMOFKEYS	       12
+#define KEY_LOADEXT	       12
+#define NUMOFKEYS	       13
 
 typedef struct {
     BOOL supplied;
-    char attr[MAXPATHLEN];
+    char attr[MAXPATHLEN*4];
 } ATTR;
 
 typedef struct {
@@ -13776,6 +13954,7 @@ static struct {
     { "LongNames", KEY_LONGNAM },
     { "NoCreat", KEY_NOCREAT },
     { "NoWCHAR", KEY_NOWCHAR },
+    { "LoadExt", KEY_LOADEXT },
     { NULL, 0 }
 };
 
@@ -13804,7 +13983,7 @@ ParseAttributes(LPCSTR attribs, SETUPDLG *setupdlg)
 	    memcpy(key, start, nkey);
 	    key[nkey] = '\0';
 	    for (i = 0; attrLookup[i].key; i++) {
-		if (stricmp(attrLookup[i].key, key) == 0) {
+		if (strcasecmp(attrLookup[i].key, key) == 0) {
 		    elem = attrLookup[i].ikey;
 		    break;
 		}
@@ -13903,8 +14082,13 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_NOWCHAR].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_LOADEXT].supplied) {
+	SQLWritePrivateProfileString(dsn, "LoadExt",
+				     setupdlg->attr[KEY_LOADEXT].attr,
+				     ODBC_INI);
+    }
     if (setupdlg->attr[KEY_DSN].supplied &&
-	stricmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
+	strcasecmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
     }
     return TRUE;
@@ -13980,6 +14164,12 @@ GetAttributes(SETUPDLG *setupdlg)
 				   sizeof (setupdlg->attr[KEY_NOWCHAR].attr),
 				   ODBC_INI);
     }
+    if (!setupdlg->attr[KEY_LOADEXT].supplied) {
+	SQLGetPrivateProfileString(dsn, "LoadExt", "",
+				   setupdlg->attr[KEY_LOADEXT].attr,
+				   sizeof (setupdlg->attr[KEY_LOADEXT].attr),
+				   ODBC_INI);
+    }
 }
 
 /**
@@ -14031,6 +14221,7 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	SetDlgItemText(hdlg, IDC_DESC, setupdlg->attr[KEY_DESC].attr);
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	SetDlgItemText(hdlg, IDC_TONAME, setupdlg->attr[KEY_BUSY].attr);
+	SetDlgItemText(hdlg, IDC_LOADEXT, setupdlg->attr[KEY_LOADEXT].attr);
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -14072,6 +14263,8 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 			       EM_LIMITTEXT, (WPARAM) (MAXDBNAME - 1), 0L);
 	    SendDlgItemMessage(hdlg, IDC_TONAME,
 			       EM_LIMITTEXT, (WPARAM) (MAXTONAME - 1), 0L);
+	    SendDlgItemMessage(hdlg, IDC_LOADEXT,
+			       EM_LIMITTEXT, (WPARAM) (MAXPATHLEN*4 - 1), 0L);
 	}
 	return TRUE;
     case WM_COMMAND:
@@ -14105,6 +14298,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    GetDlgItemText(hdlg, IDC_TONAME,
 			   setupdlg->attr[KEY_BUSY].attr,
 			   sizeof (setupdlg->attr[KEY_BUSY].attr));
+	    GetDlgItemText(hdlg, IDC_LOADEXT,
+			   setupdlg->attr[KEY_LOADEXT].attr,
+			   sizeof (setupdlg->attr[KEY_LOADEXT].attr));
 	    index = SendDlgItemMessage(hdlg, IDC_SYNCP,
 				       CB_GETCURSEL, (WORD) 0, (LONG) 0);
 	    if (index != (WORD) CB_ERR) {
@@ -14179,8 +14375,8 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
 	setupdlg->parent = hwnd;
 	setupdlg->driver = driver;
 	setupdlg->newDSN = request == ODBC_ADD_DSN;
-	setupdlg->defDSN = stricmp(setupdlg->attr[KEY_DSN].attr,
-				   "Default") == 0;
+	setupdlg->defDSN = strcasecmp(setupdlg->attr[KEY_DSN].attr,
+				      "Default") == 0;
 	if (hwnd) {
 	    success = DialogBoxParam(hModule, MAKEINTRESOURCE(CONFIGDSN),
 				     hwnd, (DLGPROC) ConfigDlgProc,
@@ -14218,6 +14414,7 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	SetDlgItemText(hdlg, IDC_DESC, setupdlg->attr[KEY_DESC].attr);
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	SetDlgItemText(hdlg, IDC_TONAME, setupdlg->attr[KEY_BUSY].attr);
+	SetDlgItemText(hdlg, IDC_LOADEXT, setupdlg->attr[KEY_LOADEXT].attr);
 	SendDlgItemMessage(hdlg, IDC_DSNAME,
 			   EM_LIMITTEXT, (WPARAM) (MAXDSNAME - 1), 0L);
 	SendDlgItemMessage(hdlg, IDC_DESC,
@@ -14226,6 +14423,8 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 			   EM_LIMITTEXT, (WORD)(MAXDBNAME - 1), 0L);
 	SendDlgItemMessage(hdlg, IDC_TONAME,
 			   EM_LIMITTEXT, (WORD)(MAXTONAME - 1), 0L);
+	SendDlgItemMessage(hdlg, IDC_LOADEXT,
+			   EM_LIMITTEXT, (WORD)(MAXPATHLEN*4 - 1), 0L);
 	CheckDlgButton(hdlg, IDC_STEPAPI,
 		       getbool(setupdlg->attr[KEY_STEPAPI].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -14272,6 +14471,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    GetDlgItemText(hdlg, IDC_TONAME,
 			   setupdlg->attr[KEY_BUSY].attr,
 			   sizeof (setupdlg->attr[KEY_BUSY].attr));
+	    GetDlgItemText(hdlg, IDC_LOADEXT,
+			   setupdlg->attr[KEY_LOADEXT].attr,
+			   sizeof (setupdlg->attr[KEY_LOADEXT].attr));
 	    index = SendDlgItemMessage(hdlg, IDC_SYNCP,
 				       CB_GETCURSEL, (WORD) 0, (LONG) 0);
 	    if (index != (WORD) CB_ERR) {
@@ -14328,9 +14530,8 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     BOOL maybeprompt, prompt = FALSE;
     DBC *d;
     SETUPDLG *setupdlg;
-    short ret;
+    SQLRETURN ret;
     char *dsn = NULL, *driver = NULL, *dbname = NULL;
-    SQLRETURN rc;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -14365,10 +14566,11 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     }
 retry:
     if (prompt) {
-	ret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
-			     hwnd, (DLGPROC) DriverConnectProc,
-			     (LONG) setupdlg);
-	if (!ret || ret == -1) {
+	short dlgret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
+				      hwnd, (DLGPROC) DriverConnectProc,
+				      (LONG) setupdlg);
+
+	if (!dlgret || dlgret == -1) {
 	    xfree(setupdlg);
 	    return SQL_NO_DATA_FOUND;
 	}
@@ -14377,7 +14579,7 @@ retry:
     driver = setupdlg->attr[KEY_DRIVER].attr;
     dbname = setupdlg->attr[KEY_DBNAME].attr;
     if (connOut || connOutLen) {
-	char buf[1024];
+	char buf[2048];
 	int len, count;
 	char dsn_0 = dsn ? dsn[0] : '\0';
 	char drv_0 = driver ? driver[0] : '\0';
@@ -14387,7 +14589,8 @@ retry:
 			 "%s%s%s%s%s%sDatabase=%s;StepAPI=%s;"
 			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;"
 			 "ShortNames=%s;LongNames=%s;"
-			 "NoCreat=%s;NoWCHAR=%s",
+			 "NoCreat=%s;NoWCHAR=%s;"
+			 "LoadExt=%s;",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -14402,7 +14605,8 @@ retry:
 			 setupdlg->attr[KEY_SHORTNAM].attr,
 			 setupdlg->attr[KEY_LONGNAM].attr,
 			 setupdlg->attr[KEY_NOCREAT].attr,
-			 setupdlg->attr[KEY_NOWCHAR].attr);
+			 setupdlg->attr[KEY_NOWCHAR].attr,
+			 setupdlg->attr[KEY_LOADEXT].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -14430,26 +14634,27 @@ retry:
     d->shortnames = getbool(setupdlg->attr[KEY_SHORTNAM].attr);
     d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
     d->nocreat = getbool(setupdlg->attr[KEY_NOCREAT].attr);
-    rc = dbopen(d, dbname ? dbname : "", 0,
-		dsn ? dsn : "",
-		setupdlg->attr[KEY_STEPAPI].attr,
-		setupdlg->attr[KEY_SYNCP].attr,
-		setupdlg->attr[KEY_NOTXN].attr,
-		setupdlg->attr[KEY_BUSY].attr);
-    if (rc != SQL_SUCCESS) {
+    ret = dbopen(d, dbname ? dbname : "", 0,
+		 dsn ? dsn : "",
+		 setupdlg->attr[KEY_STEPAPI].attr,
+		 setupdlg->attr[KEY_SYNCP].attr,
+		 setupdlg->attr[KEY_NOTXN].attr,
+		 setupdlg->attr[KEY_BUSY].attr);
+    if (ret != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {
 	    prompt = TRUE;
 	    goto retry;
 	}
     }
     xfree(setupdlg);
-    return rc;
+    if (ret == SQL_SUCCESS) {
+	dbloadext(d, setupdlg->attr[KEY_LOADEXT].attr);
+    }
+    return ret;
 }
 
 #endif /* WITHOUT_DRIVERMGR */
 #endif /* _WIN32 */
-
-#ifndef WITHOUT_DRIVERMGR
 
 #ifndef WINTERFACE
 /**
@@ -14556,8 +14761,6 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 }
 #endif
 
-#endif /* WITHOUT_DRIVERMGR */
-
 #ifdef _WIN32
 
 /**
@@ -14606,6 +14809,8 @@ DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)
     return LibMain(hinst, reason, reserved);
 }
 
+#ifndef WITHOUT_INSTALLER
+
 /**
  * Handler for driver installer/uninstaller error messages.
  * @param name name of API function for which to show error messages
@@ -14619,19 +14824,19 @@ InUnError(char *name)
     DWORD code;
     char errmsg[301];
     WORD errlen, errmax = sizeof (errmsg) - 1;
-    int rc;
+    int sqlret;
     BOOL ret = FALSE;
 
     do {
 	errmsg[0] = '\0';
-	rc = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
-	if (rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO) {
+	sqlret = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
+	if (sqlret == SQL_SUCCESS || sqlret == SQL_SUCCESS_WITH_INFO) {
 	    MessageBox(NULL, errmsg, name,
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	    ret = TRUE;
 	}
 	err++;
-    } while (rc != SQL_NO_DATA);
+    } while (sqlret != SQL_NO_DATA);
     return ret;
 }
 
@@ -14810,7 +15015,10 @@ uninstall(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
     InUn(1, lpszCmdLine);
 }
 
-#ifndef _MSC_VER
+#endif /* WITHOUT_INSTALLER */
+
+#ifndef WITHOUT_SHELL
+
 /**
  * Setup argv vector from string
  * @param argcp pointer to argc
@@ -14950,7 +15158,8 @@ shell(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
     setargv(&argc, &argv, lpszCmdLine, (char *) name);
     sqlite3_main(argc, argv);
 }
-#endif
+
+#endif /* WITHOUT_SHELL */
 
 #endif /* _WIN32 */
 
@@ -15029,6 +15238,12 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     memcpy(prop->aPromptData, syncPragma, sizeof (syncPragma));
     strncpy(prop->szName, "SyncPragma", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "NORMAL", INI_MAX_PROPERTY_VALUE);
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    prop = prop->pNext;
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_TEXTEDIT;
+    strncpy(prop->szName, "LoadExt", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "", INI_MAX_PROPERTY_VALUE);
     return 1;
 }
 

@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.71
+%define version 0.72
 %define release 1
 
 Name: %{name}
@@ -28,9 +28,10 @@ make
 
 %install
 mkdir -p $RPM_BUILD_ROOT%{_libdir}
-make install prefix=$RPM_BUILD_ROOT%{_prefix} libdir=$RPM_BUILD_ROOT%{_libdir}
+make install DESTDIR=$RPM_BUILD_ROOT
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsqliteodbc*.{a,la}
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsqlite3odbc*.{a,la}
+rm -f $RPM_BUILD_ROOT%{_libdir}/libsqlite3_mod_*.{a,la}
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -98,5 +99,5 @@ fi
 %{_libdir}/*.so*
 
 %changelog
-* Thu Jan 11 2007 ...
+* Sat Feb 10 2007 ...
 - automatically recreated by configure ...

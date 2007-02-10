@@ -1,7 +1,7 @@
 #!/usr/make
 #
-# Makefile for SQLITE, use in conjunction with mingw-cross-build.sh
-# since some patches are needed (libshell.c etc.)
+# Makefile for SQLITE FTS extensions, use in conjunction with
+# mingw-cross-build.sh
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -49,7 +49,7 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_SOUNDEX=1
+OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -74,6 +74,13 @@ TCC = /opt/mingw/bin/i386-mingw32msvc-gcc -O2 -D_OFF_T_ -DNO_TCL
 AR = /opt/mingw/bin/i386-mingw32msvc-ar cr
 #RANLIB = ranlib
 RANLIB = /opt/mingw/bin/i386-mingw32msvc-ranlib
+
+# MKSHLIB = gcc -shared
+# SO = so
+# SHPREFIX = lib
+MKSHLIB = /opt/mingw/bin/i386-mingw32msvc-ar -shared
+SO = dll
+SHPREFIX =
 
 #### Extra compiler options needed for programs that use the TCL library.
 #
@@ -101,23 +108,107 @@ READLINE_FLAGS =
 LIBREADLINE =
 #LIBREADLINE = -static -lreadline -ltermcap
 
-#### Should the database engine assume text is coded as UTF-8 or iso8859?
-#
-# ENCODING  = UTF8
-ENCODING = ISO8859
-
-
 #### Which "awk" program provides nawk compatibilty
 #
 # NAWK = nawk
 NAWK = awk
 
-#### Special libshell target
-LIBOBJ += libshell.o
+# This is how we compile
+#
+TCCX = $(TCC) $(OPTS) $(THREADSAFE) $(USLEEP) -I. -I$(TOP) -I$(TOP)/src
 
-libshell.o:	$(TOP)/src/libshell.c sqlite3.h
-	$(TCCX) -c $(TOP)/src/libshell.c
+# Object files for FTS1
+#
+FTS1OBJ+= fts1.o fts1_hash.o fts1_porter.o fts1_tokenizer1.o
 
-# You should not have to change anything below this line
-###############################################################################
-include $(TOP)/main.mk
+# Object files for FTS2
+#
+FTS2OBJ+= fts2.o fts2_hash.o fts2_porter.o fts2_tokenizer1.o
+
+# FTS1 source code files.
+#
+FTS1SRC += \
+  $(TOP)/ext/fts1/fts1.c \
+  $(TOP)/ext/fts1/fts1.h \
+  $(TOP)/ext/fts1/fts1_hash.c \
+  $(TOP)/ext/fts1/fts1_hash.h \
+  $(TOP)/ext/fts1/fts1_porter.c \
+  $(TOP)/ext/fts1/fts1_tokenizer.h \
+  $(TOP)/ext/fts1/fts1_tokenizer1.c
+
+# FTS2 source code files.
+#
+FTS2SRC += \
+  $(TOP)/ext/fts2/fts2.c \
+  $(TOP)/ext/fts2/fts2.h \
+  $(TOP)/ext/fts2/fts2_hash.c \
+  $(TOP)/ext/fts2/fts2_hash.h \
+  $(TOP)/ext/fts2/fts2_porter.c \
+  $(TOP)/ext/fts2/fts2_tokenizer.h \
+  $(TOP)/ext/fts2/fts2_tokenizer1.c
+
+# Common headers
+HDR += $(TOP)/sqlite3.h \
+  $(TOP)/src/sqlite3ext.h
+
+# Header files used by FTS1
+#
+FTS1HDR += \
+  $(TOP)/ext/fts1/fts1.h \
+  $(TOP)/ext/fts1/fts1_hash.h \
+  $(TOP)/ext/fts1/fts1_tokenizer.h
+
+# Header files used by FTS2
+#
+FTS1HDR += \
+  $(TOP)/ext/fts2/fts2.h \
+  $(TOP)/ext/fts2/fts2_hash.h \
+  $(TOP)/ext/fts2/fts2_tokenizer.h
+
+# This is the default Makefile target.  The objects listed here
+# are what get build when you type just "make" with no arguments.
+#
+all:	sqlite3_mod_fts1.$(SO) sqlite3_mod_fts2.$(SO)
+
+
+# Rules to build individual files
+#
+fts1.o:	$(TOP)/ext/fts1/fts1.c $(FTS1HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts1/fts1.c
+
+fts1_hash.o:	$(TOP)/ext/fts1/fts1_hash.c $(FTS1HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts1/fts1_hash.c
+
+fts1_porter.o:	$(TOP)/ext/fts1/fts1_porter.c $(FTS1HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts1/fts1_porter.c
+
+fts1_tokenizer1.o:	$(TOP)/ext/fts1/fts1_tokenizer1.c $(FTS1HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts1/fts1_tokenizer1.c
+
+sqlite3_mod_fts1.$(SO):	$(FTS1OBJ)
+	$(TCCX) -shared -Wl,--kill-at \
+	    -Wl,-out-implib,libsqlite3fts1.a -Wl,--strip-all \
+	    -o sqlite3_mod_fts1.$(SO) $(FTS1OBJ)
+
+
+fts2.o:	$(TOP)/ext/fts2/fts2.c $(FTS2HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts2/fts2.c
+
+fts2_hash.o:	$(TOP)/ext/fts2/fts2_hash.c $(FTS2HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts2/fts2_hash.c
+
+fts2_porter.o:	$(TOP)/ext/fts2/fts2_porter.c $(FTS2HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts2/fts2_porter.c
+
+fts2_tokenizer1.o:	$(TOP)/ext/fts2/fts2_tokenizer1.c $(FTS2HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts2/fts2_tokenizer1.c
+
+sqlite3_mod_fts2.$(SO):	$(FTS2OBJ)
+	$(TCCX) -shared -Wl,--kill-at \
+	    -Wl,-out-implib,libsqlite3fts2.a -Wl,--strip-all \
+	    -o sqlite3_mod_fts2.$(SO) $(FTS2OBJ)
+
+
+clean:	
+	rm -f $(FTS1OBJ) libsqlite3fts1.a sqlite3_mod_fts1.$(SO)
+	rm -f $(FTS2OBJ) libsqlite3fts2.a sqlite3_mod_fts2.$(SO)

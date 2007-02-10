@@ -163,7 +163,7 @@ AC_SUBST(SQLITE3_LIB)
 # test for availability of some sqlite3_*() funcs
 
 if test -n "$SQLITE3_LIBDIR" ; then
-   SQLITE_LIBDIR="-L$SQLITE3_LIBDIR"
+   SQLITE3_LIBDIR="-L$SQLITE3_LIBDIR"
 fi
 
 saved_CFLAGS=$CFLAGS
@@ -173,9 +173,31 @@ LIBS="$LIBS $SQLITE3_LIBDIR"
 AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
 	     SQLITE3_COLUMNTABLENAME=1,
 	     SQLITE3_COLUMNTABLENAME=0)
+AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
+	     SQLITE3_LOADEXTENSION=1,
+	     SQLITE3_LOADEXTENSION=0)
+if test "$SQLITE3_LOADEXTENSION" = "0" ; then
+    unset ac_cv_lib_sqlite3_sqlite3_load_extension
+    # try again with -ldl
+    LIBS="$LIBS -ldl $SQLITE3_LIBDIR"
+    AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
+		 SQLITE3_LOADEXTENSION=1,
+		 SQLITE3_LOADEXTENSION=0)
+fi
+if test "$SQLITE3_LOADEXTENSION" = "1" ; then
+    EXT_BLOBTOXY=libsqlite3_mod_blobtoxy.la
+    EXT_IMPEXP=libsqlite3_mod_impexp.la
+    LIB_TARGETS="$LIB_TARGETS $EXT_BLOBTOXY $EXT_IMPEXP"
+else
+    EXT_BLOBTOXY=""
+    EXT_IMPEXP=""
+fi
 LIBS=$saved_LIBS
 CFLAGS=$saved_CFLAGS
 AC_SUBST(SQLITE3_COLUMNTABLENAME)
+AC_SUBST(SQLITE3_LOADEXTENSION)
+AC_SUBST(EXT_BLOBTOXY)
+AC_SUBST(EXT_IMPEXP)
 
 #########
 # Any SQLite to be done ?

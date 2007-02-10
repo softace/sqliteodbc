@@ -1,8 +1,8 @@
 #!/bin/sh
 #
 # Build script for cross compiling and packaging SQLite
-# ODBC drivers using MinGW and NSIS.
-# Tested on Fedora Core 3.
+# ODBC drivers and tools using MinGW and NSIS.
+# Tested on Fedora Core 3 and 5.
 #
 # Cross toolchain and NSIS for Linux/i386 can be fetched from
 #  http://www.ch-werner.de/xtools/cross-mingw32-3.1-3.i386.rpm
@@ -11,7 +11,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.3.10
+VER3=3.3.12
+TCCVER=0.9.23
 
 echo "===================="
 echo "Preparing sqlite ..."
@@ -315,12 +316,83 @@ patch sqlite3/src/minshell.c <<'EOD'
 +}
 EOD
 
+# patch: parse foreign key constraints on virtual tables
+patch -d sqlite3 -p1 <<'EOD'
+diff -ur sqlite3.orig/src/build.c sqlite3/src/build.c
+--- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
++++ sqlite3/src/build.c	2007-01-30 08:14:41.000000000 +0100
+@@ -2063,7 +2063,7 @@
+   char *z;
+ 
+   assert( pTo!=0 );
+-  if( p==0 || pParse->nErr || IN_DECLARE_VTAB ) goto fk_end;
++  if( p==0 || pParse->nErr ) goto fk_end;
+   if( pFromCol==0 ){
+     int iCol = p->nCol-1;
+     if( iCol<0 ) goto fk_end;
+diff -ur sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
+--- sqlite3.orig/src/pragma.c	2007-01-27 03:24:56.000000000 +0100
++++ sqlite3/src/pragma.c	2007-01-30 09:19:30.000000000 +0100
+@@ -589,6 +589,9 @@
+     pTab = sqlite3FindTable(db, zRight, zDb);
+     if( pTab ){
+       v = sqlite3GetVdbe(pParse);
++#ifndef SQLITE_OMIT_VIRTUAL_TABLE
++      if( pTab->isVirtual ) sqlite3ViewGetColumnNames(pParse, pTab);
++#endif
+       pFK = pTab->pFKey;
+       if( pFK ){
+         int i = 0; 
+diff -ur sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
+--- sqlite3.orig/src/vtab.c	2007-01-09 15:01:14.000000000 +0100
++++ sqlite3/src/vtab.c	2007-01-30 08:23:22.000000000 +0100
+@@ -436,6 +436,9 @@
+   int rc = SQLITE_OK;
+   Table *pTab = db->pVTab;
+   char *zErr = 0;
++#ifndef SQLITE_OMIT_FOREIGN_KEYS
++  FKey *pFKey;
++#endif
+ 
+   if( !pTab ){
+     sqlite3Error(db, SQLITE_MISUSE, 0);
+@@ -464,6 +467,15 @@
+   }
+   sParse.declareVtab = 0;
+ 
++#ifndef SQLITE_OMIT_FOREIGN_KEYS
++  assert( pTab->pFKey==0 );
++  pTab->pFKey = sParse.pNewTable->pFKey;
++  sParse.pNewTable->pFKey = 0;
++  for(pFKey=pTab->pFKey; pFKey; pFKey=pFKey->pNextFrom){
++    pFKey->pFrom=pTab;
++  }
++#endif
++
+   sqlite3_finalize((sqlite3_stmt*)sParse.pVdbe);
+   sqlite3DeleteTable(0, sParse.pNewTable);
+   sParse.pNewTable = 0;
+EOD
+
+echo "===================="
+echo "Preparing TinyCC ..."
+echo "===================="
+test -r tcc-${TCCVER}.tar.gz || \
+    wget -c http://fabrice.bellard.free.fr/tcc/tcc-${TCCVER}.tar.gz
+test -r tcc-${TCCVER}.tar.gz || exit 1
+
+rm -rf tcc tcc-${TCCVER}
+tar xzf tcc-${TCCVER}.tar.gz
+ln -sf tcc-${TCCVER} tcc
+patch -d tcc -p1 < tcc-${TCCVER}.patch
+
 echo "========================"
 echo "Cleanup before build ..."
 echo "========================"
 make -f Makefile.mingw-cross clean
 make -C sqlite -f ../mf-sqlite.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
+make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
 
 echo "============================="
 echo "Building SQLite 2 ... ISO8859"
@@ -331,6 +403,16 @@ echo "====================="
 echo "Building SQLite 3 ..."
 echo "====================="
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross all
+
+echo "==================="
+echo "Building TinyCC ..."
+echo "==================="
+( cd tcc ; sh mingw-cross-build.sh )
+# copy SQLite headers into TCC install include directory
+cp -p sqlite/sqlite.h TCC/include
+cp -p sqlite3/sqlite3.h sqlite3/src/sqlite3ext.h TCC/include
+# copy LGPL to TCC install doc directory
+cp -p tcc-${TCCVER}/COPYING TCC/doc
 
 echo "==============================="
 echo "Building ODBC drivers and utils"
@@ -348,6 +430,21 @@ echo "Building drivers ... UTF8"
 echo "========================="
 make -f Makefile.mingw-cross sqliteodbcu.dll sqliteu.exe
 
+echo "==================================="
+echo "Building SQLite3 FTS extensions ..."
+echo "==================================="
+make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross all
+mv sqlite3/sqlite3_mod_*.dll .
+
+echo "============================"
+echo "Building DLL import defs ..."
+echo "============================"
+# requires wine: create .def files with tiny_impdef.exe
+# for all .dll files which provide SQLite
+wine TCC/tiny_impdef.exe -p sqliteodbc.dll > TCC/lib/sqlite.def
+wine TCC/tiny_impdef.exe -p sqliteodbcu.dll > TCC/lib/sqliteu.def
+wine TCC/tiny_impdef.exe -p sqlite3odbc.dll > TCC/lib/sqlite3.def
+
 echo "======================="
 echo "Cleanup after build ..."
 echo "======================="
@@ -355,10 +452,13 @@ make -C sqlite -f ../mf-sqlite.mingw-cross clean
 rm -f sqlite/sqlite.exe
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 rm -f sqlite/sqlite3.exe
+make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
 
 echo "==========================="
 echo "Creating NSIS installer ..."
 echo "==========================="
 cp -p README readme.txt
 unix2dos < license.terms > license.txt
+unix2dos -k TCC/doc/COPYING
+unix2dos -k TCC/doc/readme.txt
 makensis sqliteodbc.nsi

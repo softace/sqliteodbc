@@ -1,0 +1,1525 @@
+diff -Nur tcc-0.9.23.orig/Changelog tcc-0.9.23/Changelog
+--- tcc-0.9.23.orig/Changelog	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/Changelog	2007-01-27 18:23:29.000000000 +0100
+@@ -1,3 +1,23 @@
++version 0.9.24:
++
++- ignore AS_NEEDED ld command
++- mark executable sections as executable when running in memory
++- added support for win32 wchar_t (Filip Navara)
++- segment override prefix support (Filip Navara)
++- normalized slashes in paths (Filip Navara)
++- windows style fastcall (Filip Navara)
++- support for empty input register section in asm (Filip Navara)
++- anonymous union/struct support (Filip Navara)
++- fixed parsing of function parameters
++- workaround for function pointers in conditional expressions (Dave Dodge)
++- initial '-E' option support to use the C preprocessor alone
++- discard type qualifiers when comparing function parameters (Dave Dodge)
++- Bug fix: A long long value used as a test expression ignores the
++  upper 32 bits at runtime (Dave Dodge)
++- fixed multiple concatenation of PPNUM tokens (initial patch by Dave Dodge)
++- fixed multiple typedef specifiers handling
++- fixed sign extension in some type conversions (Dave Dodge)
++
+ version 0.9.23:
+ 
+ - initial PE executable format for windows version (grischka)
+diff -Nur tcc-0.9.23.orig/configure tcc-0.9.23/configure
+--- tcc-0.9.23.orig/configure	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/configure	2007-01-27 18:24:20.000000000 +0100
+@@ -114,7 +114,7 @@
+   ;;
+   --enable-gprof) gprof="yes"
+   ;;
+-  --enable-mingw32) mingw32="yes" ; cross_prefix="i386-mingw32-"
++  --enable-mingw32) mingw32="yes" ; cross_prefix="i386-mingw32msvc-"
+   ;; 
+   --enable-cross) build_cross="yes"
+   ;;
+@@ -194,7 +194,7 @@
+ echo "  --libdir=DIR             object code libraries in DIR [EPREFIX/lib]"
+ echo "  --includedir=DIR         C header files in DIR [PREFIX/include]"
+ echo "  --mandir=DIR             man documentation in DIR [PREFIX/man]"
+-echo "  --build-cross            build cross compilers"
++echo "  --enable-cross           build cross compilers"
+ echo ""
+ echo "Advanced options (experts only):"
+ echo "  --source-path=PATH       path of source code [$source_path]"
+diff -Nur tcc-0.9.23.orig/cross-configure.sh tcc-0.9.23/cross-configure.sh
+--- tcc-0.9.23.orig/cross-configure.sh	1970-01-01 01:00:00.000000000 +0100
++++ tcc-0.9.23/cross-configure.sh	2005-07-28 11:54:56.000000000 +0200
+@@ -0,0 +1,15 @@
++#!/bin/sh
++
++CONFIG_SHELL=/bin/sh
++export CONFIG_SHELL
++PREFIX=/opt/mingw
++TARGET=i386-mingw32msvc
++PATH="$PREFIX/bin:$PREFIX/$TARGET/bin:$PATH"
++export PATH
++cache=cross-config.cache
++sh configure --cache-file="$cache" \
++	--target=$TARGET --host=$TARGET --build=i386-linux \
++	"$@"
++status=$?
++rm -f "$cache"
++exit $status
+diff -Nur tcc-0.9.23.orig/cross-make.sh tcc-0.9.23/cross-make.sh
+--- tcc-0.9.23.orig/cross-make.sh	1970-01-01 01:00:00.000000000 +0100
++++ tcc-0.9.23/cross-make.sh	2005-07-28 11:54:56.000000000 +0200
+@@ -0,0 +1,7 @@
++#!/bin/sh
++
++PREFIX=/opt/mingw
++TARGET=i386-mingw32msvc
++PATH="$PREFIX/bin:$PREFIX/$TARGET/bin:$PATH"
++export PATH
++exec make "$@"
+diff -Nur tcc-0.9.23.orig/i386-asm.c tcc-0.9.23/i386-asm.c
+--- tcc-0.9.23.orig/i386-asm.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/i386-asm.c	2007-01-27 18:24:37.000000000 +0100
+@@ -151,6 +151,15 @@
+  0x0f, /* g */
+ };
+ 
++static const uint8_t segment_prefixes[] = {
++ 0x26, /* es */
++ 0x2e, /* cs */
++ 0x36, /* ss */
++ 0x3e, /* ds */
++ 0x64, /* fs */
++ 0x65  /* gs */
++};
++
+ static const ASMInstr asm_instrs[] = {
+ #define ALT(x) x
+ #define DEF_ASM_OP0(name, opcode)
+@@ -311,8 +320,10 @@
+                 if (tok != ',') {
+                     op->reg2 = asm_parse_reg();
+                 } 
+-                skip(',');
+-                op->shift = get_reg_shift(s1);
++                if (tok == ',') {
++                    next();
++                    op->shift = get_reg_shift(s1);
++                }
+             }
+             skip(')');
+         }
+@@ -410,14 +421,15 @@
+ static void asm_opcode(TCCState *s1, int opcode)
+ {
+     const ASMInstr *pa;
+-    int i, modrm_index, reg, v, op1, is_short_jmp;
++    int i, modrm_index, reg, v, op1, is_short_jmp, has_seg_prefix;
+     int nb_ops, s, ss;
+-    Operand ops[MAX_OPERANDS], *pop;
++    Operand ops[MAX_OPERANDS], *pop, seg_prefix;
+     int op_type[3]; /* decoded op type */
+ 
+     /* get operands */
+     pop = ops;
+     nb_ops = 0;
++    has_seg_prefix = 0;
+     for(;;) {
+         if (tok == ';' || tok == TOK_LINEFEED)
+             break;
+@@ -425,6 +437,18 @@
+             error("incorrect number of operands");
+         }
+         parse_operand(s1, pop);
++        if (tok == ':') {
++           if (pop->type != OP_SEG || has_seg_prefix) {
++               error("incorrect prefix");
++           }
++           seg_prefix = *pop;
++           has_seg_prefix = 1;
++           next();
++           parse_operand(s1, pop);
++           if (!(pop->type & OP_EA)) {
++               error("segment prefix must be followed by memory reference");
++           }
++        }
+         pop++;
+         nb_ops++;
+         if (tok != ',')
+@@ -538,6 +562,8 @@
+     /* now generates the operation */
+     if (pa->instr_type & OPC_FWAIT)
+         g(0x9b);
++    if (has_seg_prefix)
++        g(segment_prefixes[seg_prefix.reg]);
+ 
+     v = pa->opcode;
+     if (v == 0x69 || v == 0x69) {
+diff -Nur tcc-0.9.23.orig/i386-gen.c tcc-0.9.23/i386-gen.c
+--- tcc-0.9.23.orig/i386-gen.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/i386-gen.c	2007-01-27 18:24:55.000000000 +0100
+@@ -321,6 +321,7 @@
+ }
+ 
+ static uint8_t fastcall_regs[3] = { TREG_EAX, TREG_EDX, TREG_ECX };
++static uint8_t fastcallw_regs[2] = { TREG_ECX, TREG_EDX };
+ 
+ /* Generate function call. The function address is pushed first, then
+    all the parameters in call order. This functions pops all the
+@@ -381,13 +382,21 @@
+     func_sym = vtop->type.ref;
+     func_call = func_sym->r;
+     /* fast call case */
+-    if (func_call >= FUNC_FASTCALL1 && func_call <= FUNC_FASTCALL3) {
++    if ((func_call >= FUNC_FASTCALL1 && func_call <= FUNC_FASTCALL3) ||
++        func_call == FUNC_FASTCALLW) {
+         int fastcall_nb_regs;
+-        fastcall_nb_regs = func_call - FUNC_FASTCALL1 + 1;
++        uint8_t *fastcall_regs_ptr;
++        if (func_call == FUNC_FASTCALLW) {
++            fastcall_regs_ptr = fastcallw_regs;
++            fastcall_nb_regs = 2;
++        } else {
++            fastcall_regs_ptr = fastcall_regs;
++            fastcall_nb_regs = func_call - FUNC_FASTCALL1 + 1;
++        }
+         for(i = 0;i < fastcall_nb_regs; i++) {
+             if (args_size <= 0)
+                 break;
+-            o(0x58 + fastcall_regs[i]); /* pop r */
++            o(0x58 + fastcall_regs_ptr[i]); /* pop r */
+             /* XXX: incorrect for struct/floats */
+             args_size -= 4;
+         }
+@@ -409,6 +418,7 @@
+ {
+     int addr, align, size, func_call, fastcall_nb_regs;
+     int param_index, param_addr;
++    uint8_t *fastcall_regs_ptr;
+     Sym *sym;
+     CType *type;
+ 
+@@ -418,8 +428,13 @@
+     loc = 0;
+     if (func_call >= FUNC_FASTCALL1 && func_call <= FUNC_FASTCALL3) {
+         fastcall_nb_regs = func_call - FUNC_FASTCALL1 + 1;
++        fastcall_regs_ptr = fastcall_regs;
++    } else if (func_call == FUNC_FASTCALLW) {
++        fastcall_nb_regs = 2;
++        fastcall_regs_ptr = fastcallw_regs;
+     } else {
+         fastcall_nb_regs = 0;
++        fastcall_regs_ptr = NULL;
+     }
+     param_index = 0;
+ 
+@@ -449,7 +464,7 @@
+             /* save FASTCALL register */
+             loc -= 4;
+             o(0x89);     /* movl */
+-            gen_modrm(fastcall_regs[param_index], VT_LOCAL, NULL, loc);
++            gen_modrm(fastcall_regs_ptr[param_index], VT_LOCAL, NULL, loc);
+             param_addr = loc;
+         } else {
+             param_addr = addr;
+@@ -585,7 +600,8 @@
+             gsym(vtop->c.i);
+         }
+     } else {
+-        if (is_float(vtop->type.t)) {
++        if (is_float(vtop->type.t) || 
++            (vtop->type.t & VT_BTYPE) == VT_LLONG) {
+             vpushi(0);
+             gen_op(TOK_NE);
+         }
+diff -Nur tcc-0.9.23.orig/libtcc.h tcc-0.9.23/libtcc.h
+--- tcc-0.9.23.orig/libtcc.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/libtcc.h	2007-01-27 18:25:07.000000000 +0100
+@@ -12,6 +12,11 @@
+ /* create a new TCC compilation context */
+ TCCState *tcc_new(void);
+ 
++#ifdef _WIN32
++/* when libtcc linked to DLL, use this from DllMain() */
++void tcc_set_lib_path(void *module_handle);
++#endif
++
+ /* free a TCC compilation context */
+ void tcc_delete(TCCState *s);
+ 
+@@ -60,6 +65,7 @@
+ #define TCC_OUTPUT_EXE      1 /* executable file */
+ #define TCC_OUTPUT_DLL      2 /* dynamic library */
+ #define TCC_OUTPUT_OBJ      3 /* object file */
++#define TCC_OUTPUT_PREPROCESS 4 /* preprocessed file (used internally) */
+ int tcc_set_output_type(TCCState *s, int output_type);
+ 
+ #define TCC_OUTPUT_FORMAT_ELF    0 /* default output format: ELF */
+diff -Nur tcc-0.9.23.orig/Makefile tcc-0.9.23/Makefile
+--- tcc-0.9.23.orig/Makefile	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/Makefile	2007-01-27 18:23:59.000000000 +0100
+@@ -3,7 +3,7 @@
+ #
+ include config.mak
+ 
+-CFLAGS=-O2 -g -Wall
++CFLAGS+=-g -Wall
+ ifndef CONFIG_WIN32
+ LIBS=-ldl
+ BCHECK_O=bcheck.o
+@@ -171,7 +171,7 @@
+ ifdef CONFIG_WIN32
+ # for windows, we must use TCC because we generate ELF objects
+ LIBTCC1_OBJS=$(addprefix win32/lib/, crt1.o wincrt1.o dllcrt1.o dllmain.o chkstk.o) libtcc1.o
+-LIBTCC1_CC=./tcc.exe -Bwin32
++LIBTCC1_CC=./tcc.exe -Bwin32 -DTCC_TARGET_PE -DWIN32
+ else
+ LIBTCC1_OBJS=libtcc1.o
+ LIBTCC1_CC=$(CC)
+@@ -192,28 +192,28 @@
+ install: tcc_install libinstall
+ 
+ tcc_install: $(PROGS) tcc.1 libtcc1.a $(BCHECK_O) tcc-doc.html tcc.1
+-	mkdir -p "$(bindir)"
+-	$(INSTALL) -s -m755 $(PROGS) "$(bindir)"
++	mkdir -p "$(DESTDIR)$(bindir)"
++	$(INSTALL) -s -m755 $(PROGS) "$(DESTDIR)$(bindir)"
+ ifndef CONFIG_WIN32
+-	mkdir -p "$(mandir)/man1"
+-	$(INSTALL) tcc.1 "$(mandir)/man1"
++	mkdir -p "$(DESTDIR)$(mandir)/man1"
++	$(INSTALL) tcc.1 "$(DESTDIR)$(mandir)/man1"
+ endif
+-	mkdir -p "$(tccdir)"
+-	mkdir -p "$(tccdir)/include"
++	mkdir -p "$(DESTDIR)$(tccdir)"
++	mkdir -p "$(DESTDIR)$(tccdir)/include"
+ ifdef CONFIG_WIN32
+-	mkdir -p "$(tccdir)/lib"
+-	$(INSTALL) -m644 libtcc1.a win32/lib/*.def "$(tccdir)/lib"
+-	cp -r win32/include/. "$(tccdir)/include"
+-	cp -r win32/examples/. "$(tccdir)/examples"
++	mkdir -p "$(DESTDIR)$(tccdir)/lib"
++	$(INSTALL) -m644 libtcc1.a win32/lib/*.def "$(DESTDIR)$(tccdir)/lib"
++	cp -r win32/include/. "$(DESTDIR)$(tccdir)/include"
++	cp -r win32/examples/. "$(DESTDIR)$(tccdir)/examples"
+ else
+-	$(INSTALL) -m644 libtcc1.a $(BCHECK_O) "$(tccdir)"
++	$(INSTALL) -m644 libtcc1.a $(BCHECK_O) "$(DESTDIR)$(tccdir)"
+ 	$(INSTALL) -m644 stdarg.h stddef.h stdbool.h float.h varargs.h \
+-                   tcclib.h "$(tccdir)/include"
++                   tcclib.h "$(DESTDIR)$(tccdir)/include"
+ endif
+-	mkdir -p "$(docdir)"
+-	$(INSTALL) -m644 tcc-doc.html "$(docdir)"
++	mkdir -p "$(DESTDIR)$(docdir)"
++	$(INSTALL) -m644 tcc-doc.html "$(DESTDIR)$(docdir)"
+ ifdef CONFIG_WIN32
+-	$(INSTALL) -m644 win32/readme.txt "$(docdir)"
++	$(INSTALL) -m644 win32/readme.txt "$(DESTDIR)$(docdir)"
+ endif
+ 
+ clean:
+@@ -231,13 +231,13 @@
+ 
+ # libtcc generation and example
+ libinstall: libtcc.a 
+-	mkdir -p "$(libdir)"
+-	$(INSTALL) -m644 libtcc.a "$(libdir)"
+-	mkdir -p "$(includedir)"
+-	$(INSTALL) -m644 libtcc.h "$(includedir)"
++	mkdir -p "$(DESTDIR)$(libdir)"
++	$(INSTALL) -m644 libtcc.a "$(DESTDIR)$(libdir)"
++	mkdir -p "$(DESTDIR)$(includedir)"
++	$(INSTALL) -m644 libtcc.h "$(DESTDIR)$(includedir)"
+ 
+ libtcc.o: tcc.c i386-gen.c Makefile
+-	$(CC) $(CFLAGS) -DLIBTCC -c -o $@ $<
++	$(CC) $(CFLAGS) -DLIBTCC -DTCC_TARGET_PE -c -o $@ $<
+ 
+ libtcc.a: libtcc.o 
+ 	$(AR) rcs $@ $^
+diff -Nur tcc-0.9.23.orig/mingw-cross-build.sh tcc-0.9.23/mingw-cross-build.sh
+--- tcc-0.9.23.orig/mingw-cross-build.sh	1970-01-01 01:00:00.000000000 +0100
++++ tcc-0.9.23/mingw-cross-build.sh	2007-01-27 18:45:27.000000000 +0100
+@@ -0,0 +1,17 @@
++#!/bin/sh
++#
++# Build script for cross compiling TCC for Win32
++# for integration into SQLite ODBC driver.
++# Tested on Fedora Core 3 and 5.
++#
++# Cross toolchain and NSIS for Linux/i386 can be fetched from
++#  http://www.ch-werner.de/xtools/cross-mingw32-3.1-3.i386.rpm
++#  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
++
++set -e
++
++rm -rf ../TCC
++sh cross-configure.sh --prefix=/TCC --enable-mingw32
++sh cross-make.sh clean all
++sh cross-make.sh DESTDIR=.. install
++sh cross-make.sh distclean
+diff -Nur tcc-0.9.23.orig/stdarg.h tcc-0.9.23/stdarg.h
+--- tcc-0.9.23.orig/stdarg.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/stdarg.h	2007-01-27 18:25:17.000000000 +0100
+@@ -6,6 +6,7 @@
+ /* only correct for i386 */
+ #define va_start(ap,last) ap = ((char *)&(last)) + ((sizeof(last)+3)&~3)
+ #define va_arg(ap,type) (ap += (sizeof(type)+3)&~3, *(type *)(ap - ((sizeof(type)+3)&~3)))
++#define va_copy(dest, src) (dest) = (src)
+ #define va_end(ap)
+ 
+ /* fix a buggy dependency on GCC in libio.h */
+diff -Nur tcc-0.9.23.orig/tccasm.c tcc-0.9.23/tccasm.c
+--- tcc-0.9.23.orig/tccasm.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tccasm.c	2007-01-27 18:26:24.000000000 +0100
+@@ -916,21 +916,23 @@
+         nb_outputs = nb_operands;
+         if (tok == ':') {
+             next();
+-            /* input args */
+-            parse_asm_operands(operands, &nb_operands, 0);
+-            if (tok == ':') {
+-                /* clobber list */
+-                /* XXX: handle registers */
+-                next();
+-                for(;;) {
+-                    if (tok != TOK_STR)
+-                        expect("string constant");
+-                    asm_clobber(clobber_regs, tokc.cstr->data);
++            if (tok != ')') {
++                /* input args */
++                parse_asm_operands(operands, &nb_operands, 0);
++                if (tok == ':') {
++                    /* clobber list */
++                    /* XXX: handle registers */
+                     next();
+-                    if (tok == ',') {
++                    for(;;) {
++                        if (tok != TOK_STR)
++                            expect("string constant");
++                        asm_clobber(clobber_regs, tokc.cstr->data);
+                         next();
+-                    } else {
+-                        break;
++                        if (tok == ',') {
++                            next();
++                        } else {
++                            break;
++                        }
+                     }
+                 }
+             }
+diff -Nur tcc-0.9.23.orig/tcc.c tcc-0.9.23/tcc.c
+--- tcc-0.9.23.orig/tcc.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tcc.c	2007-01-28 22:28:55.000000000 +0100
+@@ -44,10 +44,15 @@
+ #ifndef WIN32
+ #include <sys/time.h>
+ #include <sys/ucontext.h>
++#include <sys/mman.h>
+ #endif
+ 
+ #endif /* !CONFIG_TCCBOOT */
+ 
++#ifndef PAGESIZE
++#define PAGESIZE 4096
++#endif
++
+ #include "elf.h"
+ #include "stab.h"
+ 
+@@ -131,9 +136,15 @@
+     char str[1];
+ } TokenSym;
+ 
++#ifdef TCC_TARGET_PE
++typedef unsigned short nwchar_t;
++#else
++typedef int nwchar_t;
++#endif
++
+ typedef struct CString {
+     int size; /* size in bytes */
+-    void *data; /* either 'char *' or 'int *' */
++    void *data; /* either 'char *' or 'nwchar_t *' */
+     int size_allocated;
+     void *data_allocated; /* if non NULL, data has been malloced */
+ } CString;
+@@ -199,7 +210,7 @@
+     int sh_entsize;          /* elf entry size */
+     unsigned long sh_size;   /* section size (only used during output) */
+     unsigned long sh_addr;      /* address at which the section is relocated */
+-    unsigned long sh_offset;      /* address at which the section is relocated */
++    unsigned long sh_offset;    /* file offset */
+     int nb_hashed_syms;      /* used to resize the hash table */
+     struct Section *link;    /* link to another section */
+     struct Section *reloc;   /* corresponding section for relocation, if any */
+@@ -237,6 +248,7 @@
+ #define FUNC_FASTCALL1 2 /* first param in %eax */
+ #define FUNC_FASTCALL2 3 /* first parameters in %eax, %edx */
+ #define FUNC_FASTCALL3 4 /* first parameter in %eax, %edx, %ecx */
++#define FUNC_FASTCALLW 5 /* first parameter in %ecx, %edx */
+ 
+ /* field 'Sym.t' for macros */
+ #define MACRO_OBJ      0 /* object like macro */
+@@ -491,6 +503,9 @@
+     /* pack stack */
+     int pack_stack[PACK_STACK_SIZE];
+     int *pack_stack_ptr;
++
++    /* output file for preprocessing */
++    FILE *outfile;
+ };
+ 
+ /* The current value can be: */
+@@ -704,11 +719,24 @@
+ #define TOK_UIDENT TOK_DEFINE
+ 
+ #ifdef WIN32
++
++#define PAGE_NOACCESS   0x0001
++#define PAGE_READONLY   0x0002
++#define PAGE_READWRITE  0x0004
++#define PAGE_WRITECOPY  0x0008
++#define PAGE_EXECUTE    0x0010
++#define PAGE_EXECUTE_READ       0x0020
++#define PAGE_EXECUTE_READWRITE  0x0040
++#define PAGE_EXECUTE_WRITECOPY  0x0080
++#define PAGE_GUARD              0x0100
++#define PAGE_NOCACHE            0x0200
++
+ int __stdcall GetModuleFileNameA(void *, char *, int);
+ void *__stdcall GetProcAddress(void *, const char *);
+ void *__stdcall GetModuleHandleA(const char *);
+ void *__stdcall LoadLibraryA(const char *);
+ int __stdcall FreeConsole(void);
++int __stdcall VirtualProtect(void *, int, int, int *);
+ 
+ #define snprintf _snprintf
+ #define vsnprintf _vsnprintf
+@@ -785,7 +813,9 @@
+ static int lvalue_type(int t);
+ static int parse_btype(CType *type, AttributeDef *ad);
+ static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
++static int compare_types(CType *type1, CType *type2, int unqualified);
+ static int is_compatible_types(CType *type1, CType *type2);
++static int is_compatible_parameter_types(CType *type1, CType *type2);
+ 
+ int ieee_finite(double d);
+ void error(const char *fmt, ...);
+@@ -826,6 +856,7 @@
+ 
+ #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
+ #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
++#define AFF_PREPROCESS      0x0004 /* preprocess file */
+ static int tcc_add_file_internal(TCCState *s, const char *filename, int flags);
+ 
+ /* tcccoff.c */
+@@ -833,7 +864,7 @@
+ 
+ /* tccpe.c */
+ void *resolve_sym(TCCState *s1, const char *sym, int type);
+-int pe_load_def_file(struct TCCState *s1, FILE *fp);
++int pe_load_def_file(struct TCCState *s1, FILE *fp, int output_type);
+ void pe_setup_paths(struct TCCState *s1, int *p_output_type, const char **p_outfile, char *first_file);
+ unsigned long pe_add_runtime(struct TCCState *s1);
+ int tcc_output_pe(struct TCCState *s1, const char *filename);
+@@ -1556,10 +1587,10 @@
+ static void cstr_wccat(CString *cstr, int ch)
+ {
+     int size;
+-    size = cstr->size + sizeof(int);
++    size = cstr->size + sizeof(nwchar_t);
+     if (size > cstr->size_allocated)
+         cstr_realloc(cstr, size);
+-    *(int *)(((unsigned char *)cstr->data) + size - sizeof(int)) = ch;
++    *(nwchar_t *)(((unsigned char *)cstr->data) + size - sizeof(nwchar_t)) = ch;
+     cstr->size = size;
+ }
+ 
+@@ -1649,9 +1680,9 @@
+             for(i=0;i<len;i++)
+                 add_char(&cstr_buf, ((unsigned char *)cstr->data)[i]);
+         } else {
+-            len = (cstr->size / sizeof(int)) - 1;
++            len = (cstr->size / sizeof(nwchar_t)) - 1;
+             for(i=0;i<len;i++)
+-                add_char(&cstr_buf, ((int *)cstr->data)[i]);
++                add_char(&cstr_buf, ((nwchar_t *)cstr->data)[i]);
+         }
+         cstr_ccat(&cstr_buf, '\"');
+         cstr_ccat(&cstr_buf, '\0');
+@@ -1662,6 +1693,8 @@
+     case TOK_GT:
+         v = '>';
+         goto addv;
++    case TOK_DOTS:
++        return strcpy(p, "...");
+     case TOK_A_SHL:
+         return strcpy(p, "<<=");
+     case TOK_A_SAR:
+@@ -1820,6 +1853,7 @@
+ {
+     int fd;
+     BufferedFile *bf;
++    int i, len;
+ 
+     fd = open(filename, O_RDONLY | O_BINARY);
+     if (fd < 0)
+@@ -1834,6 +1868,10 @@
+     bf->buf_end = bf->buffer;
+     bf->buffer[0] = CH_EOB; /* put eob symbol */
+     pstrcpy(bf->filename, sizeof(bf->filename), filename);
++    len = strlen(bf->filename);
++    for (i = 0; i < len; i++)
++        if (bf->filename[i] == '\\')
++            bf->filename[i] = '/';
+     bf->line_num = 1;
+     bf->ifndef_macro = 0;
+     bf->ifdef_stack_ptr = s1->ifdef_stack_ptr;
+@@ -3724,7 +3762,7 @@
+                 if (!is_long)
+                     char_size = 1;
+                 else
+-                    char_size = sizeof(int);
++                    char_size = sizeof(nwchar_t);
+                 if (tokcstr.size <= char_size)
+                     error("empty character constant");
+                 if (tokcstr.size > 2 * char_size)
+@@ -3733,7 +3771,7 @@
+                     tokc.i = *(int8_t *)tokcstr.data;
+                     tok = TOK_CCHAR;
+                 } else {
+-                    tokc.i = *(int *)tokcstr.data;
++                    tokc.i = *(nwchar_t *)tokcstr.data;
+                     tok = TOK_LCHAR;
+                 }
+             } else {
+@@ -4216,7 +4254,10 @@
+                         /* if number, then create a number token */
+                         /* NOTE: no need to allocate because
+                            tok_str_add2() does it */
+-                        tokc.cstr = &cstr;
++                        cstr_reset(&tokcstr);
++                        tokcstr = cstr;
++                        cstr_new(&cstr);
++                        tokc.cstr = &tokcstr;
+                     } else {
+                         /* if identifier, we must do a test to
+                            validate we have a correct identifier */
+@@ -4586,7 +4627,7 @@
+ #ifdef TCC_TARGET_I386
+                 /* x86 specific: need to pop fp register ST0 if saved */
+                 if (r == TREG_ST0) {
+-                    o(0xd9dd); /* fstp %st(1) */
++                    o(0xd8dd); /* fstp %st(0) */
+                 }
+ #endif
+                 /* special long long case */
+@@ -5010,7 +5051,7 @@
+ #ifdef TCC_TARGET_I386
+     /* for x86, we need to pop the FP stack */
+     if (v == TREG_ST0 && !nocode_wanted) {
+-        o(0xd9dd); /* fstp %st(1) */
++        o(0xd8dd); /* fstp %st(0) */
+     } else
+ #endif
+     if (v == VT_JMP || v == VT_JMPI) {
+@@ -5735,6 +5776,10 @@
+         bits = 32 - bits;
+         vpushi(bits);
+         gen_op(TOK_SHL);
++        /* result must be signed or the SAR is converted to an SHL
++           This was not the case when "t" was a signed short
++           and the last value on the stack was an unsigned int */
++        vtop->type.t &= ~VT_UNSIGNED;
+         vpushi(bits);
+         gen_op(TOK_SAR);
+     }
+@@ -5822,6 +5867,7 @@
+             /* we handle char/short/etc... with generic code */
+             if (dbt != (VT_INT | VT_UNSIGNED) &&
+                 dbt != (VT_LLONG | VT_UNSIGNED) &&
++                dbt != VT_BOOL &&
+                 dbt != VT_LLONG)
+                 dbt = VT_INT;
+             if (c) {
+@@ -5837,6 +5883,10 @@
+                     case VT_LDOUBLE: vtop->c.ui = (unsigned int)vtop->c.d; break;
+                     }
+                     break;
++                case VT_BOOL:
++                    vpushi(0);
++                    gen_op(TOK_NE);
++                    break;
+                 default:
+                     /* int case */
+                     switch(sbt) {
+@@ -5980,7 +6030,7 @@
+     while (s1 != NULL) {
+         if (s2 == NULL)
+             return 0;
+-        if (!is_compatible_types(&s1->type, &s2->type))
++        if (!is_compatible_parameter_types(&s1->type, &s2->type))
+             return 0;
+         s1 = s1->next;
+         s2 = s2->next;
+@@ -5990,17 +6040,22 @@
+     return 1;
+ }
+ 
+-/* return true if type1 and type2 are exactly the same (including
+-   qualifiers). 
++/* return true if type1 and type2 are the same.  If unqualified is
++   true, qualifiers on the types are ignored.
+ 
+    - enums are not checked as gcc __builtin_types_compatible_p () 
+  */
+-static int is_compatible_types(CType *type1, CType *type2)
++static int compare_types(CType *type1, CType *type2, int unqualified)
+ {
+     int bt1, t1, t2;
+ 
+     t1 = type1->t & VT_TYPE;
+     t2 = type2->t & VT_TYPE;
++    if (unqualified) {
++        /* strip qualifiers before comparing */
++        t1 &= ~(VT_CONSTANT | VT_VOLATILE);
++        t2 &= ~(VT_CONSTANT | VT_VOLATILE);
++    }
+     /* XXX: bitfields ? */
+     if (t1 != t2)
+         return 0;
+@@ -6019,6 +6074,21 @@
+     }
+ }
+ 
++/* return true if type1 and type2 are exactly the same (including
++   qualifiers). 
++*/
++static int is_compatible_types(CType *type1, CType *type2)
++{
++    return compare_types(type1,type2,0);
++}
++
++/* return true if type1 and type2 are the same (ignoring qualifiers).
++*/
++static int is_compatible_parameter_types(CType *type1, CType *type2)
++{
++    return compare_types(type1,type2,1);
++}
++
+ /* print a type. If 'varstr' is not NULL, then the variable is also
+    printed in the type */
+ /* XXX: union */
+@@ -6411,6 +6481,11 @@
+                 ad->func_call = FUNC_FASTCALL1 + n - 1;
+             skip(')');
+             break;
++        case TOK_FASTCALL1:
++        case TOK_FASTCALL2:
++        case TOK_FASTCALL3:
++            ad->func_call = FUNC_FASTCALLW;
++            break;            
+ #endif
+         case TOK_DLLEXPORT:
+             ad->dllexport = 1;
+@@ -6442,7 +6517,7 @@
+ {
+     int a, v, size, align, maxalign, c, offset;
+     int bit_size, bit_pos, bsize, bt, lbit_pos;
+-    Sym *s, *ss, **ps;
++    Sym *s, *ss, *ass, **ps;
+     AttributeDef ad;
+     CType type1, btype;
+ 
+@@ -6513,7 +6588,9 @@
+                     v = 0;
+                     type1 = btype;
+                     if (tok != ':') {
+-                        type_decl(&type1, &ad, &v, TYPE_DIRECT);
++                        type_decl(&type1, &ad, &v, TYPE_DIRECT | TYPE_ABSTRACT);
++                        if (v == 0 && (type1.t & VT_BTYPE) != VT_STRUCT)
++                            expect("identifier");
+                         if ((type1.t & VT_BTYPE) == VT_FUNC ||
+                             (type1.t & (VT_TYPEDEF | VT_STATIC | VT_EXTERN | VT_INLINE)))
+                             error("invalid type for '%s'", 
+@@ -6576,7 +6653,7 @@
+                     } else {
+                         bit_pos = 0;
+                     }
+-                    if (v) {
++                    if (v != 0 || (type1.t & VT_BTYPE) == VT_STRUCT) {
+                         /* add new memory data only if starting
+                            bit field */
+                         if (lbit_pos == 0) {
+@@ -6602,6 +6679,15 @@
+                         }
+                         printf("\n");
+ #endif
++                    }
++                    if (v == 0 && (type1.t & VT_BTYPE) == VT_STRUCT) {
++                        ass = type1.ref;
++                        while ((ass = ass->next) != NULL) {
++                           ss = sym_push(ass->v, &ass->type, 0, offset + ass->c);
++                           *ps = ss;
++                           ps = &ss->next;
++                        }
++                    } else if (v) {
+                         ss = sym_push(v | SYM_FIELD, &type1, 0, offset);
+                         *ps = ss;
+                         ps = &ss->next;
+@@ -6772,6 +6858,7 @@
+             t |= (s->type.t & ~VT_TYPEDEF);
+             type->ref = s->type.ref;
+             next();
++            typespec_found = 1;
+             break;
+         }
+         type_found = 1;
+@@ -6819,35 +6906,39 @@
+         l = 0;
+         first = NULL;
+         plast = &first;
+-        while (tok != ')') {
+-            /* read param name and compute offset */
+-            if (l != FUNC_OLD) {
+-                if (!parse_btype(&pt, &ad1)) {
+-                    if (l) {
+-                        error("invalid type");
+-                    } else {
+-                        l = FUNC_OLD;
+-                        goto old_proto;
++        if (tok != ')') {
++            for(;;) {
++                /* read param name and compute offset */
++                if (l != FUNC_OLD) {
++                    if (!parse_btype(&pt, &ad1)) {
++                        if (l) {
++                            error("invalid type");
++                        } else {
++                            l = FUNC_OLD;
++                            goto old_proto;
++                        }
+                     }
++                    l = FUNC_NEW;
++                    if ((pt.t & VT_BTYPE) == VT_VOID && tok == ')')
++                        break;
++                    type_decl(&pt, &ad1, &n, TYPE_DIRECT | TYPE_ABSTRACT);
++                    if ((pt.t & VT_BTYPE) == VT_VOID)
++                        error("parameter declared as void");
++                } else {
++                old_proto:
++                    n = tok;
++                    if (n < TOK_UIDENT)
++                        expect("identifier");
++                    pt.t = VT_INT;
++                    next();
+                 }
+-                l = FUNC_NEW;
+-                if ((pt.t & VT_BTYPE) == VT_VOID && tok == ')')
++                convert_parameter_type(&pt);
++                s = sym_push(n | SYM_FIELD, &pt, 0, 0);
++                *plast = s;
++                plast = &s->next;
++                if (tok == ')')
+                     break;
+-                type_decl(&pt, &ad1, &n, TYPE_DIRECT | TYPE_ABSTRACT);
+-                if ((pt.t & VT_BTYPE) == VT_VOID)
+-                    error("parameter declared as void");
+-            } else {
+-            old_proto:
+-                n = tok;
+-                pt.t = VT_INT;
+-                next();
+-            }
+-            convert_parameter_type(&pt);
+-            s = sym_push(n | SYM_FIELD, &pt, 0, 0);
+-            *plast = s;
+-            plast = &s->next;
+-            if (tok == ',') {
+-                next();
++                skip(',');
+                 if (l == FUNC_NEW && tok == TOK_DOTS) {
+                     l = FUNC_ELLIPSIS;
+                     next();
+@@ -7129,7 +7220,11 @@
+         }
+         break;
+     case TOK_LSTR:
++#ifdef TCC_TARGET_PE
++        t = VT_SHORT | VT_UNSIGNED;
++#else
+         t = VT_INT;
++#endif
+         goto str_init;
+     case TOK_STR:
+         /* string parsing */
+@@ -7726,6 +7821,9 @@
+             } else if (bt1 == VT_PTR || bt2 == VT_PTR) {
+                 /* XXX: test pointer compatibility */
+                 type = type1;
++            } else if (bt1 == VT_FUNC || bt2 == VT_FUNC) {
++                /* XXX: test function pointer compatibility */
++                type = type1;
+             } else if (bt1 == VT_STRUCT || bt2 == VT_STRUCT) {
+                 /* XXX: test structure compatibility */
+                 type = type1;
+@@ -8403,6 +8501,9 @@
+         no_oblock = 1;
+         if ((first && tok != TOK_LSTR && tok != TOK_STR) || 
+             tok == '{') {
++            if (tok != '{')
++                error("character array initializer must be a literal,"
++                      " optionally enclosed in braces");
+             skip('{');
+             no_oblock = 0;
+         }
+@@ -8410,7 +8511,11 @@
+         /* only parse strings here if correct type (otherwise: handle
+            them as ((w)char *) expressions */
+         if ((tok == TOK_LSTR && 
++#ifdef TCC_TARGET_PE
++             (t1->t & VT_BTYPE) == VT_SHORT && (t1->t & VT_UNSIGNED)) ||
++#else
+              (t1->t & VT_BTYPE) == VT_INT) ||
++#endif
+             (tok == TOK_STR &&
+              (t1->t & VT_BTYPE) == VT_BYTE)) {
+             while (tok == TOK_STR || tok == TOK_LSTR) {
+@@ -8422,7 +8527,7 @@
+                 if (tok == TOK_STR)
+                     cstr_len = cstr->size;
+                 else
+-                    cstr_len = cstr->size / sizeof(int);
++                    cstr_len = cstr->size / sizeof(nwchar_t);
+                 cstr_len--;
+                 nb = cstr_len;
+                 if (n >= 0 && nb > (n - array_length))
+@@ -8440,7 +8545,7 @@
+                             if (tok == TOK_STR)
+                                 ch = ((unsigned char *)cstr->data)[i];
+                             else
+-                                ch = ((int *)cstr->data)[i];
++                                ch = ((nwchar_t *)cstr->data)[i];
+                             init_putv(t1, sec, c + (array_length + i) * size1,
+                                       ch, EXPR_VAL);
+                         }
+@@ -8986,7 +9091,7 @@
+ #if 0
+             {
+                 char buf[500];
+-                type_to_str(buf, sizeof(buf), t, get_tok_str(v, NULL));
++                type_to_str(buf, sizeof(buf), &type, get_tok_str(v, NULL));
+                 printf("type = '%s'\n", buf);
+             }
+ #endif
+@@ -9001,7 +9106,7 @@
+             if (tok == '{') {
+                 if (l == VT_LOCAL)
+                     error("cannot use local functions");
+-                if (!(type.t & VT_FUNC))
++                if ((type.t & VT_BTYPE) != VT_FUNC)
+                     expect("function definition");
+ 
+                 /* reject abstract declarators in function definition */
+@@ -9233,6 +9338,47 @@
+     return s1->nb_errors != 0 ? -1 : 0;
+ }
+ 
++/* Preprocess the current file */
++/* XXX: add line and file infos, add options to preserve spaces */
++static int tcc_preprocess(TCCState *s1)
++{
++    Sym *define_start;
++    int last_is_space;
++    
++    preprocess_init(s1);
++
++    define_start = define_stack;
++
++    ch = file->buf_ptr[0];
++    tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
++    parse_flags = PARSE_FLAG_ASM_COMMENTS | PARSE_FLAG_PREPROCESS | 
++        PARSE_FLAG_LINEFEED;
++    last_is_space = 1;
++    next();
++    for(;;) {
++        if (tok == TOK_EOF)
++            break;
++        if (!last_is_space) {
++            fputc(' ', s1->outfile);
++        }
++        fputs(get_tok_str(tok, &tokc), s1->outfile);
++        if (tok == TOK_LINEFEED) {
++            last_is_space = 1;
++            /* XXX: suppress that hack */
++            parse_flags &= ~PARSE_FLAG_LINEFEED;
++            next();
++            parse_flags |= PARSE_FLAG_LINEFEED;
++        } else {
++            last_is_space = 0;
++            next();
++        }
++    }
++
++    free_defines(define_start); 
++
++    return 0;
++}
++
+ #ifdef LIBTCC
+ int tcc_compile_string(TCCState *s, const char *str)
+ {
+@@ -9615,6 +9761,30 @@
+         if (s->reloc)
+             relocate_section(s1, s);
+     }
++
++    /* mark executable sections as executable in memory */
++    for(i = 1; i < s1->nb_sections; i++) {
++        s = s1->sections[i];
++        if ((s->sh_flags & (SHF_ALLOC | SHF_EXECINSTR)) == 
++            (SHF_ALLOC | SHF_EXECINSTR)) {
++#ifdef WIN32
++            {
++                int old_protect;
++                VirtualProtect(s->data, s->data_offset,
++                               PAGE_EXECUTE_READWRITE, &old_protect);
++            }
++#else
++            {
++                unsigned long start, end;
++                start = (unsigned long)(s->data) & ~(PAGESIZE - 1);
++                end = (unsigned long)(s->data + s->data_offset);
++                end = (end + PAGESIZE - 1) & ~(PAGESIZE - 1);
++                mprotect((void *)start, end - start, 
++                         PROT_READ | PROT_WRITE | PROT_EXEC);
++            }
++#endif            
++        }
++    }
+     return 0;
+ }
+ 
+@@ -9728,7 +9898,14 @@
+     /* tiny C & gcc defines */
+     tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned int");
+     tcc_define_symbol(s, "__PTRDIFF_TYPE__", "int");
++#ifdef TCC_TARGET_PE
++    tcc_define_symbol(s, "__WCHAR_TYPE__", "unsigned short");
++#ifdef WIN32
++    tcc_define_symbol(s, "_WIN32", NULL);
++#endif
++#else
+     tcc_define_symbol(s, "__WCHAR_TYPE__", "int");
++#endif
+     
+     /* default library paths */
+ #ifdef TCC_TARGET_PE
+@@ -9870,7 +10047,9 @@
+         goto fail1;
+     }
+ 
+-    if (!ext || !strcmp(ext, "c")) {
++    if (flags & AFF_PREPROCESS) {
++        ret = tcc_preprocess(s1);
++    } else if (!ext || !strcmp(ext, "c")) {
+         /* C file assumed */
+         ret = tcc_compile(s1);
+     } else 
+@@ -9885,7 +10064,7 @@
+ #endif
+ #ifdef TCC_TARGET_PE
+     if (!strcmp(ext, "def")) {
+-        ret = pe_load_def_file(s1, fdopen(file->fd, "rb"));
++        ret = pe_load_def_file(s1, fdopen(file->fd, "rb"), s1->output_type);
+     } else
+ #endif
+     {
+@@ -10157,8 +10336,6 @@
+                     flag_name, value);
+ }
+ 
+-#if !defined(LIBTCC)
+-
+ /* extract the basename of a file */
+ static const char *tcc_basename(const char *name)
+ {
+@@ -10175,6 +10352,26 @@
+     return p;
+ }
+ 
++#ifdef WIN32
++void tcc_set_lib_path(void *module_handle)
++{
++    static char path[1024];
++    char *p, *d;
++
++    path[0] = '\0'; 
++    GetModuleFileNameA(module_handle, path, sizeof path);
++    p = d = strlwr(path);
++    while (*d) {
++        if (*d == '\\') *d = '/', p = d;
++        ++d;
++    }
++    *p = '\0';
++    if (path[0]) tcc_lib_path = path;
++}
++#endif
++
++#if !defined(LIBTCC)
++
+ static int64_t getclock_us(void)
+ {
+ #ifdef WIN32
+@@ -10190,7 +10387,7 @@
+ 
+ void help(void)
+ {
+-    printf("tcc version " TCC_VERSION " - Tiny C Compiler - Copyright (C) 2001-2005 Fabrice Bellard\n"
++    printf("tcc version " TCC_VERSION " - Tiny C Compiler - Copyright (C) 2001-2006 Fabrice Bellard\n"
+            "usage: tcc [-v] [-c] [-o outfile] [-Bdir] [-bench] [-Idir] [-Dsym[=val]] [-Usym]\n"
+            "           [-Wwarn] [-g] [-b] [-bt N] [-Ldir] [-llib] [-shared] [-static]\n"
+            "           [infile1 infile2...] [-run infile args...]\n"
+@@ -10206,6 +10403,7 @@
+            "  -Wwarning   set or reset (with 'no-' prefix) 'warning' (see man page)\n"
+            "  -w          disable all warnings\n"
+            "Preprocessor options:\n"
++           "  -E          preprocess only\n"
+            "  -Idir       add include path 'dir'\n"
+            "  -Dsym[=val] define 'sym' with value 'val'\n"
+            "  -Usym       undefine 'sym'\n"
+@@ -10264,6 +10462,7 @@
+     TCC_OPTION_v,
+     TCC_OPTION_w,
+     TCC_OPTION_pipe,
++    TCC_OPTION_E,
+ };
+ 
+ static const TCCOption tcc_options[] = {
+@@ -10299,6 +10498,7 @@
+     { "v", TCC_OPTION_v, 0 },
+     { "w", TCC_OPTION_w, 0 },
+     { "pipe", TCC_OPTION_pipe, 0},
++    { "E", TCC_OPTION_E, 0},
+     { NULL },
+ };
+ 
+@@ -10527,6 +10727,9 @@
+                     }
+                 }
+                 break;
++            case TCC_OPTION_E:
++                output_type = TCC_OUTPUT_PREPROCESS;
++                break;
+             default:
+                 if (s->warn_unsupported) {
+                 unsupported_option:
+@@ -10550,22 +10753,8 @@
+ #ifdef WIN32
+     /* on win32, we suppose the lib and includes are at the location
+        of 'tcc.exe' */
+-    {
+-        static char path[1024];
+-        char *p, *d;
+-        
+-        GetModuleFileNameA(NULL, path, sizeof path);
+-        p = d = strlwr(path);
+-        while (*d)
+-        {
+-            if (*d == '\\') *d = '/', p = d;
+-            ++d;
+-        }
+-        *p = '\0';
+-        tcc_lib_path = path;
+-    }
++    tcc_set_lib_path(NULL);
+ #endif
+-
+     s = tcc_new();
+     output_type = TCC_OUTPUT_EXE;
+     outfile = NULL;
+@@ -10600,7 +10789,16 @@
+             error("cannot specify libraries with -c");
+     }
+     
+-    if (output_type != TCC_OUTPUT_MEMORY) {
++
++    if (output_type == TCC_OUTPUT_PREPROCESS) {
++        if (!outfile) {
++            s->outfile = stdout;
++        } else {
++            s->outfile = fopen(outfile, "wb");
++            if (!s->outfile)
++                error("could not open '%s", outfile);
++        }
++    } else if (output_type != TCC_OUTPUT_MEMORY) {
+         if (!outfile) {
+     /* compute default outfile name */
+             pstrcpy(objfilename, sizeof(objfilename) - 1, 
+@@ -10635,13 +10833,18 @@
+         const char *filename;
+ 
+         filename = files[i];
+-        if (filename[0] == '-') {
+-            if (tcc_add_library(s, filename + 2) < 0)
+-                error("cannot find %s", filename);
+-        } else {
+-            if (tcc_add_file(s, filename) < 0) {
+-                ret = 1;
+-                goto the_end;
++        if (output_type == TCC_OUTPUT_PREPROCESS) {
++            tcc_add_file_internal(s, filename, 
++                                  AFF_PRINT_ERROR | AFF_PREPROCESS);
++        } else {
++            if (filename[0] == '-') {
++                if (tcc_add_library(s, filename + 2) < 0)
++                    error("cannot find %s", filename);
++            } else {
++                if (tcc_add_file(s, filename) < 0) {
++                    ret = 1;
++                    goto the_end;
++                }
+             }
+         }
+     }
+@@ -10662,7 +10865,11 @@
+                total_bytes / total_time / 1000000.0); 
+     }
+ 
+-    if (s->output_type == TCC_OUTPUT_MEMORY) {
++    if (s->output_type == TCC_OUTPUT_PREPROCESS) {
++        if (outfile)
++            fclose(s->outfile);
++        ret = 0;
++    } else if (s->output_type == TCC_OUTPUT_MEMORY) {
+         ret = tcc_run(s, argc - optind, argv + optind);
+     } else
+ #ifdef TCC_TARGET_PE
+diff -Nur tcc-0.9.23.orig/tccelf.c tcc-0.9.23/tccelf.c
+--- tcc-0.9.23.orig/tccelf.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tccelf.c	2007-01-27 18:26:13.000000000 +0100
+@@ -2095,7 +2095,7 @@
+ { 
+     Elf32_Ehdr ehdr;
+     Elf32_Shdr *shdr, *sh, *sh1;
+-    int i, nb_syms, nb_dts, sym_bind, ret;
++    int i, j, nb_syms, nb_dts, sym_bind, ret;
+     Elf32_Sym *sym, *dynsym;
+     Elf32_Dyn *dt, *dynamic;
+     unsigned char *dynstr;
+@@ -2184,8 +2184,8 @@
+         switch(dt->d_tag) {
+         case DT_NEEDED:
+             name = dynstr + dt->d_un.d_val;
+-            for(i = 0; i < s1->nb_loaded_dlls; i++) {
+-                dllref = s1->loaded_dlls[i];
++            for(j = 0; j < s1->nb_loaded_dlls; j++) {
++                dllref = s1->loaded_dlls[j];
+                 if (!strcmp(name, dllref->name))
+                     goto already_loaded;
+             }
+@@ -2277,13 +2277,49 @@
+     return c;
+ }
+ 
++static int ld_add_file_list(TCCState *s1, int as_needed)
++{
++    char filename[1024];
++    int t, ret;
++
++    t = ld_next(s1, filename, sizeof(filename));
++    if (t != '(')
++        expect("(");
++    t = ld_next(s1, filename, sizeof(filename));
++    for(;;) {
++        if (t == LD_TOK_EOF) {
++            error_noabort("unexpected end of file");
++            return -1;
++        } else if (t == ')') {
++            break;
++        } else if (t != LD_TOK_NAME) {
++            error_noabort("filename expected");
++            return -1;
++        } 
++        if (!strcmp(filename, "AS_NEEDED")) {
++            ret = ld_add_file_list(s1, 1);
++            if (ret)
++                return ret;
++        } else {
++            /* TODO: Implement AS_NEEDED support. Ignore it for now */
++            if (!as_needed)
++                tcc_add_file(s1, filename);
++        }
++        t = ld_next(s1, filename, sizeof(filename));
++        if (t == ',') {
++            t = ld_next(s1, filename, sizeof(filename));
++        }
++    }
++    return 0;
++}
++
+ /* interpret a subset of GNU ldscripts to handle the dummy libc.so
+    files */
+ static int tcc_load_ldscript(TCCState *s1)
+ {
+     char cmd[64];
+     char filename[1024];
+-    int t;
++    int t, ret;
+     
+     ch = file->buf_ptr[0];
+     ch = handle_eob();
+@@ -2295,26 +2331,9 @@
+             return -1;
+         if (!strcmp(cmd, "INPUT") ||
+             !strcmp(cmd, "GROUP")) {
+-            t = ld_next(s1, cmd, sizeof(cmd));
+-            if (t != '(')
+-                expect("(");
+-            t = ld_next(s1, filename, sizeof(filename));
+-            for(;;) {
+-                if (t == LD_TOK_EOF) {
+-                    error_noabort("unexpected end of file");
+-                    return -1;
+-                } else if (t == ')') {
+-                    break;
+-                } else if (t != LD_TOK_NAME) {
+-                    error_noabort("filename expected");
+-                    return -1;
+-                } 
+-                tcc_add_file(s1, filename);
+-                t = ld_next(s1, filename, sizeof(filename));
+-                if (t == ',') {
+-                    t = ld_next(s1, filename, sizeof(filename));
+-                }
+-            }
++            ret = ld_add_file_list(s1, 0);
++            if (ret)
++                return ret;
+         } else if (!strcmp(cmd, "OUTPUT_FORMAT") ||
+                    !strcmp(cmd, "TARGET")) {
+             /* ignore some commands */
+diff -Nur tcc-0.9.23.orig/tccpe.c tcc-0.9.23/tccpe.c
+--- tcc-0.9.23.orig/tccpe.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tccpe.c	2007-01-27 18:25:59.000000000 +0100
+@@ -1077,11 +1077,11 @@
+ }
+ 
+ /* ------------------------------------------------------------- */
+-int pe_load_def_file(TCCState * s1, FILE * fp)
++int pe_load_def_file(TCCState * s1, FILE * fp, int output_type)
+ {
+     DLLReference *dllref;
+     int f = 0, sym_index;
+-    char *p, line[120], dllname[40];
++    char *p, *q, line[120], dllname[40];
+     while (fgets(line, sizeof line, fp)) {
+ 	p = strchr(line, 0);
+ 	while (p > line && p[-1] <= ' ')
+@@ -1110,8 +1110,12 @@
+ 
+ 	    case 2:
+ 		dllref =
+-		    tcc_malloc(sizeof(DLLReference) + strlen(dllname));
+-		strcpy(dllref->name, dllname);
++		    tcc_malloc(sizeof(DLLReference) + strlen(dllname) + 4);
++		dllref->name[0] = '\0';
++		if (output_type != TCC_OUTPUT_MEMORY)
++		    if (0 == strncmp(dllname, "lib", 3))
++			strcpy(dllref->name, "lib");
++		strcat(dllref->name, dllname);
+ 		dllref->level = 0;
+ 		dynarray_add((void ***) &s1->loaded_dlls,
+ 			     &s1->nb_loaded_dlls, dllref);
+@@ -1120,6 +1124,10 @@
+ 	    default:
+ 		/* tccpe needs to know from what dll it should import
+                    the sym */
++		q = p;
++		while (*q && *q > ' ' && *q != '@')
++		    ++q;
++		*q = 0;
+ 		sym_index = add_elf_sym(s1->dynsymtab_section,
+ 					0, 0, ELF32_ST_INFO(STB_GLOBAL,
+ 							    STT_FUNC),
+diff -Nur tcc-0.9.23.orig/tcctest.c tcc-0.9.23/tcctest.c
+--- tcc-0.9.23.orig/tcctest.c	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tcctest.c	2007-01-27 18:25:48.000000000 +0100
+@@ -441,14 +441,21 @@
+ 
+ typedef int *my_ptr;
+ 
++typedef int mytype1;
++typedef int mytype2;
++
+ void typedef_test()
+ {
+     my_ptr a;
++    mytype1 mytype2;
+     int b;
++
+     a = &b;
+     *a = 1234;
+     printf("typedef:\n");
+     printf("a=%d\n", *a);
++    mytype2 = 2;
++    printf("mytype2=%d\n", mytype2);
+ }
+ 
+ void forward_test()
+@@ -1066,6 +1073,8 @@
+     int a;
+     char c;
+     char tab[10];
++    unsigned b,d;
++    short s;
+ 
+     printf("cast_test:\n");
+     a = 0xfffff;
+@@ -1088,7 +1097,15 @@
+     printf("%d\n", a);
+     
+     printf("sizeof(c) = %d, sizeof((int)c) = %d\n", sizeof(c), sizeof((int)c));
+-
++    
++    /* test cast from unsigned to signed short to int */
++    b = 0xf000;
++    d = (short)b;
++    printf("((unsigned)(short)0x%08x) = 0x%08x\n", b, d);
++    b = 0xf0f0;
++    d = (char)b;
++    printf("((unsigned)(char)0x%08x) = 0x%08x\n", b, d);
++    
+     /* test implicit int casting for array accesses */
+     c = 0;
+     tab[1] = 2;
+@@ -1803,14 +1820,14 @@
+     goto l1;
+  l2:
+     a = 1 + ({
+-        __label__ l1, l2, l3;
+-        goto l4;
+-    l5:
+-        printf("aa1\n");
++        __label__ l1, l2, l3, l4;
+         goto l1;
++    l4:
++        printf("aa1\n");
++        goto l3;
+     l2:
+         printf("aa3\n");
+-        goto l3;
++        goto l4;
+     l1:
+         printf("aa2\n");
+         goto l2;
+@@ -1819,12 +1836,12 @@
+     });
+     printf("a=%d\n", a);
+     return;
+- l1:
++ l4:
+     printf("bb1\n");
+     goto l2;
+- l4:
++ l1:
+     printf("bb2\n");
+-    goto l5;
++    goto l4;
+ }
+ 
+ /* inline assembler test */
+diff -Nur tcc-0.9.23.orig/tcctok.h tcc-0.9.23/tcctok.h
+--- tcc-0.9.23.orig/tcctok.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/tcctok.h	2007-01-27 18:25:29.000000000 +0100
+@@ -101,6 +101,9 @@
+      DEF(TOK_STDCALL1, "stdcall")
+      DEF(TOK_STDCALL2, "__stdcall")
+      DEF(TOK_STDCALL3, "__stdcall__")
++     DEF(TOK_FASTCALL1, "fastcall")
++     DEF(TOK_FASTCALL2, "__fastcall")
++     DEF(TOK_FASTCALL3, "__fastcall__")
+      DEF(TOK_DLLEXPORT, "dllexport")
+      DEF(TOK_NORETURN1, "noreturn")
+      DEF(TOK_NORETURN2, "__noreturn__")
+diff -Nur tcc-0.9.23.orig/win32/include/winapi/basetsd.h tcc-0.9.23/win32/include/winapi/basetsd.h
+--- tcc-0.9.23.orig/win32/include/winapi/basetsd.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/win32/include/winapi/basetsd.h	2007-01-27 18:29:00.000000000 +0100
+@@ -4,7 +4,7 @@
+ #pragma GCC system_header
+ #endif
+ 
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ #ifndef __int64
+ #define __int64 long long
+ #endif
+diff -Nur tcc-0.9.23.orig/win32/include/winapi/basetyps.h tcc-0.9.23/win32/include/winapi/basetyps.h
+--- tcc-0.9.23.orig/win32/include/winapi/basetyps.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/win32/include/winapi/basetyps.h	2007-01-27 18:29:08.000000000 +0100
+@@ -124,7 +124,7 @@
+ #ifndef GUID_SECTION
+ #define GUID_SECTION ".text"
+ #endif
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ #define GUID_SECT __attribute__ ((section (GUID_SECTION)))
+ #else
+ #define GUID_SECT
+diff -Nur tcc-0.9.23.orig/win32/include/winapi/wincon.h tcc-0.9.23/win32/include/winapi/wincon.h
+--- tcc-0.9.23.orig/win32/include/winapi/wincon.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/win32/include/winapi/wincon.h	2007-01-27 18:29:15.000000000 +0100
+@@ -92,7 +92,7 @@
+ 	} uChar;
+ 	DWORD dwControlKeyState;
+ } 
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ /* gcc's alignment is not what win32 expects */
+  PACKED
+ #endif
+diff -Nur tcc-0.9.23.orig/win32/include/winapi/windef.h tcc-0.9.23/win32/include/winapi/windef.h
+--- tcc-0.9.23.orig/win32/include/winapi/windef.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/win32/include/winapi/windef.h	2007-01-27 18:29:33.000000000 +0100
+@@ -49,7 +49,7 @@
+ #define OPTIONAL
+ #endif
+ 
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ #define PACKED __attribute__((packed))
+ #ifndef _stdcall
+ #define _stdcall __attribute__((stdcall))
+@@ -92,7 +92,7 @@
+ 
+ #define DECLSPEC_IMPORT __declspec(dllimport)
+ #define DECLSPEC_EXPORT __declspec(dllexport)
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ #define DECLSPEC_NORETURN __declspec(noreturn)
+ #define DECLARE_STDCALL_P( type ) __stdcall type
+ #elif defined(__WATCOMC__)
+diff -Nur tcc-0.9.23.orig/win32/include/winapi/winnt.h tcc-0.9.23/win32/include/winapi/winnt.h
+--- tcc-0.9.23.orig/win32/include/winapi/winnt.h	2005-06-18 00:09:15.000000000 +0200
++++ tcc-0.9.23/win32/include/winapi/winnt.h	2007-01-27 18:29:43.000000000 +0100
+@@ -118,7 +118,7 @@
+ typedef DWORD LCID;
+ typedef PDWORD PLCID;
+ typedef WORD LANGID;
+-#ifdef __GNUC__
++#if defined(__GNUC__) || defined(__TINYC__)
+ #define _HAVE_INT64
+ #define _INTEGRAL_MAX_BITS 64
+ #undef __int64
+@@ -2612,7 +2612,7 @@
+ typedef OSVERSIONINFOEXA OSVERSIONINFOEX,*POSVERSIONINFOEX,*LPOSVERSIONINFOEX;
+ #endif
+ 
+-#if defined(__GNUC__)
++#if defined(__GNUC__) || defined(__TINYC__)
+ 
+ PVOID GetCurrentFiber(void);
+ PVOID GetFiberData(void);

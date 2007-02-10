@@ -21,13 +21,23 @@ SQLITE_FLAGS =	-DHAVE_LIBVERSION=1 \
 		-DHAVE_SQLITETRACE=1
 
 SQLITE3_INC =	sqlite3
+SQLITE3_SRC =	sqlite3/src
 SQLITE3_LIB =	sqlite3/libsqlite3.a
-SQLITE3_FLAGS=	-DHAVE_SQLITE3COLUMNTABLENAME=1
+SQLITE3_FLAGS=	-DHAVE_SQLITE3COLUMNTABLENAME=1 \
+		-DHAVE_SQLITE3LOADEXTENSION=1
+
+
+TCC_INC =	TCC/include
+TCC_LIB =	TCC/lib/libtcc.a
+
 
 ODBC_FLAGS =	-DHAVE_LONG_LONG=1 -DHAVE_SQLROWOFFSET=1
 ODBC_LIB =	-lodbc
 
 all:		sqliteodbc.dll sqlite3odbc.dll \
+		sqlite3_mod_blobtoxy.dll \
+		sqlite3_mod_impexp.dll \
+		sqlite+tcc.dll \
 		sqlite.exe sqlite3.exe \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
@@ -148,8 +158,41 @@ SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c sqliteres.o
 		SQLiteODBCInstaller.c sqliteres.o -lkernel32 -luser32
 		$(STRIP) SQLiteODBCInstaller.exe
 
+blobtoxyres.o:	blobtoxy.rc resource3.h
+		$(RC) -o blobtoxyres.o -I$(SQLITE3_INC) blobtoxy.rc
+
+blobtoxy.o:	blobtoxy.c
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
+		    blobtoxy.c
+
+sqlite3_mod_blobtoxy.dll:	blobtoxy.o blobtoxyres.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--strip-all -o sqlite3_mod_blobtoxy.dll \
+		    blobtoxy.o blobtoxyres.o
+
+impexp.o:	impexp.c
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
+		    impexp.c
+
+sqlite3_mod_impexp.dll:	impexp.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--strip-all -o sqlite3_mod_impexp.dll \
+		    impexp.o -lcomdlg32
+
+sqlite+tcc.o:	sqlite+tcc.c
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
+		    -I$(TCC_INC) sqlite+tcc.c
+
+sqlite+tcc.dll:	sqlite+tcc.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--strip-all -o sqlite+tcc.dll \
+		    sqlite+tcc.o $(TCC_LIB)
+
 clean:
-		rm -f *.o sqliteodbc*.dll sqlite3odbc.dll *inst.exe \
-		    *dsn.exe sqlite*.exe sqliteres.rc *~ core
+		rm -f *.o sqliteodbc*.dll sqlite3odbc.dll \
+		    sqlite3_mod_blobtoxy.dll \
+		    sqlite3_mod_impexp.dll \
+		    sqlite+tcc.dll \
+		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ core
 		rm -f resource.h resource3.h
 

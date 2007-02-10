@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.119 2007/01/11 09:13:02 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.124 2007/02/07 16:03:04 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -756,7 +756,13 @@ drvgetgpps(DBC *d)
     void *lib;
     int (*gpps)();
 
-    lib = dlopen("libodbcinst.so", RTLD_LAZY);
+    lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    if (!lib) {
+	lib = dlopen("libodbcinst.so", RTLD_LAZY);
+    }
+    if (!lib) {
+	lib = dlopen("libiodbcinst.so.2", RTLD_LAZY);
+    }
     if (!lib) {
 	lib = dlopen("libiodbcinst.so", RTLD_LAZY);
     }
@@ -1031,6 +1037,29 @@ ln_sprintfg(char *buf, double value)
 #endif
 }
 #endif
+
+/**
+ * Strip quotes from quoted string in-place.
+ * @param str string
+ */
+
+static char *
+unquote(char *str)
+{
+    if (str) {
+	int len = strlen(str);
+
+	if (len > 1) {
+	    if ((str[0] == '\'' && str[len - 1] == '\'') ||
+		(str[0] == '"' && str[len - 1] == '"') ||
+		(str[0] == '[' && str[len - 1] == ']')) {
+		str[len - 1] = '\0';
+		strcpy(str, str + 1);
+	    }
+	}
+    }
+    return str;
+}
 
 /**
  * Busy callback for SQLite.
@@ -4896,7 +4925,7 @@ nodata:
 	}
 	plen = strlen(pname);
 	for (i = 1; i <= nrows; i++) {
-	    char *ptab = rowp[i * ncols + namec];
+	    char *ptab = unquote(rowp[i * ncols + namec]);
 
 	    if (plen && ptab) {
 		int len = strlen(ptab);
@@ -5005,7 +5034,7 @@ nodata:
 		continue;
 	    }
 	    for (k = 1; k <= nnrows; k++) {
-		char *ptab = rowpp[k * nncols + namec];
+		char *ptab = unquote(rowpp[k * nncols + namec]);
 
 		if (plen && ptab) {
 		    len = strlen(ptab);
@@ -5060,7 +5089,7 @@ nodata:
 	    }
 	    for (k = 1; k <= nnrows; k++) {
 		int pos = 0, roffs = (offs + 1) * s->ncols;
-		char *ptab = rowpp[k * nncols + namec];
+		char *ptab = unquote(rowpp[k * nncols + namec]);
 		char buf[32];
 
 		if (plen && ptab) {
@@ -8308,13 +8337,7 @@ getdsnattr(char *dsn, char *attr, char *out, int outLen)
 	if ((str = strchr(str, '=')) == NULL) {
 	    return 0;
 	}
-	if (str - start == len &&
-#ifdef _WIN32
-	    _strnicmp(start, attr, len) == 0
-#else
-	    strncasecmp(start, attr, len) == 0
-#endif
-	   ) {
+	if (str - start == len && strncasecmp(start, attr, len) == 0) {
 	    start = ++str;
 	    while (*str && *str != ';') {
 		++str;
@@ -9780,6 +9803,10 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	    break;
 #endif
 	default:
+	    if (val == NULL) {
+		/* fall through, unbinding column */
+		break;
+	    }
 	    setstat(s, -1, "invalid type %d", "HY003", type);
 	    return SQL_ERROR;
 	}
@@ -12026,6 +12053,34 @@ checkLen:
 	}
 	*valLen = strlen(c->table);
 	goto checkLen;
+#ifdef SQL_DESC_NUM_PREC_RADIX
+    case SQL_DESC_NUM_PREC_RADIX:
+	if (val2) {
+	    switch (c->type) {
+#ifdef WINTERFACE
+	    case SQL_WCHAR:
+	    case SQL_WVARCHAR:
+#ifdef SQL_LONGVARCHAR
+	    case SQL_WLONGVARCHAR:
+#endif
+#endif
+	    case SQL_CHAR:
+	    case SQL_VARCHAR:
+#ifdef SQL_LONGVARCHAR
+	    case SQL_LONGVARCHAR:
+#endif
+	    case SQL_BINARY:
+	    case SQL_VARBINARY:
+	    case SQL_LONGVARBINARY:
+		*val2 = 0;
+		break;
+	    default:
+		*val2 = 2;
+	    }
+	}
+	*valLen = sizeof (int);
+	return SQL_SUCCESS;
+#endif
     }
     setstat(s, -1, "unsupported column attributes %d", "HY091", id);
     return SQL_ERROR;
@@ -12348,6 +12403,31 @@ checkLen:
     case SQL_DESC_NULLABLE:
 	v = SQL_NULLABLE;
 	break;
+#ifdef SQL_DESC_NUM_PREC_RADIX
+    case SQL_DESC_NUM_PREC_RADIX:
+	switch (c->type) {
+#ifdef WINTERFACE
+	case SQL_WCHAR:
+	case SQL_WVARCHAR:
+#ifdef SQL_LONGVARCHAR
+	case SQL_WLONGVARCHAR:
+#endif
+#endif
+	case SQL_CHAR:
+	case SQL_VARCHAR:
+#ifdef SQL_LONGVARCHAR
+	case SQL_LONGVARCHAR:
+#endif
+	case SQL_BINARY:
+	case SQL_VARBINARY:
+	case SQL_LONGVARBINARY:
+	    v = 0;
+	    break;
+	default:
+	    v = 2;
+	}
+	break;
+#endif
     default:
 	setstat(s, -1, "unsupported column attribute %d", "HY091", id);
 	return SQL_ERROR;
@@ -13259,6 +13339,11 @@ done:
 #endif
 
 #if defined(_WIN32) || defined(__OS2__)
+
+#ifdef _WIN32
+static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
+#endif
+
 #ifndef WITHOUT_DRIVERMGR
 
 #ifdef _WIN32
@@ -13269,7 +13354,6 @@ done:
 #include <windowsx.h>
 #include <winuser.h>
 
-#define stricmp _stricmp
 #endif
 
 #ifdef __OS2__
@@ -13284,10 +13368,6 @@ done:
 
 #include "resourceos2.h"
 
-#endif
-
-#ifdef _WIN32
-static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 #endif
 
 #define MAXPATHLEN      (255+1)           /* Max path length */
@@ -13369,7 +13449,7 @@ ParseAttributes(LPCSTR attribs, SETUPDLG *setupdlg)
 	    memcpy(key, start, nkey);
 	    key[nkey] = '\0';
 	    for (i = 0; attrLookup[i].key; i++) {
-		if (stricmp(attrLookup[i].key, key) == 0) {
+		if (strcasecmp(attrLookup[i].key, key) == 0) {
 		    elem = attrLookup[i].ikey;
 		    break;
 		}
@@ -13460,7 +13540,7 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     ODBC_INI);
     }
     if (setupdlg->attr[KEY_DSN].supplied &&
-	stricmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
+	strcasecmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
     }
     return TRUE;
@@ -13813,8 +13893,8 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
 #endif
 	setupdlg->driver = driver;
 	setupdlg->newDSN = request == ODBC_ADD_DSN;
-	setupdlg->defDSN = stricmp(setupdlg->attr[KEY_DSN].attr,
-				   "Default") == 0;
+	setupdlg->defDSN = strcasecmp(setupdlg->attr[KEY_DSN].attr,
+				      "Default") == 0;
 	if (hwnd) {
 #ifdef _WIN32
 	    success = DialogBoxParam(hModule, MAKEINTRESOURCE(CONFIGDSN),
@@ -14027,8 +14107,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     BOOL maybeprompt, prompt = FALSE;
     DBC *d;
     SETUPDLG *setupdlg;
-    short ret;
-    SQLRETURN rc;
+    SQLRETURN ret;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -14063,20 +14142,21 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     }
 retry:
     if (prompt) {
+	short dlgret;
 #ifdef _WIN32
-	ret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
-			     hwnd, (DLGPROC) DriverConnectProc,
-			     (LONG) setupdlg);
+	dlgret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
+				hwnd, (DLGPROC) DriverConnectProc,
+				(LONG) setupdlg);
 #endif
 #ifdef __OS2__
 	HMODULE hDLL;
 
 	DosQueryModuleHandle("SQLLODBC.DLL", &hDLL);
 	setupdlg->hDLL = hDLL;
-	ret = WinDlgBox(HWND_DESKTOP, (HWND) hwnd, DriverConnectProc, hDLL,
-			DLG_SQLITEODBCCONFIGURATION, setupdlg);
+	dlgret = WinDlgBox(HWND_DESKTOP, (HWND) hwnd, DriverConnectProc, hDLL,
+			   DLG_SQLITEODBCCONFIGURATION, setupdlg);
 #endif
-	if (!ret || ret == -1) {
+	if (!dlgret || dlgret == -1) {
 	    xfree(setupdlg);
 	    return SQL_NO_DATA_FOUND;
 	}
@@ -14130,18 +14210,18 @@ retry:
 #endif
     d->nowchar = getbool(setupdlg->attr[KEY_NOWCHAR].attr);
     d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
-    rc = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
-		setupdlg->attr[KEY_DSN].attr,
-		setupdlg->attr[KEY_STEPAPI].attr,
-		setupdlg->attr[KEY_NOTXN].attr,
-		setupdlg->attr[KEY_BUSY].attr);
-    if (rc != SQL_SUCCESS) {
+    ret = dbopen(d, setupdlg->attr[KEY_DBNAME].attr,
+		 setupdlg->attr[KEY_DSN].attr,
+		 setupdlg->attr[KEY_STEPAPI].attr,
+		 setupdlg->attr[KEY_NOTXN].attr,
+		 setupdlg->attr[KEY_BUSY].attr);
+    if (ret != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {
 	    prompt = TRUE;
 	    goto retry;
 	}
 	xfree(setupdlg);
-	return rc;
+	return ret;
     }
     xfree(setupdlg);
     return SQL_SUCCESS;
@@ -14149,8 +14229,6 @@ retry:
 
 #endif /* WITHOUT_DRIVERMGR */
 #endif /* _WIN32 || __OS2__ */
-
-#ifndef WITHOUT_DRIVERMGR
 
 #ifndef WINTERFACE
 /**
@@ -14249,8 +14327,6 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 }
 #endif
 
-#endif /* WITHOUT_DRIVERMGR */
-
 #ifdef _WIN32
 
 /**
@@ -14299,6 +14375,8 @@ DllMain(HANDLE hinst, DWORD reason, LPVOID reserved)
     return LibMain(hinst, reason, reserved);
 }
 
+#ifndef WITHOUT_INSTALLER
+
 /**
  * Handler for driver installer/uninstaller error messages.
  * @param name name of API function for which to show error messages
@@ -14312,19 +14390,19 @@ InUnError(char *name)
     DWORD code;
     char errmsg[301];
     WORD errlen, errmax = sizeof (errmsg) - 1;
-    int rc;
+    int sqlret;
     BOOL ret = FALSE;
 
     do {
 	errmsg[0] = '\0';
-	rc = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
-	if (rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO) {
+	sqlret = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
+	if (sqlret == SQL_SUCCESS || sqlret == SQL_SUCCESS_WITH_INFO) {
 	    MessageBox(NULL, errmsg, name,
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	    ret = TRUE;
 	}
 	err++;
-    } while (rc != SQL_NO_DATA);
+    } while (sqlret != SQL_NO_DATA);
     return ret;
 }
 
@@ -14508,7 +14586,10 @@ uninstall(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
     InUn(1, lpszCmdLine);
 }
 
-#ifndef _MSC_VER
+#endif /* WITHOUT_INSTALLER */
+
+#ifndef WITHOUT_SHELL
+
 /**
  * Setup argv vector from string
  * @param argcp pointer to argc
@@ -14648,7 +14729,8 @@ shell(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
     setargv(&argc, &argv, lpszCmdLine, (char *) name);
     sqlite_main(argc, argv);
 }
-#endif
+
+#endif /* WITHOUT_SHELL */
 
 #endif /* _WIN32 */
 

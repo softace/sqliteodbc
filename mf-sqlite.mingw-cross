@@ -44,7 +44,7 @@ THREADLIB =
 #OPTS = -DMEMORY_DEBUG=2
 #OPTS = -DMEMORY_DEBUG=1
 #OPTS = 
-OPTS = -DNDEBUG=1
+OPTS = -DNDEBUG=1 -DSQLITE_SOUNDEX=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
 #    Nothing for unix.
