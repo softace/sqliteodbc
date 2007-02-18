@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.58 2007/02/07 16:03:04 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.59 2007/02/14 08:14:26 chw Exp chw $
  *
  * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -7461,7 +7461,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*((SQLSMALLINT *) val) = 255;
 	break;
     case SQL_OWNER_TERM:
-	strmak(val, "OWNER", valMax, valLen);
+	strmak(val, "", valMax, valLen);
 	break;
     case SQL_PROCEDURE_TERM:
 	strmak(val, "PROCEDURE", valMax, valLen);
@@ -14646,10 +14646,10 @@ retry:
 	    goto retry;
 	}
     }
-    xfree(setupdlg);
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, setupdlg->attr[KEY_LOADEXT].attr);
     }
+    xfree(setupdlg);
     return ret;
 }
 

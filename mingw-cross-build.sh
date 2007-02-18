@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.3.12
+VER3=3.3.13
 TCCVER=0.9.23
 
 echo "===================="
@@ -102,7 +102,7 @@ true || patch sqlite/src/shell.c <<'EOD'
 +    ofn.lStructSize = sizeof(ofn);
 +    ofn.lpstrFile = (LPTSTR) zDbFn;
 +    ofn.nMaxFile = sizeof(zDbFn);
-+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 +    if( GetOpenFileName(&ofn) ){
 +      data.zDbFilename = zDbFn;
 +    } else
@@ -160,7 +160,7 @@ patch sqlite/src/libshell.c <<'EOD'
 +    ofn.lStructSize = sizeof(ofn);
 +    ofn.lpstrFile = (LPTSTR) zDbFn;
 +    ofn.nMaxFile = sizeof(zDbFn);
-+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 +    if( GetOpenFileName(&ofn) ){
 +      data.zDbFilename = zDbFn;
 +    } else
@@ -234,7 +234,7 @@ true || patch sqlite3/src/shell.c <<'EOD'
 +    ofn.lStructSize = sizeof(ofn);
 +    ofn.lpstrFile = (LPTSTR) zDbFn;
 +    ofn.nMaxFile = sizeof(zDbFn);
-+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 +    if( GetOpenFileName(&ofn) ){
 +      data.zDbFilename = zDbFn;
 +    } else
@@ -279,7 +279,7 @@ patch sqlite3/src/libshell.c <<'EOD'
 +    ofn.lStructSize = sizeof(ofn);
 +    ofn.lpstrFile = (LPTSTR) zDbFn;
 +    ofn.nMaxFile = sizeof(zDbFn);
-+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 +    if( GetOpenFileName(&ofn) ){
 +      data.zDbFilename = zDbFn;
 +    } else

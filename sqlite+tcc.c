@@ -18,6 +18,18 @@
 ** The SQLite API is visible during compilation when
 ** 'sqlite3.h' is included.
 **
+**  select tcc_compile(c_string, opt, ...)
+**
+**   c_string   string containing C code
+**   opt ...    zero or more compile options as strings
+**              -Lpath  add library path
+**              -lfile  add library
+**              -Ipath  add include path
+**              -ipath  add system include path
+**              everything else starting with '-' is ignored
+**              everything else is taken as C source file to be
+**              compiled
+**
 ** WARNING: TinyCC's libtcc.a must be created with necessary
 ** compiler switches to be linked into a shared object. This
 ** usually means that "-fPIC" must be added to compiler flags
@@ -37,8 +49,8 @@
 #define SYM_END { 0, 0 }
 
 static struct {
-  const char *name;	/* TCC name for tcc_add_symbol() */
-  int offs;		/* Offset into struct sqlite3_api_routines */
+  const char *name;     /* TCC name for tcc_add_symbol() */
+  int offs;             /* Offset into struct sqlite3_api_routines */
 } symtab[] = {
   SYM(aggregate_context),
   SYM(aggregate_count),
@@ -178,6 +190,10 @@ static void tcc_compile(
   unsigned long val;
   void (*xInit)(void *);
   sqlite3 *db = sqlite3_user_data(ctx);
+  if( argc<1 ){
+    sqlite3_result_error(ctx, "need at least one argument", -1);
+    return;
+  }
 #ifdef _WIN32
   EnterCriticalSection(&tcc_mutex);
 #endif
@@ -190,11 +206,25 @@ static void tcc_compile(
     return;
   }
   tcc_set_output_type(t, TCC_OUTPUT_MEMORY);
+  for( i=1; i<argc; i++ ){
+    char *p = (char *) sqlite3_value_text(argv[i]);
+    if( p && p[0]=='-' && p[1]=='L' && p[2] ){
+      tcc_add_library_path(t, p+2);
+    }else if( p && p[0]=='-' && p[1]=='l' && p[2] ){
+      tcc_add_library(t, p+2);
+    }else if( p && p[0]=='-' && p[1]=='I' && p[2] ){
+      tcc_add_include_path(t, p+2);
+    }else if( p && p[0]=='-' && p[1]=='i' && p[2] ){
+      tcc_add_sysinclude_path(t, p+2);
+    }else if( p && p[0]!='-'){
+      tcc_add_file(t, p);
+    }
+  }
   if( tcc_compile_string(t, sqlite3_value_text(argv[0])) ){
     sqlite3_result_error(ctx, "compile error", -1);
     goto error;
   }
-  for( i = 0; symtab[i].name; i++ ){
+  for( i=0; symtab[i].name; i++ ){
     val = ((unsigned long *) ((char *) sqlite3_api + symtab[i].offs))[0];
     if( val ){
       tcc_add_symbol(t, symtab[i].name, val);
@@ -204,7 +234,7 @@ static void tcc_compile(
 
       sprintf(msg, "API function '%s' not available.", symtab[i].name);
       MessageBox(NULL, msg, "SQLITE+TCC", MB_ICONEXCLAMATION | MB_OK |
-		 MB_TASKMODAL | MB_SETFOREGROUND);
+                 MB_TASKMODAL | MB_SETFOREGROUND);
 #else
       fprintf(stderr, "API function '%s' not available\n", symtab[i].name);
 #endif
@@ -232,12 +262,12 @@ error:
 }
 
 int sqlite3_extension_init(
-  sqlite3 *db,				/* SQLite3 database connection */ 
-  char **pzErrMsg,			/* Put error message here if not 0 */
-  const sqlite3_api_routines *api	/* SQLite3 API entries */
+  sqlite3 *db,                          /* SQLite3 database connection */ 
+  char **pzErrMsg,                      /* Put error message here if not 0 */
+  const sqlite3_api_routines *api       /* SQLite3 API entries */
 ){
   SQLITE_EXTENSION_INIT2(api);
-  if( sqlite3_create_function(db, "tcc_compile", 1, SQLITE_UTF8, db,
+  if( sqlite3_create_function(db, "tcc_compile", -1, SQLITE_UTF8, db,
       tcc_compile, 0, 0) != SQLITE_OK ){
     if( pzErrMsg ){
       *pzErrMsg = sqlite3_mprintf("cannot create function");

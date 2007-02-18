@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.124 2007/02/07 16:03:04 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.125 2007/02/14 08:14:13 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -7071,7 +7071,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*((SQLSMALLINT *) val) = 255;
 	break;
     case SQL_OWNER_TERM:
-	strmak(val, "OWNER", valMax, valLen);
+	strmak(val, "", valMax, valLen);
 	break;
     case SQL_PROCEDURE_TERM:
 	strmak(val, "PROCEDURE", valMax, valLen);

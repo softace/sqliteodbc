@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Feb 18 2007 version 0.73 released
+
+	* update to SQLite 3.3.13
+	* SQLGetInfo(SQL_OWNER_TERM) now is empty string
+	* fixed bug in Win32 version concerning SQLDriverConnect()
+	* added -L/-l/-I/-i switches to sqlite+tcc.c
+
 Sat Feb 10 2007 version 0.72 released
 
 	* update to SQLite 3.3.12

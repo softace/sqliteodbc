@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.11 2007/02/10 09:55:17 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.13 2007/02/14 07:30:18 chw Exp chw $
  *
  * Copyright (c) 2007 Christian Werner <chw@ch-werner.de>
  *
@@ -428,7 +428,9 @@ b2xy_create(sqlite3 *db, void *userdata, int argc,
 	} else {
 	    y_type = " INTEGER";
 	}
-	p = sqlite3_mprintf("PRAGMA table_info(%Q)", bt->master_table);
+	p = sqlite3_mprintf("PRAGMA %Q.table_info(%Q)",
+			    bt->argv[1] ? bt->argv[1] : "MAIN",
+			    bt->master_table);
 	if (p) {
 	    int nrows = 0, ncols = 0;
 	    char **rows = 0;
@@ -1186,7 +1188,7 @@ common_path_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	if (do_y_scale) {
 	    y = y * y_scale + y_offset;
 	}
-	if (mode == PATH_MODE_BLT_X || mode == PATH_MODE_BLT_X) {
+	if (mode == PATH_MODE_BLT_X || mode == PATH_MODE_BLT_Y) {
 	    double v = (mode == PATH_MODE_BLT_X) ? x : y;
 
 	    if (print_strbuf(&sb, (i == 0) ? "%g" : " %g", v) != SQLITE_OK) {
