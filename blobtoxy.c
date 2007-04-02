@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.13 2007/02/14 07:30:18 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.14 2007/03/22 13:05:56 chw Exp chw $
  *
  * Copyright (c) 2007 Christian Werner <chw@ch-werner.de>
  *
@@ -1087,9 +1087,10 @@ common_path_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     }
     data = (char *) sqlite3_value_blob(args[0]);
     size = sqlite3_value_bytes(args[0]) / TYPE_SIZE(type);
-    if (!data || size < 2) {
-	sqlite3_result_null(ctx);
-	return;
+    if (!data ||
+	(mode != PATH_MODE_BLT_X && mode != PATH_MODE_BLT_Y && size < 2) ||
+	size < 1) {
+	goto nullorempty;
     }
     x_scale = 1;
     x_offset = 0;
@@ -1127,8 +1128,7 @@ common_path_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     }
     memset(&sb, 0, sizeof (sb));
     if (init_strbuf(&sb) != SQLITE_OK) {
-	sqlite3_result_null(ctx);
-	return;
+	goto nullorempty;
     }
     linebreak = 100;
     for (i = 0; i < size; i++, data += TYPE_SIZE(type)) {
@@ -1217,6 +1217,11 @@ common_path_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     if (sb.str) {
 	sqlite3_result_text(ctx, sb.str, sb.idx, sqlite3_free);
 	sb.str = 0;
+	return;
+    }
+nullorempty:
+    if (mode == PATH_MODE_BLT_X || mode == PATH_MODE_BLT_Y) {
+	sqlite3_result_text(ctx, "", 0, SQLITE_STATIC);
     } else {
 	sqlite3_result_null(ctx);
     }
@@ -1353,7 +1358,11 @@ common_path_finalize(sqlite3_context *ctx)
 	}
 	drop_strbuf(&pag->sb);
     }
-    sqlite3_result_null(ctx);
+    if (pag->mode == PATH_MODE_BLT) {
+	sqlite3_result_text(ctx, "", 0, SQLITE_STATIC);
+    } else {
+	sqlite3_result_null(ctx);
+    }
 }
 
 static void

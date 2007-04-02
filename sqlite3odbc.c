@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.59 2007/02/14 08:14:26 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.66 2007/03/31 05:07:55 chw Exp chw $
  *
  * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -2040,7 +2040,7 @@ findcol(char **cols, int ncols, char *name)
 static void
 fixupdyncols(STMT *s, DBC *d)
 {
-    int i, k, pk, t, r, nrows, ncols, doautoinc = 0;
+    int i, k, pk, nn, t, r, nrows, ncols;
     char **rowp, *flagp, flags[128];
 
     if (!s->dyncols) {
@@ -2089,16 +2089,6 @@ fixupdyncols(STMT *s, DBC *d)
 	    s->dyncols[i].size > 255) {
 	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
-	if (s->dyncols[i].typename && strlen(s->dyncols[i].typename) == 7 &&
-	    strncasecmp(s->dyncols[i].typename, "integer", 7) == 0) {
-	    doautoinc++;
-	    s->dyncols[i].autoinc = -1;
-	} else {
-	    s->dyncols[i].autoinc = 0;
-	}
-    }
-    if (!doautoinc) {
-	return;
     }
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
@@ -2110,7 +2100,8 @@ fixupdyncols(STMT *s, DBC *d)
     }
     memset(flagp, 0, sizeof (flags[0]) * s->dcols);
     for (i = 0; i < s->dcols; i++) {
-	s->dyncols[i].autoinc = 0;
+	s->dyncols[i].autoinc = SQL_FALSE;
+	s->dyncols[i].notnull = SQL_NULLABLE;
     }
     for (i = 0; i < s->dcols; i++) {
 	int ret, lastpk = -1, autoinccount = 0;
@@ -2135,6 +2126,7 @@ fixupdyncols(STMT *s, DBC *d)
 	k = findcol(rowp, ncols, "name");
 	t = findcol(rowp, ncols, "type");
 	pk = findcol(rowp, ncols, "pk");
+	nn = findcol(rowp, ncols, "notnull");
 	if (k < 0 || t < 0) {
 	    goto freet;
 	}
@@ -2185,16 +2177,19 @@ fixupdyncols(STMT *s, DBC *d)
 		    if (pk >= 0	&& strcmp(rowp[r * ncols + pk], "1") == 0) {
 			if (++autoinccount > 1) {
 			    if (lastpk >= 0) {
-				s->dyncols[lastpk].autoinc = 0;
+				s->dyncols[lastpk].autoinc = SQL_FALSE;
 				lastpk = -1;
 			    }
 			} else {
 			    lastpk = m;
 			    if (strlen(typename) == 7 &&
 				strncasecmp(typename, "integer", 7) == 0) {
-				s->dyncols[m].autoinc = 1;
+				s->dyncols[m].autoinc = SQL_TRUE;
 			    }
 			}
+		    }
+		    if (nn >= 0 && rowp[r * ncols + nn][0] != '0') {
+			s->dyncols[m].notnull = SQL_NO_NULLS;
 		    }
 		}
 	    }
@@ -3057,7 +3052,8 @@ s3stmt_step(STMT *s)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-		dyncols[i].autoinc = -1;
+		dyncols[i].autoinc = SQL_FALSE;
+		dyncols[i].notnull = SQL_NULLABLE;
 		dyncols[i].typename = xstrdup(typename);
 	    }
 	    freedyncols(s);
@@ -4552,8 +4548,8 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, size, ret, nrows, ncols, offs, namec, uniquec;
-    char **rowp, *errp = NULL, *sql, tname[512];
+    int i, size, ret, nrows, ncols, namec, uniquec;
+    char **rowp = NULL, *errp = NULL, *sql, tname[512];
 
     sret = mkresultset(stmt, pkeySpec, array_size(pkeySpec));
     if (sret != SQL_SUCCESS) {
@@ -4572,7 +4568,7 @@ drvprimarykeys(SQLHSTMT stmt,
     }
     strncpy(tname, (char *) table, size);
     tname[size] = '\0';
-    sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
+    sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
     if (!sql) {
 	return nomem(s);
     }
@@ -4592,150 +4588,52 @@ drvprimarykeys(SQLHSTMT stmt,
 	sqlite3_free(errp);
 	errp = NULL;
     }
-    if (ncols * nrows <= 0) {
-nodata:
-	sqlite3_free_table(rowp);
-	/* try table_info for integer primary keys */
-	ret = SQLITE_ERROR;
-	sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
-	if (sql) {
-	    dbtraceapi(d, "sqlite3_get_table", sql);
-	    ret = sqlite3_get_table(d->sqlite, sql, &rowp,
-				    &nrows, &ncols, NULL);
-	    sqlite3_free(sql);
-	}
-	if (ret == SQLITE_OK) {
-	    int typec, roffs;
+    if (ncols * nrows > 0) {
+	int seq = 1, typec, roffs;
 
-	    namec = findcol(rowp, ncols, "name");
-	    uniquec = findcol(rowp, ncols, "pk");
-	    typec = findcol(rowp, ncols, "type");
-	    if (namec < 0 || uniquec < 0 || typec < 0) {
-		goto nodata2;
+	namec = findcol(rowp, ncols, "name");
+	uniquec = findcol(rowp, ncols, "pk");
+	typec = findcol(rowp, ncols, "type");
+	if (namec < 0 || uniquec < 0 || typec < 0) {
+	    goto nodata;
+	}
+	size = 0;
+	for (i = 1; i <= nrows; i++) {
+	    if (*rowp[i * ncols + uniquec] != '0') {
+		size++;
 	    }
-	    for (i = 1; i <= nrows; i++) {
-		if (*rowp[i * ncols + uniquec] != '0' &&
-		    strlen(rowp[i * ncols + typec]) == 7 &&
-		    strncasecmp(rowp[i * ncols + typec], "integer", 7) == 0) {
-		    break;
-		}
-	    }
-	    if (i > nrows) {
-		goto nodata2;
-	    }
-	    size = (1 + 1) * array_size(pkeySpec);
-	    s->rows = xmalloc((size + 1) * sizeof (char *));
-	    if (!s->rows) {
-		s->nrows = 0;
-		return nomem(s);
-	    }
-	    s->rows[0] = (char *) size;
-	    s->rows += 1;
-	    memset(s->rows, 0, sizeof (char *) * size);
-	    s->rowfree = freerows;
-	    s->nrows = 1;
-	    roffs = s->ncols;
-	    s->rows[roffs + 0] = xstrdup("");
-	    s->rows[roffs + 1] = xstrdup("");
-	    s->rows[roffs + 2] = xstrdup(tname);
-	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
-	    s->rows[roffs + 4] = xstrdup("1");
-nodata2:
+	}
+	if (size < 1) {
+	    goto nodata;
+	}
+	s->nrows = size;
+	size = (size + 1) * array_size(pkeySpec);
+	s->rows = xmalloc((size + 1) * sizeof (char *));
+	if (!s->rows) {
+	    s->nrows = 0;
 	    sqlite3_free_table(rowp);
+	    return nomem(s);
 	}
-	return SQL_SUCCESS;
-    }
-    size = 0;
-    namec = findcol(rowp, ncols, "name");
-    uniquec = findcol(rowp, ncols, "unique");
-    if (namec < 0 || uniquec < 0) {
-	goto nodata;
-    }
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols;
-	char **rowpp;
+	s->rows[0] = (char *) size;
+	s->rows += 1;
+	memset(s->rows, 0, sizeof (char *) * size);
+	s->rowfree = freerows;
+	roffs = s->ncols;
+	for (i = 1; i <= nrows; i++) {
+	    if (*rowp[i * ncols + uniquec] != '0') {
+		char buf[32];
 
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    ret = SQLITE_ERROR;
-	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
-				  rowp[i * ncols + namec]);
-	    if (sql) {
-		dbtraceapi(d, "sqlite3_get_table", sql);
-		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
-					&nnrows, &nncols, NULL);
-		sqlite3_free(sql);
-	    }
-	    if (ret == SQLITE_OK) {
-		size += nnrows;
-		sqlite3_free_table(rowpp);
+		s->rows[roffs + 0] = xstrdup("");
+		s->rows[roffs + 1] = xstrdup("");
+		s->rows[roffs + 2] = xstrdup(tname);
+		s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
+		sprintf(buf, "%d", seq++);
+		s->rows[roffs + 4] = xstrdup(buf);
+		roffs += s->ncols;
 	    }
 	}
     }
-    if (size == 0) {
-	goto nodata;
-    }
-    s->nrows = size;
-    size = (size + 1) * array_size(pkeySpec);
-    s->rows = xmalloc((size + 1) * sizeof (char *));
-    if (!s->rows) {
-	s->nrows = 0;
-	return nomem(s);
-    }
-    s->rows[0] = (char *) size;
-    s->rows += 1;
-    memset(s->rows, 0, sizeof (char *) * size);
-    s->rowfree = freerows;
-    offs = 0;
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols;
-	char **rowpp;
-
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    int k;
-
-	    ret = SQLITE_ERROR;
-	    sql = sqlite3_mprintf("PRAGMA index_info('%q')",
-				  rowp[i * ncols + namec]);
-	    if (sql) {
-		dbtraceapi(d, "sqlite3_get_table", sql);
-		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
-					&nnrows, &nncols, NULL);
-		sqlite3_free(sql);
-	    }
-	    if (ret != SQLITE_OK) {
-		continue;
-	    }
-	    for (k = 0; nnrows && k < nncols; k++) {
-		if (strcmp(rowpp[k], "name") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-
-			s->rows[roffs + 0] = xstrdup("");
-			s->rows[roffs + 1] = xstrdup("");
-			s->rows[roffs + 2] = xstrdup(tname);
-			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
-			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
-		    }
-		} else if (strcmp(rowpp[k], "seqno") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-			int pos = m - 1;
-			char buf[32];
-
-			sscanf(rowpp[m * nncols + k], "%d", &pos);
-			sprintf(buf, "%d", pos + 1);
-			s->rows[roffs + 4] = xstrdup(buf);
-		    }
-		}
-	    }
-	    offs += nnrows;
-	    sqlite3_free_table(rowpp);
-	}
-    }
+nodata:
     sqlite3_free_table(rowp);
     return SQL_SUCCESS;
 }
@@ -6073,7 +5971,7 @@ SQLProcedureColumnsW(SQLHSTMT stmt,
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
-    return mkresultset(stmt, procColSpec, array_size(procColSpec));
+    ret = mkresultset(stmt, procColSpec, array_size(procColSpec));
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -7241,11 +7139,10 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     DBC *d;
     char dummyc[16];
     SQLSMALLINT dummy;
-    static char drvname[] =
 #ifdef _WIN32
-	"sqlite3odbc.dll";
+    char drvname[301];
 #else
-	"sqlite3odbc.so";
+    static char drvname[] = "sqlite3odbc.so";
 #endif
 
     if (dbc == SQL_NULL_HDBC) {
@@ -7331,6 +7228,9 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, (d->dsn ? d->dsn : ""), valMax, valLen);
 	break;
     case SQL_DRIVER_NAME:
+#ifdef _WIN32
+	GetModuleFileName(hModule, drvname, sizeof (drvname));
+#endif
 	strmak(val, drvname, valMax, valLen);
 	break;
     case SQL_DRIVER_VER:
@@ -8822,7 +8722,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     loadext[0] = '\0';
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
 #else
-    SQLGetPrivateProfileString(buf, "timeout", "1000",
+    SQLGetPrivateProfileString(buf, "timeout", "100000",
 			       busy, sizeof (busy), ODBC_INI);
     SQLGetPrivateProfileString(buf, "database", "",
 			       dbname, sizeof (dbname), ODBC_INI);
@@ -9063,7 +8963,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     getdsnattr(buf, "timeout", busy, sizeof (busy));
 #ifndef WITHOUT_DRIVERMGR
     if (dsn[0] && !busy[0]) {
-	SQLGetPrivateProfileString(dsn, "timeout", "1000",
+	SQLGetPrivateProfileString(dsn, "timeout", "100000",
 				   busy, sizeof (busy), ODBC_INI);
     }
 #endif
@@ -11428,7 +11328,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 nodata:
 	sqlite3_free_table(rowp);
 	/* try table_info for integer primary keys */
-	if (itype == SQL_INDEX_UNIQUE) {
+	if (itype == SQL_INDEX_UNIQUE || itype == SQL_INDEX_ALL) {
 	    ret = SQLITE_ERROR;
 
 	    sql = sqlite3_mprintf("PRAGMA table_info('%q')", tname);
@@ -11475,8 +11375,7 @@ nodata:
 		s->rows[roffs + 1] = xstrdup("");
 		s->rows[roffs + 2] = xstrdup(tname);
 		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
-		s->rows[roffs + 4] = xstrdup("");
-		s->rows[roffs + 5] = xstrdup("");
+		s->rows[roffs + 5] = xstrdup("sqlite_autoindex_0");
 		s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
 		s->rows[roffs + 7] = xstrdup("1");
 		s->rows[roffs + 8] = xstrdup(rowp[i * ncols + namec]);
@@ -11566,7 +11465,6 @@ nodata2:
 			} else {
 			    s->rows[roffs + 3] = xstrdup(stringify(SQL_TRUE));
 			}
-			s->rows[roffs + 4] = xstrdup("");
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
 			s->rows[roffs + 6] =
 			    xstrdup(stringify(SQL_INDEX_OTHER));
@@ -12454,7 +12352,31 @@ checkLen:
     case SQL_COLUMN_PRECISION:
     case SQL_DESC_PRECISION:
 	if (val2) {
-	    *val2 = c->prec;
+	    switch (c->type) {
+	    case SQL_SMALLINT:
+		*val2 = 5;
+		break;
+	    case SQL_INTEGER:
+		*val2 = 10;
+		break;
+	    case SQL_FLOAT:
+	    case SQL_REAL:
+	    case SQL_DOUBLE:
+		*val2 = 15;
+		break;
+	    case SQL_DATE:
+		*val2 = 10;
+		break;
+	    case SQL_TIME:
+		*val2 = 8;
+		break;
+	    case SQL_TIMESTAMP:
+		*val2 = 23;
+		break;
+	    default:
+		*val2 = c->prec;
+		break;
+	    }
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
@@ -12466,7 +12388,7 @@ checkLen:
 	return SQL_SUCCESS;
     case SQL_COLUMN_AUTO_INCREMENT:
 	if (val2) {
-	    *val2 = c->autoinc > 0 ? SQL_TRUE : SQL_FALSE;
+	    *val2 = c->autoinc;
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
@@ -12480,7 +12402,7 @@ checkLen:
     case SQL_COLUMN_NULLABLE:
     case SQL_DESC_NULLABLE:
 	if (val2) {
-	    *val2 = SQL_NULLABLE;
+	    *val2 = c->notnull;
 	}
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
@@ -12509,13 +12431,31 @@ checkLen:
 	*valLen = sizeof (int);
 	return SQL_SUCCESS;
     case SQL_COLUMN_TYPE_NAME: {
-	char *tn = c->typename ? c->typename : "varchar";
+	char *p = NULL, *tn = c->typename ? c->typename : "varchar";
 
 	if (valc && valMax > 0) {
 	    strncpy(valc, tn, valMax);
 	    valc[valMax - 1] = '\0';
+	    p = strchr(valc, '(');
+	    if (p) {
+		*p = '\0';
+		while (p > valc && ISSPACE(p[-1])) {
+		    --p;
+		    *p = '\0';
+		}
+	    }
+	    *valLen = strlen(valc);
+	} else {
+	    *valLen = strlen(tn);
+	    p = strchr(tn, '(');
+	    if (p) {
+		*valLen = p - tn;
+		while (p > tn && ISSPACE(p[-1])) {
+		    --p;
+		    *valLen -= 1;
+		}
+	    }
 	}
-	*valLen = strlen(tn);
 	goto checkLen;
     }
     case SQL_COLUMN_OWNER_NAME:
@@ -12763,13 +12703,31 @@ checkLen:
 	goto checkLen;
 #endif
     case SQL_DESC_TYPE_NAME: {
-	char *tn = c->typename ? c->typename : "varchar";
+	char *p = NULL, *tn = c->typename ? c->typename : "varchar";
 
 	if (valc && valMax > 0) {
 	    strncpy(valc, tn, valMax);
 	    valc[valMax - 1] = '\0';
+	    p = strchr(valc, '(');
+	    if (p) {
+		*p = '\0';
+		while (p > valc && ISSPACE(p[-1])) {
+		    --p;
+		    *p = '\0';
+		}
+	    }
+	    *valLen = strlen(valc);
+	} else {
+	    *valLen = strlen(tn);
+	    p = strchr(tn, '(');
+	    if (p) {
+		*valLen = p - tn;
+		while (p > tn && ISSPACE(p[-1])) {
+		    --p;
+		    *valLen -= 1;
+		}
+	    }
 	}
-	*valLen = strlen(tn);
 	goto checkLen;
     }
     case SQL_DESC_OCTET_LENGTH:
@@ -12886,16 +12844,40 @@ checkLen:
 	break;
     case SQL_COLUMN_PRECISION:
     case SQL_DESC_PRECISION:
-	v = c->prec;
+	switch (c->type) {
+	case SQL_SMALLINT:
+	    v = 5;
+	    break;
+	case SQL_INTEGER:
+	    v = 10;
+	    break;
+	case SQL_FLOAT:
+	case SQL_REAL:
+	case SQL_DOUBLE:
+	    v = 15;
+	    break;
+	case SQL_DATE:
+	    v = 10;
+	    break;
+	case SQL_TIME:
+	    v = 8;
+	    break;
+	case SQL_TIMESTAMP:
+	    v = 23;
+	    break;
+	default:
+	    v = c->prec;
+	    break;
+	}
 	break;
     case SQL_COLUMN_MONEY:
 	v = SQL_FALSE;
 	break;
     case SQL_COLUMN_AUTO_INCREMENT:
-	v = c->autoinc > 0 ? SQL_TRUE : SQL_FALSE;
+	v = c->autoinc;
 	break;
     case SQL_DESC_NULLABLE:
-	v = SQL_NULLABLE;
+	v = c->notnull;
 	break;
 #ifdef SQL_DESC_NUM_PREC_RADIX
     case SQL_DESC_NUM_PREC_RADIX:
@@ -13356,7 +13338,8 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-		dyncols[i].autoinc = -1;
+		dyncols[i].autoinc = SQL_FALSE;
+		dyncols[i].notnull = SQL_NULLABLE;
 		dyncols[i].typename = xstrdup(typename);
 	    }
 	    freedyncols(s);
@@ -14721,6 +14704,7 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 	    DBC *d = (DBC *) dbc;
 
 	    setstatd(d, -1, "out of memory", (*d->ov3) ? "HY000" : "S1000");
+	    HDBC_UNLOCK(dbc);
 	    return SQL_ERROR;
 	}
     }
@@ -14869,7 +14853,6 @@ InUn(int remove, char *cmdline)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}
@@ -14888,7 +14871,6 @@ InUn(int remove, char *cmdline)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}
@@ -14935,7 +14917,6 @@ InUn(int remove, char *cmdline)
 	    while (*p) {
 		if (*p == ';') {
 		    *p = '\0';
-		    ++p;
 		}
 		++p;
 	    }
@@ -14963,7 +14944,6 @@ InUn(int remove, char *cmdline)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}

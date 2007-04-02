@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.8 2007/01/15 09:07:40 chw Exp chw $
+ * $Id: inst.c,v 1.9 2007/03/22 13:05:36 chw Exp chw $
  *
  * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
  *
@@ -139,7 +139,6 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}
@@ -152,7 +151,6 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}
@@ -193,7 +191,6 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    while (*p) {
 		if (*p == ';') {
 		    *p = '\0';
-		    ++p;
 		}
 		++p;
 	    }
@@ -224,7 +221,6 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	while (*p) {
 	    if (*p == ';') {
 		*p = '\0';
-		++p;
 	    }
 	    ++p;
 	}

@@ -1,6 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Apr 02 2007 version 0.74 released
+
+	* SQLColAttribute(s)(): provide proper info for
+	  SQL_DESC_NULLABLE/SQL_COLUMN_NULLABLE
+	* SQLPrimaryKeys(): report only real primary keys
+	* fixed SQL_COLUMN_PRECISION/SQL_DESC_PRECISION for
+	  integer/double/date/time/timestamp columns
+	* SQLStatistics(): report INTEGER PRIMARY KEY column as
+	  index when no other indices available
+	* fixed SQL_COLUMN_TYPE_NAME/SQL_DESC_TYPE_NAME return,
+	  should be "VARCHAR" instead of "VARCHAR(100)"
+	* fixed wrong pointer increments for DSN parsing on Win32
+	* minor fixes in blobtoxy extension module
+
 Sun Feb 18 2007 version 0.73 released
 
 	* update to SQLite 3.3.13

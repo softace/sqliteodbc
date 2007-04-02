@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.20 2007/01/08 10:07:49 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.21 2007/03/30 07:15:38 chw Exp chw $
  *
  * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -158,6 +158,7 @@ typedef struct {
     int scale;			/**< Scale of column */
     int prec;			/**< Precision of column */
     int autoinc;		/**< AUTO_INCREMENT column */
+    int notnull;		/**< NOT NULL constraint on column */
     char *typename;		/**< Column type name or NULL */
     char *label;		/**< Column label or NULL */
 } COL;
