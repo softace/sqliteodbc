@@ -2,9 +2,9 @@
  * @file adddsn.c
  * DSN creation utility for Win32.
  *
- * $Id: adddsn.c,v 1.3 2006/03/29 06:04:47 chw Exp chw $
+ * $Id: adddsn.c,v 1.5 2007/04/14 06:42:58 chw Exp chw $
  *
- * Copyright (c) 2003-2006 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2003-2007 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -58,7 +58,7 @@ ProcessErrorMessages(char *name)
  *
  * Example usage:
  *
- *    add[sys]dsn "SQLite ODBC Driver" DSN=foobar;Database=C:\FOOBAR
+ *    add[sys]dsn "SQLite ODBC Driver" DSN=foobar;Database=C:/FOOBAR
  *    rem[sys]dsn "SQLite ODBC Driver" DSN=foobar
  */
 

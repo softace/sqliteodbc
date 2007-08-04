@@ -5,13 +5,13 @@
 # Tested on Fedora Core 3 and 5.
 #
 # Cross toolchain and NSIS for Linux/i386 can be fetched from
-#  http://www.ch-werner.de/xtools/cross-mingw32-3.1-3.i386.rpm
+#  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.i386.rpm
 #  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
 
 set -e
 
 VER2=2.8.17
-VER3=3.3.13
+VER3=3.4.1
 TCCVER=0.9.23
 
 echo "===================="
@@ -154,7 +154,7 @@ patch sqlite/src/libshell.c <<'EOD'
    if( i<argc ){
      data.zDbFilename = argv[i++];
    }else{
-+#ifdef _WIN32
++#if defined(_WIN32) && !defined(__TINYC__)
 +    static OPENFILENAME ofn;
 +    static char zDbFn[1024];
 +    ofn.lStructSize = sizeof(ofn);
@@ -208,6 +208,19 @@ rm -f sqlite3
 tar xzf sqlite-${VER3}.tar.gz
 ln -sf sqlite-${VER3} sqlite3
 
+patch sqlite3/main.mk <<'EOD'
+--- sqlite3/main.mk.orig        2007-03-31 14:32:21.000000000 +0200
++++ sqlite3/main.mk     2007-04-02 11:04:50.000000000 +0200
+@@ -67,7 +67,7 @@
+
+ # All of the source code files.
+ #
+-SRC = \
++SRC += \
+   $(TOP)/src/alter.c \
+   $(TOP)/src/analyze.c \
+   $(TOP)/src/attach.c \
+EOD
 # use open file dialog when no database name given
 # need to link with -lcomdlg32 when enabled
 true || patch sqlite3/src/shell.c <<'EOD'
@@ -273,7 +286,7 @@ patch sqlite3/src/libshell.c <<'EOD'
    if( i<argc ){
      data.zDbFilename = argv[i++];
    }else{
-+#ifdef _WIN32
++#if defined(_WIN32) && !defined(__TINYC__)
 +    static OPENFILENAME ofn;
 +    static char zDbFn[1024];
 +    ofn.lStructSize = sizeof(ofn);
@@ -316,9 +329,24 @@ patch sqlite3/src/minshell.c <<'EOD'
 +}
 EOD
 
+# amalgamation: add libshell.c
+test -r sqlite3/tool/mksqlite3c.tcl && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/tool/mksqlite3c.tcl	2007-04-02 14:20:10.000000000 +0200
++++ sqlite3/tool/mksqlite3c.tcl	2007-04-03 09:42:03.000000000 +0200
+@@ -200,6 +200,8 @@
+    tokenize.c
+ 
+    main.c
++
++   libshell.c
+ } {
+   copy_file tsrc/$file
+ }
+EOD
+
 # patch: parse foreign key constraints on virtual tables
 patch -d sqlite3 -p1 <<'EOD'
-diff -ur sqlite3.orig/src/build.c sqlite3/src/build.c
+diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
 +++ sqlite3/src/build.c	2007-01-30 08:14:41.000000000 +0100
 @@ -2063,7 +2063,7 @@
@@ -330,7 +358,7 @@ diff -ur sqlite3.orig/src/build.c sqlite3/src/build.c
    if( pFromCol==0 ){
      int iCol = p->nCol-1;
      if( iCol<0 ) goto fk_end;
-diff -ur sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
+diff -u sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
 --- sqlite3.orig/src/pragma.c	2007-01-27 03:24:56.000000000 +0100
 +++ sqlite3/src/pragma.c	2007-01-30 09:19:30.000000000 +0100
 @@ -589,6 +589,9 @@
@@ -343,7 +371,7 @@ diff -ur sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
        pFK = pTab->pFKey;
        if( pFK ){
          int i = 0; 
-diff -ur sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
+diff -u sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
 --- sqlite3.orig/src/vtab.c	2007-01-09 15:01:14.000000000 +0100
 +++ sqlite3/src/vtab.c	2007-01-30 08:23:22.000000000 +0100
 @@ -436,6 +436,9 @@
@@ -372,6 +400,93 @@ diff -ur sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
    sqlite3_finalize((sqlite3_stmt*)sParse.pVdbe);
    sqlite3DeleteTable(0, sParse.pNewTable);
    sParse.pNewTable = 0;
+EOD
+
+# patch: re-enable NO_TCL in tclsqlite.c (3.3.15)
+patch -d sqlite3 -p1 <<'EOD'
+diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
+--- sqlite3.orig/src/tclsqlite.c	2007-04-06 17:02:14.000000000 +0200
++++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
+@@ -14,6 +14,7 @@
+ **
+ ** $Id: mingw-cross-build.sh,v 1.23 2007/07/26 14:58:47 chw Exp chw $
+ */
++#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
+ #include "tcl.h"
+ 
+ /*
+@@ -2264,3 +2265,5 @@
+   return 0;
+ }
+ #endif /* TCLSH */
++
++#endif /* !defined(NO_TCL) */
+EOD
+
+# patch: Win32 locking and pager unlock, for SQLite3 < 3.4.0
+true || patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/os_win.c	2007-04-11 19:52:04.000000000 +0200
++++ sqlite3/src/os_win.c	2007-05-08 06:57:06.000000000 +0200
+@@ -1237,8 +1237,8 @@
+   ** the PENDING_LOCK byte is temporary.
+   */
+   newLocktype = pFile->locktype;
+-  if( pFile->locktype==NO_LOCK
+-   || (locktype==EXCLUSIVE_LOCK && pFile->locktype==RESERVED_LOCK)
++  if( locktype==SHARED_LOCK
++   || (locktype==EXCLUSIVE_LOCK && pFile->locktype<PENDING_LOCK)
+   ){
+     int cnt = 3;
+     while( cnt-->0 && (res = LockFile(pFile->h, PENDING_BYTE, 0, 1, 0))==0 ){
+@@ -1289,6 +1289,18 @@
+       newLocktype = EXCLUSIVE_LOCK;
+     }else{
+       OSTRACE2("error-code = %d\n", GetLastError());
++      if( !getReadLock(pFile) ){
++        /* This should never happen.  We should always be able to
++        ** reacquire the read lock */
++        OSTRACE1("could not re-get a SHARED lock.\n");
++	if( newLocktype==PENDING_LOCK || pFile->locktype==PENDING_LOCK ){
++          UnlockFile(pFile->h, PENDING_BYTE, 0, 1, 0);
++        }
++        if( pFile->locktype==RESERVED_LOCK ){
++          UnlockFile(pFile->h, RESERVED_BYTE, 0, 1, 0);
++        }
++        newLocktype = NO_LOCK;
++      }
+     }
+   }
+ 
+@@ -1362,6 +1374,7 @@
+       /* This should never happen.  We should always be able to
+       ** reacquire the read lock */
+       rc = SQLITE_IOERR_UNLOCK;
++      locktype = NO_LOCK;
+     }
+   }
+   if( type>=RESERVED_LOCK ){
+--- sqlite3.orig/src/pager.c	2007-04-16 17:02:19.000000000 +0200
++++ sqlite3/src/pager.c	2007-05-11 19:42:47.000000000 +0200
+@@ -3878,6 +3878,9 @@
+   assert( pPager->journalOpen || !pPager->dirtyCache );
+   assert( pPager->state==PAGER_SYNCED || !pPager->dirtyCache );
+   rc = pager_end_transaction(pPager);
++  if ( rc==SQLITE_OK ){
++    pager_unlock(pPager);
++  }
+   return pager_error(pPager, rc);
+ }
+ 
+@@ -3934,6 +3937,9 @@
+ 
+   if( !pPager->dirtyCache || !pPager->journalOpen ){
+     rc = pager_end_transaction(pPager);
++    if ( rc==SQLITE_OK ){
++      pager_unlock(pPager);
++    }
+     return rc;
+   }
+ 
 EOD
 
 echo "===================="
@@ -403,6 +518,8 @@ echo "====================="
 echo "Building SQLite 3 ..."
 echo "====================="
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross all
+test -r sqlite3/tool/mksqlite3c.tcl && \
+  make -C sqlite3 -f ../mf-sqlite3.mingw-cross sqlite3.c
 
 echo "==================="
 echo "Building TinyCC ..."

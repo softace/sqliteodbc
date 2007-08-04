@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.66 2007/03/31 05:07:55 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.71 2007/08/04 06:08:44 chw Exp chw $
  *
  * Copyright (c) 2004-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -353,105 +353,28 @@ static const char id_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #define ISIDCHAR(c) \
     ((c) && strchr(id_chars, (c)) != NULL)
 
-/**
- * Reset bound columns to unbound state.
- * @param s statement pointer
- */
-
-static void unbindcols(STMT *s);
-
-/**
- * Reallocate space for bound columns.
- * @param s statement pointer
- * @param ncols number of columns
- * @result ODBC error code
- */
-
-static SQLRETURN mkbindcols(STMT *s, int ncols);
-
-/**
- * Free statement's result.
- * @param s statement pointer
- * @param clrcols flag to clear column information
- *
- * The result rows are free'd using the rowfree function pointer.
- * If clrcols is greater than zero, then column bindings and dynamic column
- * descriptions are free'd.
- * If clrcols is less than zero, then dynamic column descriptions are free'd.
- */
-
-static void freeresult(STMT *s, int clrcols);
-
-/**
- * Internal free function for HSTMT.
- * @param stmt statement handle
- * @result ODBC error code
- */
-
-static SQLRETURN freestmt(HSTMT stmt);
-
-/**
- * Setup parameter buffer for deferred parameter.
- * @param s pointer to STMT
- * @param p pointer to BINDPARM
- * @result ODBC error code (success indicated by SQL_NEED_DATA)
- */
-
-static SQLRETURN setupparbuf(STMT *s, BINDPARM *p);
-
-/**
- * Substitute parameter for statement.
- * @param s statement pointer
- * @param sqlp pointer to sql string or NULL
- * @param pnum parameter number
- * @param outp output pointer or NULL
- * @result ODBC error code
- *
- * If no output buffer is given, the function computes and
- * reports the space needed for the parameter. Otherwise
- * the parameter is converted to its string representation
- * in order to be presented to sqlite3_vmprintf() et.al.
- * While substitution is performed, the parameter markers
- * in the SQL text (%q/%Q/%s) are modified according to the
- * parameter type. For blobs %s is used, %Q for all others.
- */
-
-static SQLRETURN substparam(STMT *s, char **sqlp, int pnum, char **outp);
-
-/**
- * Free dynamically allocated column descriptions of STMT.
- * @param s statement pointer
- */
-
-static void freedyncols(STMT *s);
-
-/**
- * Internal query execution used by SQLExecute() and SQLExecDirect().
- * @param stmt statement handle
- * @param initial false when called from SQLPutData()
- * @result ODBC error code
- */
-
-static SQLRETURN drvexecute(SQLHSTMT stmt, int initial);
-
-/**
- * Trace function for SQLite API calls
- * @param d pointer to database connection handle
- * @param fn SQLite function name
- * @param sql SQL string
+/*
+ * Forward declarations of static functions.
  */
 
 static void dbtraceapi(DBC *d, char *fn, const char *sql);
+static void freedyncols(STMT *s);
+static void freeresult(STMT *s, int clrcols);
+static void freerows(char **rowp);
+static void unbindcols(STMT *s);
 
-/**
- * Internal function to setup column name/type information
- * @param s statement poiner
- * @param s3stmt SQLite3 statement pointer
- * @param ncolsp pointer to preinitialized number of colums
- * @result ODBC error code
- */
-
+static SQLRETURN drvexecute(SQLHSTMT stmt, int initial);
+static SQLRETURN freestmt(HSTMT stmt);
+static SQLRETURN mkbindcols(STMT *s, int ncols);
 static SQLRETURN setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp);
+static SQLRETURN setupparbuf(STMT *s, BINDPARM *p);
+static SQLRETURN starttran(STMT *s);
+static SQLRETURN substparam(STMT *s, char **sqlp, int pnum, char **outp);
+
+#if defined(_WIN32) && defined(WINTERFACE)
+/* MS Access hack part 1 (reserved error -7748) */
+static COL statSpec[];
+#endif
 
 #if (MEMORY_DEBUG < 1)
 /**
@@ -974,17 +897,6 @@ drvgpps(DBC *d, char *sect, char *ent, char *def, char *buf,
 #define drvrelgpps(d)
 #endif
 
-/**
- * Free counted array of char pointers.
- * @param rowp pointer to char pointer array
- *
- * The -1-th element of the array holds the array size.
- * All non-NULL pointers of the array and then the array
- * itself are free'd.
- */
-
-static void freerows(char **rowp);
-
 /*
  * Internal structure for managing driver's
  * sqlite3_get_table() implementation.
@@ -1463,6 +1375,10 @@ busy_handler(void *udata, int count)
     struct timeval tv;
 #endif
 
+    if (d->busyint) {
+	d->busyint = 0;
+	return ret;
+    }
     if (d->timeout <= 0) {
 	return ret;
     }
@@ -1552,7 +1468,14 @@ setsqliteopts(sqlite3 *x, DBC *d)
     return SQLITE_OK;
 }
 
-/* see doc on top */
+/**
+ * Free counted array of char pointers.
+ * @param rowp pointer to char pointer array
+ *
+ * The -1-th element of the array holds the array size.
+ * All non-NULL pointers of the array and then the array
+ * itself are free'd.
+ */
 
 static void
 freerows(char **rowp)
@@ -1771,13 +1694,13 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
     if (type == SQL_C_DEFAULT) {
 	switch (stype) {
 	case SQL_INTEGER:
-	    type = nosign > 0 ? SQL_C_ULONG : SQL_C_LONG;
+	    type = (nosign > 0) ? SQL_C_ULONG : SQL_C_LONG;
 	    break;
 	case SQL_TINYINT:
-	    type = nosign > 0 ? SQL_C_UTINYINT : SQL_C_TINYINT;
+	    type = (nosign > 0) ? SQL_C_UTINYINT : SQL_C_TINYINT;
 	    break;
 	case SQL_SMALLINT:
-	    type = nosign > 0 ? SQL_C_USHORT : SQL_C_SHORT;
+	    type = (nosign > 0) ? SQL_C_USHORT : SQL_C_SHORT;
 	    break;
 	case SQL_FLOAT:
 	    type = SQL_C_FLOAT;
@@ -1830,7 +1753,7 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 #endif
 #ifdef SQL_BIGINT
 	case SQL_BIGINT:
-	    type = nosign > 0 ? SQL_C_UBIGINT : SQL_C_SBIGINT;
+	    type = (nosign > 0) ? SQL_C_UBIGINT : SQL_C_SBIGINT;
 	    break;
 #endif
 	default:
@@ -2568,7 +2491,7 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	    if (*q != '+' && *q != '-') {
 		goto done;
 	    }
-	    sign = *q == '+' ? -1 : 1;
+	    sign = (*q == '+') ? -1 : 1;
 	    q = NULL;
 	    n = strtol(p, &q, 10);
 	    if (!q || *q++ != ':' || !ISDIGIT(*q)) {
@@ -2627,7 +2550,7 @@ done:
 	tss->hour > 23 || tss->minute > 60 || tss->second > 60) {
 	return -1;
     }
-    return (m & 7) < 1 ? -1 : 0;
+    return ((m & 7) < 1) ? -1 : 0;
 }
 
 /**
@@ -2671,7 +2594,12 @@ dbtrace(void *arg, const char *msg)
     }
 }
 
-/* see doc on top */
+/**
+ * Trace function for SQLite API calls
+ * @param d pointer to database connection handle
+ * @param fn SQLite function name
+ * @param sql SQL string
+ */
 
 static void
 dbtraceapi(DBC *d, char *fn, const char *sql)
@@ -2772,6 +2700,10 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
     if (rc != SQLITE_OK) {
 connfail:
 	setstatd(d, rc, "connect failed", (*d->ov3) ? "HY000" : "S1000");
+	if (d->sqlite) {
+	    sqlite3_close(d->sqlite);
+	    d->sqlite = NULL;
+	}
 	return SQL_ERROR;
     }
     if (d->trace) {
@@ -2799,7 +2731,10 @@ connfail:
 	d->sqlite = NULL;
 	goto connfail;
     }
-    if (spflag && spflag[0] != '\0') {
+    if (!spflag || spflag[0] == '\0') {
+	spflag = "NORMAL";
+    }
+    if (spflag[0] != '\0') {
 	char syncp[128];
 
 	sprintf(syncp, "PRAGMA synchronous = %8.8s;", spflag);
@@ -2889,9 +2824,10 @@ dbloadext(DBC *d, char *exts)
 
 /**
  * Find out column type
- * @s3stmt SQLite statement pointer
- * @col column number
- * @d DBC pointer (for tracing only)
+ * @param s3stmt SQLite statement pointer
+ * @param col column number
+ * @param d DBC pointer (for tracing only)
+ * @param guessed_types flag array
  * @result type name as string
  */
 
@@ -3162,6 +3098,9 @@ s3stmt_end(STMT *s)
 	return;
     }
     d = (DBC *) s->dbc;
+    if (d) {
+	d->busyint = 0;
+    }
     dbtraceapi(d, "sqlite3_finalize", 0);
     sqlite3_finalize(s->s3stmt);
     s->s3stmt = NULL;
@@ -3178,6 +3117,9 @@ s3stmt_end_if(STMT *s)
 {
     DBC *d = (DBC *) s->dbc;
 
+    if (d) {
+	d->busyint = 0;
+    }
     if (d && d->cur_s3stmt == s) {
 	s3stmt_end(s);
     }
@@ -3230,7 +3172,14 @@ s3stmt_start(STMT *s, char **params)
     }
     dbtraceapi(d, "sqlite3_prepare", sql);
     do {
+	s3stmt = NULL;
 	rc = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &endp);
+	if (rc != SQLITE_OK) {
+	    if (s3stmt) {
+		sqlite3_finalize(s3stmt);
+		s3stmt = NULL;
+	    }
+	}
     } while (rc == SQLITE_SCHEMA && (++nretry) < 2);
     dbtracerc(d, rc, NULL);
     if (sql && s->nparams) {
@@ -3610,7 +3559,22 @@ freeparams(STMT *s)
     return SQL_SUCCESS;
 }
 
-/* see doc on top */
+/**
+ * Substitute parameter for statement.
+ * @param s statement pointer
+ * @param sqlp pointer to sql string or NULL
+ * @param pnum parameter number
+ * @param outp output pointer or NULL
+ * @result ODBC error code
+ *
+ * If no output buffer is given, the function computes and
+ * reports the space needed for the parameter. Otherwise
+ * the parameter is converted to its string representation
+ * in order to be presented to sqlite3_vmprintf() et.al.
+ * While substitution is performed, the parameter markers
+ * in the SQL text (%q/%Q/%s) are modified according to the
+ * parameter type. For blobs %s is used, %Q for all others.
+ */
 
 static SQLRETURN
 substparam(STMT *s, char **sqlp, int pnum, char **outp)
@@ -4053,7 +4017,12 @@ SQLNumParams(SQLHSTMT stmt, SQLSMALLINT *nparam)
     return SQL_SUCCESS;
 }
 
-/* see doc on top */
+/**
+ * Setup parameter buffer for deferred parameter.
+ * @param s pointer to STMT
+ * @param p pointer to BINDPARM
+ * @result ODBC error code (success indicated by SQL_NEED_DATA)
+ */
 
 static SQLRETURN
 setupparbuf(STMT *s, BINDPARM *p)
@@ -4572,6 +4541,11 @@ drvprimarykeys(SQLHSTMT stmt,
     if (!sql) {
 	return nomem(s);
     }
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	sqlite3_free(sql);
+	return sret;
+    }
     dbtraceapi(d, "sqlite3_get_table", sql);
     ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
     sqlite3_free(sql);
@@ -4792,6 +4766,11 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
     if (!sql) {
 	return nomem(s);
+    }
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	sqlite3_free(sql);
+	return sret;
     }
     dbtraceapi(d, "sqlite3_get_table", sql);
     ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
@@ -5157,6 +5136,10 @@ drvforeignkeys(SQLHSTMT stmt,
 	return sret;
     }
     s = (STMT *) stmt;
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	return sret;
+    }
     d = (DBC *) s->dbc;
     if ((!PKtable || PKtable[0] == '\0' || PKtable[0] == '%') &&
 	(!FKtable || FKtable[0] == '\0' || FKtable[0] == '%')) {
@@ -5562,6 +5545,47 @@ done:
     return ret;
 }
 #endif
+
+/**
+ * Start transaction when autocommit off
+ * @param s statement pointer
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+starttran(STMT *s)
+{
+    int ret = SQL_SUCCESS, rc, busy_count = 0;
+    char *errp = NULL;
+    DBC *d = (DBC *) s->dbc;
+
+    if (!d->autocommit && !d->intrans && !d->trans_disable) {
+begin_again:
+	rc = sqlite3_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
+	if (rc == SQLITE_BUSY) {
+	    if (busy_handler((void *) d, ++busy_count)) {
+		if (errp) {
+		    sqlite3_free(errp);
+		    errp = NULL;
+		}
+		goto begin_again;
+	    }
+	}
+	dbtracerc(d, rc, errp);
+	if (rc != SQLITE_OK) {
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", rc);
+	    ret = SQL_ERROR;
+	} else {
+	    d->intrans = 1;
+	}
+	if (errp) {
+	    sqlite3_free(errp);
+	    errp = NULL;
+	}
+    }
+    return ret;
+}
 
 /**
  * Internal commit or rollback transaction.
@@ -6568,7 +6592,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*uval = s->curtype;
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_SCROLLABLE:
-	*uval = s->curtype != SQL_CURSOR_FORWARD_ONLY ?
+	*uval = (s->curtype != SQL_CURSOR_FORWARD_ONLY) ?
 	    SQL_SCROLLABLE : SQL_NONSCROLLABLE;
 	return SQL_SUCCESS;
 #ifdef SQL_ATTR_CURSOR_SENSITIVITY
@@ -6582,11 +6606,11 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    DBC *d = (DBC *) s->dbc;
 
 	    if (s == d->cur_s3stmt) {
-		*uval = d->s3stmt_rownum < 0 ?
+		*uval = (d->s3stmt_rownum < 0) ?
 		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
 	    }
 	}
-	*uval = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
+	*uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ATTR_ASYNC_ENABLE:
 	*uval = SQL_ASYNC_ENABLE_OFF;
@@ -6901,11 +6925,11 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	    DBC *d = (DBC *) s->dbc;
 
 	    if (s == d->cur_s3stmt) {
-		*ret = d->s3stmt_rownum < 0 ?
+		*ret = (d->s3stmt_rownum < 0) ?
 		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
 	    }
 	}
-	*ret = s->rowp < 0 ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
+	*ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ASYNC_ENABLE:
 	*ret = SQL_ASYNC_ENABLE_OFF;
@@ -7225,7 +7249,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_DATA_SOURCE_NAME:
-	strmak(val, (d->dsn ? d->dsn : ""), valMax, valLen);
+	strmak(val, d->dsn ? d->dsn : "", valMax, valLen);
 	break;
     case SQL_DRIVER_NAME:
 #ifdef _WIN32
@@ -7254,7 +7278,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_SERVER_NAME:
     case SQL_DATABASE_NAME:
-	strmak(val, (d->dbname ? d->dbname : ""), valMax, valLen);
+	strmak(val, d->dbname ? d->dbname : "", valMax, valLen);
 	break;
     case SQL_SEARCH_PATTERN_ESCAPE:
 	strmak(val, "", valMax, valLen);
@@ -7325,7 +7349,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_DEFAULT_TXN_ISOLATION:
-	*((SQLUINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLUINTEGER *) val) = SQL_TXN_SERIALIZABLE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #ifdef SQL_DESCRIBE_PARAMETER
@@ -7334,7 +7358,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #endif
     case SQL_TXN_ISOLATION_OPTION:
-	*((SQLUINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLUINTEGER *) val) = SQL_TXN_SERIALIZABLE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_IDENTIFIER_CASE:
@@ -8040,6 +8064,7 @@ drvfreeconnect(SQLHDBC dbc)
 {
     DBC *d;
     ENV *e;
+    SQLRETURN ret = SQL_ERROR;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -8059,7 +8084,7 @@ drvfreeconnect(SQLHDBC dbc)
     }
     if (d->sqlite) {
 	setstatd(d, -1, "not disconnected", (*d->ov3) ? "HY000" : "S1000");
-	return SQL_ERROR;
+	goto done;
     }
     while (d->stmt) {
 	freestmt((HSTMT) d->stmt);
@@ -8090,13 +8115,15 @@ drvfreeconnect(SQLHDBC dbc)
 	fclose(d->trace);
     }
     xfree(d);
+    ret = SQL_SUCCESS;
+done:
 #ifdef _WIN32
     if (e) {
 	e->owner = 0;
 	LeaveCriticalSection(&e->cs);
     }
 #endif
-    return SQL_SUCCESS;
+    return ret;
 }
 
 /**
@@ -8165,7 +8192,7 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_TXN_ISOLATION:
-	*((SQLINTEGER *) val) = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLINTEGER *) val) = SQL_TXN_SERIALIZABLE;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_TRACE:
@@ -8414,7 +8441,7 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
 	*((SQLINTEGER *) param) = 16384;
 	break;
     case SQL_TXN_ISOLATION:
-	*((SQLINTEGER *) param) = SQL_TXN_READ_UNCOMMITTED;
+	*((SQLINTEGER *) param) = SQL_TXN_SERIALIZABLE;
 	break;
     case SQL_OPT_TRACE:
     case SQL_OPT_TRACEFILE:
@@ -9091,7 +9118,11 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 }
 #endif
 
-/* see doc on top */
+/**
+ * Internal free function for HSTMT.
+ * @param stmt statement handle
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 freestmt(SQLHSTMT stmt)
@@ -9275,10 +9306,10 @@ SQLFreeStmt(SQLHSTMT stmt, SQLUSMALLINT opt)
 SQLRETURN SQL_API
 SQLCancel(SQLHSTMT stmt)
 {
-#ifdef _WIN32
-    /* interrupt when other thread owns critical section */
     if (stmt != SQL_NULL_HSTMT) {
 	DBC *d = (DBC *) ((STMT *) stmt)->dbc;
+#ifdef _WIN32
+	/* interrupt when other thread owns critical section */
 	int i;
 
 	for (i = 0; i < 2; i++) {
@@ -9286,12 +9317,19 @@ SQLCancel(SQLHSTMT stmt)
 		d->env->magic == ENV_MAGIC &&
 		d->env->owner != GetCurrentThreadId() &&
 		d->env->owner != 0) {
+		d->busyint = 1;
 		sqlite3_interrupt(d->sqlite);
 	    }
 	    Sleep(1);
 	}
-    }
+
+#else
+	if (d->magic == DBC_MAGIC) {
+	    d->busyint = 1;
+	    sqlite3_interrupt(d->sqlite);
+	}
 #endif
+    }
     return drvfreestmt(stmt, SQL_CLOSE);
 }
 
@@ -9558,7 +9596,7 @@ SQLFreeHandle(SQLSMALLINT type, SQLHANDLE h)
 #endif
 
 /**
- * Free dynamically allocated column information in STMT.
+ * Free dynamically allocated column descriptions of STMT.
  * @param s statement pointer
  */
 
@@ -9580,7 +9618,16 @@ freedyncols(STMT *s)
     s->dcols = 0;
 }
 
-/* see doc on top */
+/**
+ * Free statement's result.
+ * @param s statement pointer
+ * @param clrcols flag to clear column information
+ *
+ * The result rows are free'd using the rowfree function pointer.
+ * If clrcols is greater than zero, then column bindings and dynamic column
+ * descriptions are free'd.
+ * If clrcols is less than zero, then dynamic column descriptions are free'd.
+ */
 
 static void
 freeresult(STMT *s, int clrcols)
@@ -9608,7 +9655,10 @@ freeresult(STMT *s, int clrcols)
     }
 }
 
-/* see doc on top */
+/**
+ * Reset bound columns to unbound state.
+ * @param s statement pointer
+ */
 
 static void
 unbindcols(STMT *s)
@@ -9631,7 +9681,12 @@ unbindcols(STMT *s)
     }
 }
 
-/* see doc on top */
+/**
+ * Reallocate space for bound columns.
+ * @param s statement pointer
+ * @param ncols number of columns
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 mkbindcols(STMT *s, int ncols)
@@ -9984,6 +10039,18 @@ converr:
 	    int dlen = strlen(*data);
 	    int offs = 0;
 
+#if defined(_WIN32) && defined(WINTERFACE)
+	    /* MS Access hack part 2 (reserved error -7748) */
+	    if (!valnull && s->cols == statSpec && type == SQL_C_WCHAR) {
+		if (len > 0 && len <= sizeof (SQLWCHAR)) {
+		    ((char *) val)[0] = data[0][0];
+		    memset((char *) val + 1, 0, len - 1);
+		    *lenp = 1;
+		    return SQL_SUCCESS;
+		}
+	    }
+#endif
+
 #ifdef WINTERFACE
 	    SQLWCHAR *ucdata = NULL;
 
@@ -9996,7 +10063,7 @@ converr:
 		dlen = uc_strlen(ucdata) * sizeof (SQLWCHAR);
 	    }
 #else
-	    doz = type == SQL_C_CHAR ? 1 : 0;
+	    doz = (type == SQL_C_CHAR) ? 1 : 0;
 #endif
 	    if (partial && len && s->bindcols) {
 		if (dlen && s->bindcols[col].offs >= dlen) {
@@ -10383,6 +10450,11 @@ drvtables(SQLHSTMT stmt,
     if (!sql) {
 	return nomem(s);
     }
+    ret = starttran(s);
+    if (ret != SQL_SUCCESS) {
+	sqlite3_free(sql);
+	return ret;
+    }
     dbtraceapi(d, "sqlite3_get_table", sql);
     rc = sqlite3_get_table(d->sqlite, sql, &s->rows, &s->nrows, &ncols, &errp);
     sqlite3_free(sql);
@@ -10590,6 +10662,11 @@ drvcolumns(SQLHSTMT stmt,
     if (!sql) {
 	return nomem(s);
     }
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	sqlite3_free(sql);
+	return sret;
+    }
     dbtraceapi(d, "sqlite3_get_table", sql);
     ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
     sqlite3_free(sql);
@@ -10687,7 +10764,7 @@ nodata:
 		    s->rows[ir + 10] = xstrdup(stringify(SQL_TRUE));
 		}
 		s->rows[ir + 17] =
-		    xstrdup(*rowp[i * ncols + k] != '0' ? "NO" : "YES");
+		    xstrdup((*rowp[i * ncols + k] != '0') ? "NO" : "YES");
 	    }
 	} else if (strcmp(rowp[k], "dflt_value") == 0) {
 	    for (i = 1; i <= nrows; i++) {
@@ -11024,9 +11101,9 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
 #ifdef SQL_LONGVARCHAR
-    s->nrows = sqltype == SQL_ALL_TYPES ? 13 : 1;
+    s->nrows = (sqltype == SQL_ALL_TYPES) ? 13 : 1;
 #else
-    s->nrows = sqltype == SQL_ALL_TYPES ? 12 : 1;
+    s->nrows = (sqltype == SQL_ALL_TYPES) ? 12 : 1;
 #endif
     if (sqltype == SQL_ALL_TYPES) {
 #ifdef WINTERFACE
@@ -11307,6 +11384,11 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     sql = sqlite3_mprintf("PRAGMA index_list('%q')", tname);
     if (!sql) {
 	return nomem(s);
+    }
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	sqlite3_free(sql);
+	return sret;
     }
     dbtraceapi(d, "sqlite3_get_table", sql);
     ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
@@ -12936,7 +13018,7 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 
     HSTMT_LOCK(stmt);
     ret = drvcolattribute(stmt, col, id, val, valMax, valLen,
-			   (SQLPOINTER) val2);
+			  (SQLPOINTER) val2);
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -13233,7 +13315,13 @@ SQLMoreResults(SQLHSTMT stmt)
     return SQL_NO_DATA;
 }
 
-/* see doc on top */
+/**
+ * Internal function to setup column name/type information
+ * @param s statement poiner
+ * @param s3stmt SQLite3 statement pointer
+ * @param ncolsp pointer to preinitialized number of colums
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
@@ -13366,6 +13454,7 @@ drvprepare(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
     STMT *s;
     DBC *d;
     char *errp = NULL;
+    SQLRETURN sret;
 
     if (stmt == SQL_NULL_HSTMT) {
 	return SQL_INVALID_HANDLE;
@@ -13380,6 +13469,10 @@ noconn:
 	goto noconn;
     }
     s3stmt_end(s);
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	return sret;
+    }
     freep(&s->query);
     s->query = (SQLCHAR *) fixupsql((char *) query, queryLen,
 				    &s->nparams, &s->isselect, &errp);
@@ -13452,7 +13545,14 @@ noconn:
 	}
 	dbtraceapi(d, "sqlite3_prepare", sql);
 	do {
+	    s3stmt = NULL;
 	    ret = sqlite3_prepare(d->sqlite, sql, -1, &s3stmt, &rest);
+	    if (ret != SQLITE_OK) {
+		if (s3stmt) {
+		    sqlite3_finalize(s3stmt);
+		    s3stmt = NULL;
+		}
+	    }
 	} while (ret == SQLITE_SCHEMA && (++nretry) < 2);
 	dbtracerc(d, ret, NULL);
 	if (sqltofree) {
@@ -13481,7 +13581,12 @@ noconn:
     return SQL_SUCCESS;
 }
 
-/* see doc on top */
+/**
+ * Internal query execution used by SQLExecute() and SQLExecDirect().
+ * @param stmt statement handle
+ * @param initial false when called from SQLPutData()
+ * @result ODBC error code
+ */
 
 static SQLRETURN
 drvexecute(SQLHSTMT stmt, int initial)
@@ -13489,7 +13594,7 @@ drvexecute(SQLHSTMT stmt, int initial)
     STMT *s;
     DBC *d;
     char *errp = NULL, **params = NULL, *sql, *sqltofree = NULL;
-    int rc, i, ncols, busy_count, start_trans;
+    int rc, i, ncols, busy_count;
     SQLRETURN ret;
 
     if (stmt == SQL_NULL_HSTMT) {
@@ -13513,8 +13618,11 @@ noconn:
 		(*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
+    ret = starttran(s);
+    if (ret != SQL_SUCCESS) {
+	goto cleanup;
+    }
     busy_count = 0;
-    start_trans = !d->autocommit && !d->intrans && !d->trans_disable;
 again:
     s3stmt_end(s);
     if (initial) {
@@ -13560,38 +13668,6 @@ again:
 	}
     }
     freeresult(s, 0);
-    if (!d->autocommit && !d->intrans && !d->trans_disable) {
-begin_again:
-	rc = sqlite3_exec(d->sqlite, (d->version < verinfo(3, 0, 8)) ?
-			  "BEGIN TRANSACTION" : "BEGIN EXCLUSIVE TRANSACTION",
-			  NULL, NULL, &errp);
-	if (rc == SQLITE_BUSY) {
-	    if (busy_handler((void *) d, ++busy_count)) {
-		if (errp) {
-		    sqlite3_free(errp);
-		    errp = NULL;
-		}
-		goto begin_again;
-	    }
-	}
-	dbtracerc(d, rc, errp);
-	if (rc != SQLITE_OK) {
-	    freep(&params);
-	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		    errp ? errp : "unknown error", rc);
-	    if (errp) {
-		sqlite3_free(errp);
-		errp = NULL;
-	    }
-	    ret = SQL_ERROR;
-	    goto cleanup;
-	}
-	d->intrans = 1;
-	if (errp) {
-	    sqlite3_free(errp);
-	    errp = NULL;
-	}
-    }
     if (s->isselect > 0 && !d->intrans &&
 	s->curtype == SQL_CURSOR_FORWARD_ONLY &&
 	d->step_enable && s->nparams == 0 && d->cur_s3stmt == NULL) {
@@ -13645,11 +13721,6 @@ begin_again:
 	    if (errp) {
 		sqlite3_free(errp);
 		errp = NULL;
-	    }
-	    if (start_trans) {
-		sqlite3_exec(d->sqlite, "ROLLBACK TRANSACTION;",
-			     NULL, NULL, NULL);
-		d->intrans = 0;
 	    }
 	    if (s->nparams) {
 		for (i = 0; i < s->nparams; i++) {
@@ -14292,22 +14363,22 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 				   (LONG) setupdlg->attr[KEY_SYNCP].attr);
 	    }
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
-		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOTXN].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_SHORTNAM].attr,
-		   IsDlgButtonChecked(hdlg, IDC_SHORTNAM) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_SHORTNAM) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
-		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOCREAT].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED) ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -14465,22 +14536,22 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 				   (LONG) setupdlg->attr[KEY_SYNCP].attr);
 	    }
 	    strcpy(setupdlg->attr[KEY_STEPAPI].attr,
-		   IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_STEPAPI) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOTXN].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOTXN) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_SHORTNAM].attr,
-		   IsDlgButtonChecked(hdlg, IDC_SHORTNAM) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_SHORTNAM) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_LONGNAM].attr,
-		   IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_LONGNAM) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOCREAT].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOCREAT) == BST_CHECKED) ?
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
-		   IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED ?
+		   (IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED) ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:

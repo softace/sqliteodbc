@@ -691,6 +691,7 @@ export_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     if (nargs > 1) {
 	mode = sqlite3_value_int(args[1]);
     }
+    sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", 0, 0, 0);
     dd->with_schema = !(mode & 1);
     dd->nlines = 0;
     if (fputs("BEGIN TRANSACTION;\n", dd->out) >= 0) {
@@ -730,6 +731,7 @@ export_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	dd->nlines++;
     }
     fclose(dd->out);
+    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", 0, 0, 0);
 done:
     sqlite3_result_int(ctx, dd->nlines);
 }
@@ -774,6 +776,7 @@ impexp_export_sql(sqlite3 *db, char *filename, int mode, ...)
     if (!dd->out) {
 	goto done;
     }
+    sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", 0, 0, 0);
     dd->with_schema = !(mode & 1);
     dd->nlines = 0;
     if (fputs("BEGIN TRANSACTION;\n", dd->out) >= 0) {
@@ -815,6 +818,7 @@ impexp_export_sql(sqlite3 *db, char *filename, int mode, ...)
 	dd->nlines++;
     }
     fclose(dd->out);
+    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", 0, 0, 0);
 done:
     return dd->nlines;
 }

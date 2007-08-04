@@ -1,6 +1,18 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Aug 04 2007 version 0.75 released
+
+	* update to SQLite 3.4.1
+	* hack for MS Access' wrong usage of SQLStatistics
+	  (reserved error -7748)
+	* minor code cleanup
+	* fixed bug in SQLite2 driver SQLColumns()
+	* reworked start transaction logic w.r.t. meta data
+	  functions like SQLTables()
+	* added some additional logic to SQLCancel() and SQLite
+	  busy handlers
+
 Mon Apr 02 2007 version 0.74 released
 
 	* SQLColAttribute(s)(): provide proper info for

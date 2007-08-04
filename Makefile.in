@@ -74,18 +74,18 @@ uninstall-2:
 
 install-3:	libsqlite3odbc.la @EXT_BLOBTOXY@ @EXT_IMPEXP@
 		$(LIBTOOL) $(INSTALL) libsqlite3odbc.la $(DESTDIR)$(libdir)
-		test -n "@EXT_BLOBTOXY@" && \
+		-test -n "@EXT_BLOBTOXY@" && \
 		    $(LIBTOOL) $(INSTALL) @EXT_BLOBTOXY@ $(DESTDIR)$(libdir)
-		test -n "@EXT_IMPEXP@" && \
+		-test -n "@EXT_IMPEXP@" && \
 		    $(LIBTOOL) $(INSTALL) @EXT_IMPEXP@ $(DESTDIR)$(libdir)
 
 uninstall-3:
 		$(LIBTOOL) --mode=uninstall \
 		    $(RM) $(DESTDIR)$(libdir)/libsqlite3odbc.la
-		test -n "@EXT_BLOBTOXY@" && \
+		-test -n "@EXT_BLOBTOXY@" && \
 		    $(LIBTOOL) --mode=uninstall \
 		        $(RM) $(DESTDIR)$(libdir)/@EXT_BLOBTOXY@
-		test -n "@EXT_IMPEXP@" && \
+		-test -n "@EXT_IMPEXP@" && \
 		    $(LIBTOOL) --mode=uninstall \
 		        $(RM) $(DESTDIR)$(libdir)/@EXT_IMPEXP@
 

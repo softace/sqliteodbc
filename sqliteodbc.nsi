@@ -210,6 +210,10 @@ Section /o "SQLite+TCC" TccInstall
  File "tccex/samplext.c"
  File "tccex/sqlite.c"
  File "tccex/sqlite3.c"
+ SetOutPath "$INSTDIR\TCC\samples\a10n"
+ File "sqlite3/sqlite3.c"
+ File "sqlite3/sqlite3internal.h"
+ File "tccex/a10n/README.txt"
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN

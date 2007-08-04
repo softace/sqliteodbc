@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.45 2007/03/30 07:15:38 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.46 2007/04/24 07:20:23 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -132,6 +132,7 @@ typedef struct dbc {
     char *dsn;			/**< ODBC data source name */
     int timeout;		/**< Lock timeout value */
     long t0;			/**< Start time for SQLITE busy handler */
+    int busyint;		/**< Interrupt busy handler from SQLCancel() */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
     int ov3val;			/**< True for SQL_OV_ODBC3 */
     int autocommit;		/**< Auto commit state */

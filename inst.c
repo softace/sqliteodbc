@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.9 2007/03/22 13:05:36 chw Exp chw $
+ * $Id: inst.c,v 1.10 2007/07/26 15:17:25 chw Exp chw $
  *
- * Copyright (c) 2001-2006 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -37,6 +37,7 @@ static char *DriverDLL[3] = {
 };
 
 static int quiet = 0;
+static int nosys = 0;
 
 /**
  * Handler for ODBC installation error messages.
@@ -186,6 +187,9 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 			       MB_SETFOREGROUND);
 		}
 	    }
+	    if (nosys) {
+		goto done;
+	    }
 	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
 	    p = attr;
 	    while (*p) {
@@ -195,7 +199,7 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 		++p;
 	    }
 	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
-	    return TRUE;
+	    goto done;
 	}
 	if (GetFileAttributes(dllname) == 0xFFFFFFFF) {
 	    return FALSE;
@@ -216,6 +220,9 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    ProcessErrorMessages("SQLInstallDriverEx");
 	    return FALSE;
 	}
+	if (nosys) {
+	    goto done;
+	}
 	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
 	p = attr;
 	while (*p) {
@@ -233,6 +240,7 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	ProcessErrorMessages("SQLInstallDriverManager");
 	return FALSE;
     }
+done:
     return TRUE;
 }
 
@@ -267,6 +275,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     remove = strstr(p, "uninst") != NULL;
     quiet = strstr(p, "instq") != NULL;
+    nosys = strstr(p, "nosys") != NULL;
     for (i = 0; i < 3; i++) {
 	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], DSName[i]);
     }

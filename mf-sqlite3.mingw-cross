@@ -118,6 +118,8 @@ LIBOBJ += libshell.o
 libshell.o:	$(TOP)/src/libshell.c sqlite3.h
 	$(TCCX) -c $(TOP)/src/libshell.c
 
+SRC += $(TOP)/src/libshell.c
+
 # You should not have to change anything below this line
 ###############################################################################
 include $(TOP)/main.mk
