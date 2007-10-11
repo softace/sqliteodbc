@@ -169,6 +169,45 @@ static struct {
   SYM(value_text16le),
   SYM(value_type),
   SYM(vmprintf),
+#if defined(HAVE_SQLITE3OVERLOADFUNCTION) && HAVE_SQLITE3OVERLOADFUNCTION
+  SYM(overload_function),
+#endif
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+  SYM(prepare_v2),
+  SYM(prepare16_v2),
+#endif
+#if defined(HAVE_SQLITE3CLEARBINDINGS) && HAVE_SQLITE3CLEARBINDINGS
+  SYM(clear_bindings),
+#endif
+#if defined(HAVE_SQLITE3CREATEMODULEV2) && HAVE_SQLITE3CREATEMODULEV2
+  SYM(create_module_v2)
+#endif
+#if defined(HAVE_SQLITE3VFS) && HAVE_SQLITE3VFS
+  SYM(bind_zeroblob),
+  SYM(blob_bytes),
+  SYM(blob_close),
+  SYM(blob_open),
+  SYM(blob_read),
+  SYM(blob_write),
+  SYM(create_collation_v2),
+  SYM(memory_highwater),
+  SYM(memory_used),
+  SYM(mutex_alloc),
+  SYM(mutex_enter),
+  SYM(mutex_free),
+  SYM(mutex_leave),
+  SYM(mutex_enter),
+  SYM(mutex_try),
+  SYM(open_v2),
+  SYM(release_memory),
+  SYM(result_error_nomem),
+  SYM(result_error_toobig),
+  SYM(sleep),
+  SYM(soft_heap_limit),
+  SYM(vfs_find),
+  SYM(vfs_register),
+  SYM(vfs_unregister),
+#endif
   SYM_END
 };
 

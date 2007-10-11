@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.75
+%define version 0.76
 %define release 1
 
 Name: %{name}
@@ -45,6 +45,7 @@ if [ -x /usr/bin/odbcinst ] ; then
 Description=SQLite ODBC 2.X
 Driver=%{_libdir}/libsqliteodbc.so
 Setup=%{_libdir}/libsqliteodbc.so
+Threading=2
 FileUsage=1
 EOD
       /usr/bin/odbcinst -q -d -n SQLITE | grep '^\[SQLITE\]' >/dev/null || {
@@ -65,6 +66,7 @@ EOD
 Description=SQLite ODBC 3.X
 Driver=%{_libdir}/libsqlite3odbc.so
 Setup=%{_libdir}/libsqlite3odbc.so
+Threading=2
 FileUsage=1
 EOD
       /usr/bin/odbcinst -q -d -n SQLITE3 | grep '^\[SQLITE3\]' >/dev/null || {
@@ -99,5 +101,5 @@ fi
 %{_libdir}/*.so*
 
 %changelog
-* Sat Aug 04 2007 ...
+* Thu Oct 11 2007 ...
 - automatically recreated by configure ...

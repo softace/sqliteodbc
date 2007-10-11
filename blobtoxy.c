@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.14 2007/03/22 13:05:56 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.15 2007/09/03 12:22:37 chw Exp chw $
  *
  * Copyright (c) 2007 Christian Werner <chw@ch-werner.de>
  *
@@ -459,7 +459,11 @@ b2xy_create(sqlite3 *db, void *userdata, int argc,
 	if (p) {
 	    sqlite3_stmt *stmt = 0;
 
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+	    rc = sqlite3_prepare_v2(db, p, -1, &stmt, 0);
+#else
 	    rc = sqlite3_prepare(db, p, -1, &stmt, 0);
+#endif
 	    sqlite3_free(p);
 	    if (rc == SQLITE_OK && stmt) {
 		sqlite3_step(stmt);
@@ -868,10 +872,14 @@ b2xy_filter(sqlite3_vtab_cursor *cur, int idxNum, const char *idxStr,
 	query = tmp;
     }
     bc->num_cols = bc->fix_cols;
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+    rc = sqlite3_prepare_v2(bt->db, query, -1, &bc->select, 0);
+#else
     rc = sqlite3_prepare(bt->db, query, -1, &bc->select, 0);
     if (rc == SQLITE_SCHEMA) {
 	rc = sqlite3_prepare(bt->db, query, -1, &bc->select, 0);
     }
+#endif
     sqlite3_free(query);
     if (rc == SQLITE_OK) {
 	bc->num_cols = sqlite3_column_count(bc->select);
@@ -1079,7 +1087,7 @@ common_path_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	return;
     }
     if (nargs > 1) {
-	type = string_to_type(sqlite3_value_text(args[1]));
+	type = string_to_type((const char *) sqlite3_value_text(args[1]));
 	if (!type) {
 	    sqlite3_result_error(ctx, "bad type name", -1);
 	    return;

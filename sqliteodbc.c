@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.135 2007/08/04 06:08:44 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.137 2007/09/23 05:48:47 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1006,6 +1006,117 @@ unquote(char *str)
 	}
     }
     return str;
+}
+
+/**
+ * Unescape search pattern for e.g. table name in
+ * catalog functions. Replacements in string are done in-place.
+ * @param str string
+ * @result number of pattern characters in string or 0
+ */
+
+static int
+unescpat(char *str)
+{
+    char *p, *q;
+    int count = 0;
+
+    p = str;
+    while ((q = strchr(p, '_')) != NULL) {
+	if (q == str || q[-1] != '\\') {
+	    count++;
+	}
+	p = q + 1;
+    }
+    p = str;
+    while ((q = strchr(p, '%')) != NULL) {
+	if (q == str || q[-1] != '\\') {
+	    count++;
+	}
+	p = q + 1;
+    }
+    p = str;
+    while ((q = strchr(p, '\\')) != NULL) {
+	if (q[1] == '\\' || q[1] == '_' || q[1] == '%') {
+	    strcpy(q, q + 1);
+	}
+	p = q + 1;
+    }
+    return count;
+}
+
+/**
+ * SQL LIKE string match with optional backslash escape handling.
+ * @param str string
+ * @param pat pattern
+ * @param esc when true, treat literally "\\" as "\", "\?" as "?", "\_" as "_"
+ * @result true when pattern matched
+ */
+
+static int
+namematch(char *str, char *pat, int esc)
+{
+    int cp, ch;
+
+    while (1) {
+	cp = TOLOWER(*pat);
+	if (cp == '\0') {
+	    if (*str != '\0') {
+		goto nomatch;
+	    }
+	    break;
+	}
+	if (*str == '\0' && cp != '%') {
+	    goto nomatch;
+	}
+	if (cp == '%') {
+	    while (*pat == '%') {
+		++pat;
+	    }
+	    cp = TOLOWER(*pat);
+	    if (cp == '\0') {
+		break;
+	    }
+	    while (1) {
+		if (cp != '_' && cp != '\\') {
+		    while (*str) {
+			ch = TOLOWER(*str);
+			if (ch == cp) {
+			    break;
+			}
+			++str;
+		    }
+		}
+		if (namematch(str, pat, esc)) {
+		    goto match;
+		}
+		if (*str == '\0') {
+		    goto nomatch;
+		}
+		ch = TOLOWER(*str);
+		++str;
+	    }
+	}
+	if (cp == '_') {
+	    pat++;
+	    str++;
+	    continue;
+	}
+	if (esc && cp == '\\' &&
+	    (pat[1] == '\\' || pat[1] == '%' || pat[1] == '_')) {
+	    ++pat;
+	    cp = TOLOWER(*pat);
+	}
+	ch = TOLOWER(*str++);
+	++pat;
+	if (ch != cp) {
+	    goto nomatch;
+	}
+    }
+match:
+    return 1;
+nomatch:
+    return 0;
 }
 
 /**
@@ -4165,7 +4276,7 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, size, ret, nrows, ncols, namec, uniquec;
+    int i, size, ret, nrows, ncols, namec, uniquec, offs;
     char **rowp = NULL, *errp = NULL, tname[512];
 
     sret = mkresultset(stmt, pkeySpec, array_size(pkeySpec));
@@ -4185,6 +4296,7 @@ drvprimarykeys(SQLHSTMT stmt,
     }
     strncpy(tname, (char *) table, size);
     tname[size] = '\0';
+    unescpat(tname);
     sret = starttran(s);
     if (sret != SQL_SUCCESS) {
 	return sret;
@@ -4251,6 +4363,121 @@ drvprimarykeys(SQLHSTMT stmt,
 	}
     }
 nodata:
+    sqlite_free_table(rowp);
+
+    /*
+     * Next round trying to find "(*autoindex*)" indices
+     */
+    ret = sqlite_get_table_printf(d->sqlite,
+				  "PRAGMA index_list('%q')", &rowp,
+				  &nrows, &ncols, &errp, tname);
+    if (ret != SQLITE_OK) {
+	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		errp ? errp : "unknown error", ret);
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
+	}
+	return SQL_ERROR;
+    }
+    if (errp) {
+	sqlite_freemem(errp);
+	errp = NULL;
+    }
+    if (ncols * nrows <= 0) {
+	sqlite_free_table(rowp);
+	goto nodata2;
+    }
+    size = 0;
+    namec = findcol(rowp, ncols, "name");
+    uniquec = findcol(rowp, ncols, "unique");
+    if (namec < 0 || uniquec < 0) {
+	goto nodata2;
+    }
+    for (i = 1; i <= nrows; i++) {
+	int nnrows, nncols;
+	char **rowpp;
+
+	if (*rowp[i * ncols + namec] != '(' ||
+	    !strstr(rowp[i * ncols + namec], " autoindex ")) {
+	    continue;
+	}
+	if (*rowp[i * ncols + uniquec] != '0') {
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret == SQLITE_OK) {
+		size += nnrows;
+		sqlite_free_table(rowpp);
+	    }
+	}
+    }
+    if (size == 0) {
+	goto nodata2;
+    }
+    s->nrows = size;
+    size = (size + 1) * array_size(pkeySpec);
+    s->rows = xmalloc((size + 1) * sizeof (char *));
+    if (!s->rows) {
+	s->nrows = 0;
+	return nomem(s);
+    }
+    s->rows[0] = (char *) size;
+    s->rows += 1;
+    memset(s->rows, 0, sizeof (char *) * size);
+    s->rowfree = freerows;
+    offs = 0;
+    for (i = 1; i <= nrows; i++) {
+	int nnrows, nncols;
+	char **rowpp;
+
+	if (*rowp[i * ncols + namec] != '(' ||
+	    !strstr(rowp[i * ncols + namec], " autoindex ")) {
+	    continue;
+	}
+	if (*rowp[i * ncols + uniquec] != '0') {
+	    int k;
+
+	    ret = sqlite_get_table_printf(d->sqlite,
+					  "PRAGMA index_info('%q')", &rowpp,
+					  &nnrows, &nncols, NULL,
+					  rowp[i * ncols + namec]);
+	    if (ret != SQLITE_OK) {
+		continue;
+	    }
+	    for (k = 0; nnrows && k < nncols; k++) {
+		if (strcmp(rowpp[k], "name") == 0) {
+		    int m;
+
+		    for (m = 1; m <= nnrows; m++) {
+			int roffs = (offs + m) * s->ncols;
+
+			s->rows[roffs + 0] = xstrdup("");
+			s->rows[roffs + 1] = xstrdup("");
+			s->rows[roffs + 2] = xstrdup(tname);
+			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
+			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
+		    }
+		} else if (strcmp(rowpp[k], "seqno") == 0) {
+		    int m;
+
+		    for (m = 1; m <= nnrows; m++) {
+			int roffs = (offs + m) * s->ncols;
+			int pos = m - 1;
+			char buf[32];
+
+			sscanf(rowpp[m * nncols + k], "%d", &pos);
+			sprintf(buf, "%d", pos + 1);
+			s->rows[roffs + 4] = xstrdup(buf);
+		    }
+		}
+	    }
+	    offs += nnrows;
+	    sqlite_free_table(rowpp);
+	}
+    }
+nodata2:
     sqlite_free_table(rowp);
     return SQL_SUCCESS;
 }
@@ -4403,6 +4630,7 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     }
     strncpy(tname, (char *) table, size);
     tname[size] = '\0';
+    unescpat(tname);
     if (id != SQL_BEST_ROWID) {
 	return SQL_SUCCESS;
     }
@@ -6366,6 +6594,13 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
+#ifdef SQL_ATTR_CURSOR_SENSITIVITY
+    case SQL_ATTR_CURSOR_SENSITIVITY:
+	if ((SQLUINTEGER) val != SQL_UNSPECIFIED) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
+#endif
     case SQL_ATTR_QUERY_TIMEOUT:
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
@@ -6895,7 +7130,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, d->dbname ? d->dbname : "", valMax, valLen);
 	break;
     case SQL_SEARCH_PATTERN_ESCAPE:
-	strmak(val, "", valMax, valLen);
+	strmak(val, "\\", valMax, valLen);
 	break;
     case SQL_ODBC_SQL_CONFORMANCE:
 	*((SQLSMALLINT *) val) = SQL_OSC_MINIMUM;
@@ -7852,6 +8087,12 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLINTEGER *) val) = SQL_CONCUR_LOCK;
 	*buflen = sizeof (SQLINTEGER);
 	break;
+#ifdef SQL_ATTR_CURSOR_SENSITIVITY
+    case SQL_ATTR_CURSOR_SENSITIVITY:
+	*((SQLINTEGER *) val) = SQL_UNSPECIFIED;
+	*buflen = sizeof (SQLINTEGER);
+	break;
+#endif
     case SQL_ATTR_SIMULATE_CURSOR:
 	*((SQLINTEGER *) val) = SQL_SC_NON_UNIQUE;
 	*buflen = sizeof (SQLINTEGER);
@@ -9864,7 +10105,7 @@ drvtables(SQLHSTMT stmt,
     SQLRETURN ret;
     STMT *s;
     DBC *d;
-    int ncols, rc;
+    int ncols, rc, size, npatt;
     char *errp = NULL, tname[512];
     char *where = "(type = 'table' or type = 'view')";
 
@@ -9930,6 +10171,7 @@ drvtables(SQLHSTMT stmt,
 	    t++;
 	}
 	t = tmp;
+	unescpat(t);
 	while (t) {
 	    if (t[0] == '\'') {
 		++t;
@@ -9954,19 +10196,19 @@ drvtables(SQLHSTMT stmt,
 	    return SQL_SUCCESS;
 	}
     }
-    strcpy(tname, "%");
-    if (table && (tableLen > 0 || tableLen == SQL_NTS) &&
-	table[0] != '%' && table[0] != '\0') {
-	int size;
-
+    if (!table) {
+	size = 1;
+	tname[0] = '%';
+    } else {
 	if (tableLen == SQL_NTS) {
 	    size = sizeof (tname) - 1;
 	} else {
 	    size = min(sizeof (tname) - 1, tableLen);
 	}
 	strncpy(tname, (char *) table, size);
-	tname[size] = '\0';
     }
+    tname[size] = '\0';
+    npatt = unescpat(tname);
     ret = starttran(s);
     if (ret != SQL_SUCCESS) {
 	return ret;
@@ -9978,9 +10220,9 @@ drvtables(SQLHSTMT stmt,
 				 "upper(type) as 'TABLE_TYPE', "
 				 "NULL as 'REMARKS' "
 				 "from sqlite_master where %s "
-				 "and tbl_name like '%q'",
+				 "and tbl_name %s '%q'",
 				 &s->rows, &s->nrows, &ncols, &errp,
-				 where, tname);
+				 where, npatt ? "like" : "=", tname);
     if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
 	    freeresult(s, 0);
@@ -10148,8 +10390,9 @@ drvcolumns(SQLHSTMT stmt,
     SQLRETURN sret;
     STMT *s;
     DBC *d;
-    int ret, nrows, ncols, size, i, k, crow = 0, namec = -1;
-    char *errp = NULL, tname[512], cname[512], **rowp;
+    int ret, nrows, ncols, size, i, k, roffs, namec;
+    int tnrows, tncols, npatt;
+    char *errp = NULL, tname[512], cname[512], **rowp, **trows;
 
     sret = mkresultset(stmt, colSpec, array_size(colSpec));
     if (sret != SQL_SUCCESS) {
@@ -10157,17 +10400,19 @@ drvcolumns(SQLHSTMT stmt,
     }
     s = (STMT *) stmt;
     d = (DBC *) s->dbc;
-    if (!table || table[0] == '\0' || table[0] == '%') {
-	setstat(s, -1, "need table name", (*s->ov3) ? "HY000" : "S1000");
-	return SQL_ERROR;
-    }
-    if (tableLen == SQL_NTS) {
-	size = sizeof (tname) - 1;
+    if (!table) {
+	size = 1;
+	tname[0] = '%';
     } else {
-	size = min(sizeof (tname) - 1, tableLen);
+	if (tableLen == SQL_NTS) {
+	    size = sizeof (tname) - 1;
+	} else {
+	    size = min(sizeof (tname) - 1, tableLen);
+	}
+	strncpy(tname, (char *) table, size);
     }
-    strncpy(tname, (char *) table, size);
     tname[size] = '\0';
+    npatt = unescpat(tname);
     size = 0;
     if (col) {
 	if (colLen == SQL_NTS) {
@@ -10178,15 +10423,19 @@ drvcolumns(SQLHSTMT stmt,
 	strncpy(cname, (char *) col, size);
     }
     cname[size] = '\0';
-    if (cname[0] == '%') {
+    if (!strcmp(cname, "%")) {
 	cname[0] = '\0';
     }
     sret = starttran(s);
     if (sret != SQL_SUCCESS) {
 	return sret;
     }
-    ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')", &rowp,
-				  &nrows, &ncols, &errp, tname);
+    ret = sqlite_get_table_printf(d->sqlite,
+				  "select tbl_name from sqlite_master where "
+				  "(type = 'table' or type = 'view') "
+				  "and tbl_name %s '%q'",
+				  &trows, &tnrows, &tncols, &errp,
+				  npatt ? "like" : "=", tname);
     if (ret != SQLITE_OK) {
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
@@ -10196,145 +10445,218 @@ drvcolumns(SQLHSTMT stmt,
 	}
 	return SQL_ERROR;	
     }
-    if (errp) {
-	sqlite_freemem(errp);
-	errp = NULL;
-    }
-    if (ncols * nrows <= 0) {
-nodata:
+    /* pass 1; compute number of rows of result set */
+    if (tncols * tnrows <= 0) {
 	sqlite_free_table(rowp);
 	return SQL_SUCCESS;
     }
-    for (k = 0; k < ncols; k++) {
-	if (strcmp(rowp[k], "name") == 0) {
-	    namec = k;
-	    break;
+    size = 0;
+    for (i = 1; i <= tnrows; i++) {
+	ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')",
+				      &rowp, &nrows, &ncols, &errp, trows[i]);
+	if (ret != SQLITE_OK) {
+	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite_freemem(errp);
+		errp = NULL;
+	    }
+	    return SQL_ERROR;	
 	}
-    }
-    if (namec < 0) {
-	goto nodata;
-    }
-    if (cname[0]) {
-	for (i = 1; i <= nrows; i++) {
-	    if (strcasecmp(cname, rowp[i * ncols + namec]) == 0) {
-		crow = i;
-		break;
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
+	}
+	if (ncols * nrows > 0) {
+	    namec = -1;
+	    for (k = 0; k < ncols; k++) {
+		if (strcmp(rowp[k], "name") == 0) {
+		    namec = k;
+		    break;
+		}
+	    }
+	    if (cname[0]) {
+		for (k = 1; k <= nrows; k++) {
+		    if (namematch(rowp[k * ncols + namec], cname, 1)) {
+			size++;
+		    }
+		}
+	    } else {
+		size += nrows;
 	    }
 	}
-	if (crow <= 0) {
-	    goto nodata;
-	}
+	sqlite_free_table(rowp);
     }
-    size = array_size(colSpec) * ((crow <= 0) ? (nrows + 1) : 2);
+    /* pass 2: fill result set */
+    if (size <= 0) {
+	sqlite_free_table(trows);
+	return SQL_SUCCESS;
+    }
+    s->nrows = size;
+    size = (size + 1) * array_size(colSpec);
     s->rows = xmalloc((size + 1) * sizeof (char *));
     if (!s->rows) {
+	s->nrows = 0;
+	sqlite_free_table(trows);
 	return nomem(s);
     }
     s->rows[0] = (char *) size;
     s->rows += 1;
     memset(s->rows, 0, sizeof (char *) * size);
     s->rowfree = freerows;
-    s->nrows = (crow <= 0) ? nrows : 1;
-    for (i = 1; i <= s->nrows; i++) {
-	s->rows[array_size(colSpec) * i + 0] = xstrdup("");
-	s->rows[array_size(colSpec) * i + 1] = xstrdup("");
-	s->rows[array_size(colSpec) * i + 2] = xstrdup(tname);
-	s->rows[array_size(colSpec) * i + 8] = xstrdup("10");
-	s->rows[array_size(colSpec) * i + 9] = xstrdup("0");
-	s->rows[array_size(colSpec) * i + 15] = xstrdup("16384");
-    }
-    for (k = 0; k < ncols; k++) {
-	if (strcmp(rowp[k], "cid") == 0) {
-	    for (i = 1; i <= nrows; i++) {
-		char buf[256];
-		int ir, coln = i;
-
-		if (crow > 0 && i != crow) {
-		    continue;
-		}
-		ir = array_size(colSpec) * ((crow > 0) ? 1 : i);
-		sscanf(rowp[i * ncols + k], "%d", &coln);
-		sprintf(buf, "%d", coln + 1);
-		s->rows[ir + 16] = xstrdup(buf);
+    roffs = 1;
+    for (i = 1; i <= tnrows; i++) {
+	ret = sqlite_get_table_printf(d->sqlite, "PRAGMA table_info('%q')",
+				      &rowp, &nrows, &ncols, &errp, trows[i]);
+	if (ret != SQLITE_OK) {
+	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite_freemem(errp);
+		errp = NULL;
 	    }
-	} else if (k == namec) {
-	    for (i = 1; i <= nrows; i++) {
-		int ir;
+	    sqlite_free_table(trows);
+	    return SQL_ERROR;	
+	}
+	if (errp) {
+	    sqlite_freemem(errp);
+	    errp = NULL;
+	}
+	if (ncols * nrows > 0) {
+	    int m, mr, nr = nrows;
 
-		if (crow > 0 && i != crow) {
-		    continue;
+	    namec = -1;
+	    for (k = 0; k < ncols; k++) {
+		if (strcmp(rowp[k], "name") == 0) {
+		    namec = k;
+		    break;
 		}
-		ir = array_size(colSpec) * ((crow > 0) ? 1 : i);
-		s->rows[ir + 3] = xstrdup(rowp[i * ncols + k]);
 	    }
-	} else if (strcmp(rowp[k], "notnull") == 0) {
-	    for (i = 1; i <= nrows; i++) {
-		int ir;
-
-		if (crow > 0 && i != crow) {
-		    continue;
+	    if (cname[0]) {
+		nr = 0;
+		for (k = 1; k <= nrows; k++) {
+		    if (namematch(rowp[k * ncols + namec], cname, 1)) {
+			nr++;
+		    }
 		}
-		ir = array_size(colSpec) * ((crow > 0) ? 1 : i);
-		if (*rowp[i * ncols + k] != '0') {
-		    s->rows[ir + 10] = xstrdup(stringify(SQL_FALSE));
-		} else {
-		    s->rows[ir + 10] = xstrdup(stringify(SQL_TRUE));
-		}
-		s->rows[ir + 17] =
-		    xstrdup((*rowp[i * ncols + k] != '0') ? "NO" : "YES");
 	    }
-	} else if (strcmp(rowp[k], "dflt_value") == 0) {
-	    for (i = 1; i <= nrows; i++) {
-		char *dflt = rowp[i * ncols + k];
-		int ir;
-
-		if (crow > 0 && i != crow) {
-		    continue;
-		}
-		ir = array_size(colSpec) * ((crow > 0) ? 1 : i);
-		s->rows[ir + 12] = xstrdup(dflt ? dflt : "NULL");
+	    for (k = 0; k < nr; k++) {
+		m = array_size(colSpec) * (roffs + k);
+		s->rows[m + 0] = xstrdup("");
+		s->rows[m + 1] = xstrdup("");
+		s->rows[m + 2] = xstrdup(trows[i]);
+		s->rows[m + 8] = xstrdup("10");
+		s->rows[m + 9] = xstrdup("0");
+		s->rows[m + 15] = xstrdup("16384");
 	    }
-	} else if (strcmp(rowp[k], "type") == 0) {
-	    for (i = 1; i <= nrows; i++) {
-		char *typename = rowp[i * ncols + k];
-		int sqltype, m, d, ir;
-		char buf[256];
+	    for (k = 0; nr && k < ncols; k++) {
+		if (strcmp(rowp[k], "cid") == 0) {
+		    for (mr = 0, m = 1; m <= nrows; m++) {
+			char buf[256];
+			int ir, coln = i;
 
-		if (crow > 0 && i != crow) {
-		    continue;
-		}
-		ir = array_size(colSpec) * ((crow > 0) ? 1 : i);
-		s->rows[ir + 5] = xstrdup(typename);
-		sqltype = mapsqltype(typename, NULL, *s->ov3, s->nowchar[0]);
-		getmd(typename, sqltype, &m, &d);
+			if (cname[0] &&
+			    !namematch(rowp[m * ncols + namec], cname, 1)) {
+			    continue;
+			}
+			ir = array_size(colSpec) * (roffs + mr);
+			sscanf(rowp[m * ncols + k], "%d", &coln);
+			sprintf(buf, "%d", coln + 1);
+			s->rows[ir + 16] = xstrdup(buf);
+			++mr;
+		    }
+		} else if (k == namec) {
+		    for (mr = 0, m = 1; m <= nrows; m++) {
+			int ir;
+
+			if (cname[0] &&
+			    !namematch(rowp[m * ncols + namec], cname, 1)) {
+			    continue;
+			}
+			ir = array_size(colSpec) * (roffs + mr);
+			s->rows[ir + 3] = xstrdup(rowp[m * ncols + k]);
+			++mr;
+		    }
+		} else if (strcmp(rowp[k], "notnull") == 0) {
+		    for (mr = 0, m = 1; m <= nrows; m++) {
+			int ir;
+
+			if (cname[0] &&
+			    !namematch(rowp[m * ncols + namec], cname, 1)) {
+			    continue;
+			}
+			ir = array_size(colSpec) * (roffs + mr);
+			if (*rowp[m * ncols + k] != '0') {
+			    s->rows[ir + 10] = xstrdup(stringify(SQL_FALSE));
+			} else {
+			    s->rows[ir + 10] = xstrdup(stringify(SQL_TRUE));
+			}
+			s->rows[ir + 17] =
+			    xstrdup((*rowp[m * ncols + k] != '0') ?
+				    "NO" : "YES");
+			++mr;
+		    }
+		} else if (strcmp(rowp[k], "dflt_value") == 0) {
+		    for (mr = 0, m = 1; m <= nrows; m++) {
+			char *dflt = rowp[m * ncols + k];
+			int ir;
+
+			if (cname[0] &&
+			    !namematch(rowp[m * ncols + namec], cname, 1)) {
+			    continue;
+			}
+			ir = array_size(colSpec) * (roffs + mr);
+			s->rows[ir + 12] = xstrdup(dflt ? dflt : "NULL");
+			++mr;
+		    }
+		} else if (strcmp(rowp[k], "type") == 0) {
+		    for (mr = 0, m = 1; m <= nrows; m++) {
+			char *typename = rowp[m * ncols + k];
+			int sqltype, mm, dd, ir;
+			char buf[256];
+
+			if (cname[0] &&
+			    !namematch(rowp[m * ncols + namec], cname, 1)) {
+			    continue;
+			}
+			ir = array_size(colSpec) * (roffs + mr);
+			s->rows[ir + 5] = xstrdup(typename);
+			sqltype = mapsqltype(typename, NULL, *s->ov3,
+					     s->nowchar[0]);
+			getmd(typename, sqltype, &mm, &dd);
 #ifdef SQL_LONGVARCHAR
-		if (sqltype == SQL_VARCHAR && m > 255) {
-		    sqltype = SQL_LONGVARCHAR;
-		}
+			if (sqltype == SQL_VARCHAR && mm > 255) {
+			    sqltype = SQL_LONGVARCHAR;
+			}
 #endif
 #ifdef WINTERFACE
 #ifdef SQL_WLONGVARCHAR
-		if (sqltype == SQL_WVARCHAR && m > 255) {
-		    sqltype = SQL_WLONGVARCHAR;
-		}
+			if (sqltype == SQL_WVARCHAR && mm > 255) {
+			    sqltype = SQL_WLONGVARCHAR;
+			}
 #endif
 #endif
 #if HAVE_ENCDEC
-		if (sqltype == SQL_VARBINARY && m > 255) {
-		    sqltype = SQL_LONGVARBINARY;
-		}
+			if (sqltype == SQL_VARBINARY && mm > 255) {
+			    sqltype = SQL_LONGVARBINARY;
+			}
 #endif
-		sprintf(buf, "%d", sqltype);
-		s->rows[ir + 4] = xstrdup(buf);
-		s->rows[ir + 13] = xstrdup(buf);
-		sprintf(buf, "%d", m);
-		s->rows[ir + 7] = xstrdup(buf);
-		sprintf(buf, "%d", d);
-		s->rows[ir + 6] = xstrdup(buf);
+			sprintf(buf, "%d", sqltype);
+			s->rows[ir + 4] = xstrdup(buf);
+			s->rows[ir + 13] = xstrdup(buf);
+			sprintf(buf, "%d", mm);
+			s->rows[ir + 7] = xstrdup(buf);
+			sprintf(buf, "%d", dd);
+			s->rows[ir + 6] = xstrdup(buf);
+			++mr;
+		    }
+		}
 	    }
+	    roffs += nr;
 	}
+	sqlite_free_table(rowp);
     }
-    sqlite_free_table(rowp);
+    sqlite_free_table(trows);
     return SQL_SUCCESS;
 }
 
@@ -10913,6 +11235,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     }
     strncpy(tname, (char *) table, size);
     tname[size] = '\0';
+    unescpat(tname);
     sret = starttran(s);
     if (sret != SQL_SUCCESS) {
 	return sret;
@@ -12284,6 +12607,16 @@ checkLen:
 	}
 	*valLen = strlen(c->column);
 	goto checkLen;
+    case SQL_DESC_SCHEMA_NAME: {
+	char *z = "";
+
+	if (valc && valMax > 0) {
+	    strncpy(valc, z, valMax);
+	    valc[valMax - 1] = '\0';
+	}
+	*valLen = strlen(z);
+	goto checkLen;
+    }
 #ifdef SQL_DESC_BASE_COLUMN_NAME
     case SQL_DESC_BASE_COLUMN_NAME:
 	if (strchr(c->column, '(') || strchr(c->column, ')')) {
@@ -12559,6 +12892,7 @@ SQLColAttributeW(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 	SQLWCHAR *v = NULL;
 
 	switch (id) {
+	case SQL_DESC_SCHEMA_NAME:
 	case SQL_DESC_CATALOG_NAME:
 	case SQL_COLUMN_LABEL:
 	case SQL_DESC_NAME:

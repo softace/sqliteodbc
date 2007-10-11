@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.4.1
+VER3=3.5.1
 TCCVER=0.9.23
 
 echo "===================="
@@ -256,6 +256,33 @@ true || patch sqlite3/src/shell.c <<'EOD'
      data.zDbFilename = ":memory:";
  #else
 EOD
+# SQLite 3.5.1 Win32 mutex fix
+test "$VER3" != "3.5.1" || patch sqlite3/src/mutex_w32.c <<'EOD'
+--- sqlite3/src/mutex_w32.c.orig	2007-08-30 14:10:30
++++ sqlite3/src/mutex_w32.c	2007-09-04 22:31:3
+@@ -141,6 +141,12 @@
+   p->nRef++;
+ }
+ int sqlite3_mutex_try(sqlite3_mutex *p){
++  /* The TryEnterCriticalSection() interface is not available on all
++  ** windows systems.  Since sqlite3_mutex_try() is only used as an
++  ** optimization, we can skip it on windows. */
++  return SQLITE_BUSY;
++
++#if 0  /* Not Available */
+   int rc;
+   assert( p );
+   assert( p->id==SQLITE_MUTEX_RECURSIVE || sqlite3_mutex_notheld(p) );
+@@ -152,6 +158,7 @@
+     rc = SQLITE_BUSY;
+   }
+   return rc;
++#endif
+ }
+ 
+ /*
+
+EOD
 
 # same but new module libshell.c
 cp -p sqlite3/src/shell.c sqlite3/src/libshell.c
@@ -409,7 +436,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.23 2007/07/26 14:58:47 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.25 2007/10/11 08:19:48 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -535,6 +562,7 @@ echo "==============================="
 echo "Building ODBC drivers and utils"
 echo "==============================="
 make -f Makefile.mingw-cross
+make -f Makefile.mingw-cross sqlite3odbcnw.dll
 
 echo "=========================="
 echo "Building SQLite 2 ... UTF8"

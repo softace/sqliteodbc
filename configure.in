@@ -170,32 +170,56 @@ saved_CFLAGS=$CFLAGS
 CFLAGS="$CFLAGS -I$SQLITE3_INC"
 saved_LIBS=$LIBS
 LIBS="$LIBS $SQLITE3_LIBDIR"
-AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
-	     SQLITE3_COLUMNTABLENAME=1,
-	     SQLITE3_COLUMNTABLENAME=0)
 AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
 	     SQLITE3_LOADEXTENSION=1,
 	     SQLITE3_LOADEXTENSION=0)
 if test "$SQLITE3_LOADEXTENSION" = "0" ; then
-    unset ac_cv_lib_sqlite3_sqlite3_load_extension
-    # try again with -ldl
-    LIBS="$LIBS -ldl $SQLITE3_LIBDIR"
-    AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
-		 SQLITE3_LOADEXTENSION=1,
-		 SQLITE3_LOADEXTENSION=0)
+   unset ac_cv_lib_sqlite3_sqlite3_load_extension
+   # try again with -ldl
+   LIBS="$LIBS -ldl $SQLITE3_LIBDIR"
+   AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
+		SQLITE3_LOADEXTENSION=1,
+		SQLITE3_LOADEXTENSION=0)
+   if test "$SQLITE3_LOADEXTENSION" = "1" ; then
+      SQLITE3_LIB="$SQLITE3_LIB -ldl"
+   fi
 fi
+AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
+	     SQLITE3_COLUMNTABLENAME=1,
+	     SQLITE3_COLUMNTABLENAME=0)
+AC_CHECK_LIB(sqlite3,sqlite3_overload_function,
+	     SQLITE3_OVERLOADFUNCTION=1,
+	     SQLITE3_OVERLOADFUNCTION=0)
+AC_CHECK_LIB(sqlite3,sqlite3_prepare_v2,
+	     SQLITE3_PREPARE_V2=1,
+	     SQLITE3_PREPARE_V2=0)
+AC_CHECK_LIB(sqlite3,sqlite3_clear_bindings,
+	     SQLITE3_CLEARBINDINGS=1,
+	     SQLITE3_CLEARBINDINGS=0)
+AC_CHECK_LIB(sqlite3,sqlite3_create_module_v2,
+	     SQLITE3_CREATEMODULE_V2=1,
+	     SQLITE3_CREATEMODULE_V2=0)
+AC_CHECK_LIB(sqlite3,sqlite3_vfs_register,
+	     SQLITE3_VFS=1,
+	     SQLITE3_VFS=0)
 if test "$SQLITE3_LOADEXTENSION" = "1" ; then
-    EXT_BLOBTOXY=libsqlite3_mod_blobtoxy.la
-    EXT_IMPEXP=libsqlite3_mod_impexp.la
-    LIB_TARGETS="$LIB_TARGETS $EXT_BLOBTOXY $EXT_IMPEXP"
+   EXT_BLOBTOXY=libsqlite3_mod_blobtoxy.la
+   EXT_IMPEXP=libsqlite3_mod_impexp.la
+   LIB_TARGETS="$LIB_TARGETS $EXT_BLOBTOXY $EXT_IMPEXP"
 else
-    EXT_BLOBTOXY=""
-    EXT_IMPEXP=""
+   EXT_BLOBTOXY=""
+   EXT_IMPEXP=""
 fi
+
 LIBS=$saved_LIBS
 CFLAGS=$saved_CFLAGS
 AC_SUBST(SQLITE3_COLUMNTABLENAME)
+AC_SUBST(SQLITE3_OVERLOADFUNCTION)
+AC_SUBST(SQLITE3_PREPARE_V2)
+AC_SUBST(SQLITE3_CLEARBINDINGS)
+AC_SUBST(SQLITE3_CREATEMODULE_V2)
 AC_SUBST(SQLITE3_LOADEXTENSION)
+AC_SUBST(SQLITE3_VFS)
 AC_SUBST(EXT_BLOBTOXY)
 AC_SUBST(EXT_IMPEXP)
 

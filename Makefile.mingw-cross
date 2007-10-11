@@ -24,8 +24,9 @@ SQLITE3_INC =	sqlite3
 SQLITE3_SRC =	sqlite3/src
 SQLITE3_LIB =	sqlite3/libsqlite3.a
 SQLITE3_FLAGS=	-DHAVE_SQLITE3COLUMNTABLENAME=1 \
-		-DHAVE_SQLITE3LOADEXTENSION=1
-
+		-DHAVE_SQLITE3LOADEXTENSION=1 \
+		-DHAVE_SQLITE3PREPAREV2=1 \
+		-DHAVE_SQLITE3VFS=1
 
 TCC_INC =	TCC/include
 TCC_LIB =	TCC/lib/libtcc.a
@@ -62,7 +63,7 @@ sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 
 sqlite.exe:		sqliteodbc.dll sqlite/src/minshell.c sqlite/sqlite.h \
 			sqliteres.o
-		$(CC) $(CFLAGS) -Isqlite -o sqlite.exe \
+		$(CC) $(CFLAGS) $(SQLITE_FLAGS) -Isqlite -o sqlite.exe \
 		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbc
 		$(STRIP) sqlite.exe
 
@@ -96,6 +97,11 @@ sqlite3odbc.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
 		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
 		    $(SQLITE3_FLAGS) sqlite3odbc.c
 
+sqlite3odbcnw.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
+		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
+		    $(SQLITE3_FLAGS) -DWITHOUT_WINTERFACE=1 \
+		    -o sqlite3odbcnw.o sqlite3odbc.c
+
 sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--out-implib,libsqlite3odbc.a -Wl,--strip-all \
@@ -105,8 +111,17 @@ sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
 		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_LIB)
 		$(STRIP) sqlite3odbc.dll
 
+sqlite3odbcnw.dll:	sqlite3odbcnw.o sqlite3odbcres.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--out-implib,libsqlite3odbcnw.a -Wl,--strip-all \
+		    -o sqlite3odbcnw.dll \
+		    sqlite3odbcnw.o sqlite3odbcres.o \
+		    -lodbc32 -lodbccp32 -lcomdlg32 \
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_LIB)
+		$(STRIP) sqlite3odbcnw.dll
+
 sqlite3.exe:		sqlite3odbc.dll sqlite3/src/minshell.c sqliteres.o
-		$(CC) $(CFLAGS) -Isqlite3 -o sqlite3.exe \
+		$(CC) $(CFLAGS) $(SQLITE3_FLAGS) -Isqlite3 -o sqlite3.exe \
 		    sqlite3/src/minshell.c sqliteres.o -L. -lsqlite3odbc
 		$(STRIP) sqlite3.exe
 
@@ -193,6 +208,7 @@ clean:
 		    sqlite3_mod_blobtoxy.dll \
 		    sqlite3_mod_impexp.dll \
 		    sqlite+tcc.dll \
-		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ core
+		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ \
+		    core core.*
 		rm -f resource.h resource3.h
 

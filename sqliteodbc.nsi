@@ -68,6 +68,8 @@ Section "-Main (required)" InstallationInfo
  File "sqliteodbc.dll"
  File "sqliteodbcu.dll"
  File "sqlite3odbc.dll"
+; unsupported non-WCHAR driver for SQLite3
+ File "sqlite3odbcnw.dll"
  File "sqlite.exe"
  File "sqliteu.exe"
  File "sqlite3.exe"
@@ -80,8 +82,11 @@ Section "-Main (required)" InstallationInfo
  File "addsysdsn.exe"
  File "remsysdsn.exe"
  File "SQLiteODBCInstaller.exe"
- File "sqlite3_mod_fts1.dll"
- File "sqlite3_mod_fts2.dll"
+; SQLite 3.4.*
+; File "sqlite3_mod_fts1.dll"
+; File "sqlite3_mod_fts2.dll"
+; SQLite 3.5.*
+ File "sqlite3_mod_fts3.dll"
  File "sqlite3_mod_blobtoxy.dll"
  File "sqlite3_mod_impexp.dll"
  File "license.terms"
@@ -212,7 +217,8 @@ Section /o "SQLite+TCC" TccInstall
  File "tccex/sqlite3.c"
  SetOutPath "$INSTDIR\TCC\samples\a10n"
  File "sqlite3/sqlite3.c"
- File "sqlite3/sqlite3internal.h"
+; deprecated as of 3.5.1
+; File "sqlite3/sqlite3internal.h"
  File "tccex/a10n/README.txt"
 SectionEnd
 
@@ -227,7 +233,7 @@ SectionEnd
 Section "Uninstall"
 
 ExecWait '"$INSTDIR\uninstq.exe"'
-   
+
 ; Delete Files 
 RMDir /r "$INSTDIR\*" 
 RMDir /r "$INSTDIR\*.*" 

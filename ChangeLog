@@ -1,6 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Oct 11 2007 version 0.76 released
+
+	* update to SQLite 3.5.1
+	* partly reverted SQLPrimaryKeys() change from version 0.73:
+	  report primary keys from PRAGMA table_info or if none found
+	  fall back to "*autoindex*" PKs from PRAGMA index_list
+	* minor tweaks in Makefile.in regarding libtool mode parameter
+	  and SQLite3 install targets
+	* added handling for SQL_DESC_SCHEMA_NAME in SQLColAttribute()
+	* added handling for SQL_ATTR_CURSOR_SENSITIVITY in SQLSetStmtAttr()
+	* improved SQLTables()/SQLColumns() regarding pattern search
+	* use *printf(3) format %Q instead of '%q' in SQLite 3 driver
+	* if available use newer SQLite3 APIs (sqlite3_prepare_v2() etc)
+
 Sat Aug 04 2007 version 0.75 released
 
 	* update to SQLite 3.4.1

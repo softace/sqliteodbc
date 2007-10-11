@@ -349,7 +349,11 @@ table_dump(DUMP_DATA *dd, char **errp, int fmt, const char *query, ...)
 	    return SQLITE_NOMEM;
 	}
     }
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+    rc = sqlite3_prepare_v2(dd->db, q, -1, &select, &rest);
+#else
     rc = sqlite3_prepare(dd->db, q, -1, &select, &rest);
+#endif
     if (fmt) {
 	sqlite3_free((char *) q);
     }
@@ -454,7 +458,11 @@ dump_cb(void *udata, int nargs, char **args, char **cols)
 	    table_info = append(table_info, "PRAGMA table_info(", 0);
 	    table_info = append(table_info, table, '"');
 	    table_info = append(table_info, ");", 0);
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+	    rc = sqlite3_prepare_v2(dd->db, table_info, -1, &stmt, 0);
+#else
 	    rc = sqlite3_prepare(dd->db, table_info, -1, &stmt, 0);
+#endif
 	    if (table_info) {
 		sqlite3_free(table_info);
 		table_info = 0;
@@ -521,7 +529,11 @@ bailout0:
 	table_info = append(table_info, "PRAGMA table_info(", 0);
 	table_info = append(table_info, table, '"');
 	table_info = append(table_info, ");", 0);
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+	rc = sqlite3_prepare_v2(dd->db, table_info, -1, &stmt, 0);
+#else
 	rc = sqlite3_prepare(dd->db, table_info, -1, &stmt, 0);
+#endif
 	if (rc != SQLITE_OK || !stmt) {
 bailout1:
 	    if (select) {
@@ -565,7 +577,11 @@ bailout1:
 		goto bailout1;
 	    }
 	    select = append(select, "|| ')'", 0);
+#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+	    rc = sqlite3_prepare_v2(dd->db, table_info, -1, &stmt, 0);
+#else
 	    rc = sqlite3_prepare(dd->db, table_info, -1, &stmt, 0);
+#endif
 	    if (rc != SQLITE_OK || !stmt) {
 		goto bailout1;
 	    }

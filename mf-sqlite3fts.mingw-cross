@@ -49,7 +49,7 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1
+OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_CORE=0
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -125,6 +125,10 @@ FTS1OBJ+= fts1.o fts1_hash.o fts1_porter.o fts1_tokenizer1.o
 #
 FTS2OBJ+= fts2.o fts2_hash.o fts2_porter.o fts2_tokenizer1.o
 
+# Object files for FTS3
+#
+FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer1.o
+
 # FTS1 source code files.
 #
 FTS1SRC += \
@@ -147,6 +151,17 @@ FTS2SRC += \
   $(TOP)/ext/fts2/fts2_tokenizer.h \
   $(TOP)/ext/fts2/fts2_tokenizer1.c
 
+# FTS3 source code files.
+#
+FTS3SRC += \
+  $(TOP)/ext/fts3/fts3.c \
+  $(TOP)/ext/fts3/fts3.h \
+  $(TOP)/ext/fts3/fts3_hash.c \
+  $(TOP)/ext/fts3/fts3_hash.h \
+  $(TOP)/ext/fts3/fts3_porter.c \
+  $(TOP)/ext/fts3/fts3_tokenizer.h \
+  $(TOP)/ext/fts3/fts3_tokenizer1.c
+
 # Common headers
 HDR += $(TOP)/sqlite3.h \
   $(TOP)/src/sqlite3ext.h
@@ -165,10 +180,20 @@ FTS1HDR += \
   $(TOP)/ext/fts2/fts2_hash.h \
   $(TOP)/ext/fts2/fts2_tokenizer.h
 
+# Header files used by FTS3
+#
+FTS3HDR += \
+  $(TOP)/ext/fts3/fts3.h \
+  $(TOP)/ext/fts3/fts3_hash.h \
+  $(TOP)/ext/fts3/fts3_tokenizer.h
+
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
 #
-all:	sqlite3_mod_fts1.$(SO) sqlite3_mod_fts2.$(SO)
+# SQLite 3.4.*
+#all:	sqlite3_mod_fts1.$(SO) sqlite3_mod_fts2.$(SO)
+# SQLite 3.5.*
+all:	sqlite3_mod_fts3.$(SO)
 
 
 # Rules to build individual files
@@ -209,6 +234,25 @@ sqlite3_mod_fts2.$(SO):	$(FTS2OBJ)
 	    -o sqlite3_mod_fts2.$(SO) $(FTS2OBJ)
 
 
+fts3.o:	$(TOP)/ext/fts3/fts3.c $(FTS3HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts3/fts3.c
+
+fts3_hash.o:	$(TOP)/ext/fts3/fts3_hash.c $(FTS3HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_hash.c
+
+fts3_porter.o:	$(TOP)/ext/fts2/fts2_porter.c $(FTS3HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_porter.c
+
+fts3_tokenizer1.o:	$(TOP)/ext/fts3/fts3_tokenizer1.c $(FTS3HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_tokenizer1.c
+
+sqlite3_mod_fts3.$(SO):	$(FTS3OBJ)
+	$(TCCX) -shared -Wl,--kill-at \
+	    -Wl,-out-implib,libsqlite3fts3.a -Wl,--strip-all \
+	    -o sqlite3_mod_fts3.$(SO) $(FTS3OBJ)
+
+
 clean:	
 	rm -f $(FTS1OBJ) libsqlite3fts1.a sqlite3_mod_fts1.$(SO)
 	rm -f $(FTS2OBJ) libsqlite3fts2.a sqlite3_mod_fts2.$(SO)
+	rm -f $(FTS3OBJ) libsqlite3fts3.a sqlite3_mod_fts3.$(SO)
