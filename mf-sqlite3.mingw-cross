@@ -36,7 +36,7 @@ THREADLIB =
 #### Specify any extra libraries needed to access required functions.
 #
 #TLIBS = -lrt    # fdatasync on Solaris 8
-TLIBS = 
+TLIBS = -lcomdlg32
 
 #### Leave SQLITE_DEBUG undefined for maximum speed.  Use SQLITE_DEBUG=1
 #    to check for memory leaks.  Use SQLITE_DEBUG=2 to print a log of all

@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.137 2007/09/23 05:48:47 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.139 2008/01/06 09:25:08 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -55,6 +55,10 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #undef max
 #define max(a, b) ((a) < (b) ? (b) : (a))
+
+#ifndef PTRDIFF_T
+#define PTRDIFF_T int
+#endif
 
 #define array_size(x) (sizeof (x) / sizeof (x[0]))
 
@@ -745,6 +749,7 @@ drvgpps(DBC *d, char *sect, char *ent, char *def, char *buf,
     return 1;
 }
 #else
+#include <odbcinst.h>
 #define drvgetgpps(d)
 #define drvrelgpps(d)
 #endif
@@ -1291,7 +1296,7 @@ freerows(char **rowp)
 	return;
     }
     --rowp;
-    size = (int) rowp[0];
+    size = (PTRDIFF_T) rowp[0];
     for (i = 1; i <= size; i++) {
 	freep(&rowp[i]);
     }
@@ -2607,7 +2612,7 @@ vm_step(STMT *s)
 	}
 	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
 	if (rowd) {
-	    rowd[0] = (char *) (ncols * 2);
+	    rowd[0] = (char *) ((PTRDIFF_T) (ncols * 2));
 	    ++rowd;
 	    for (i = 0; i < ncols; i++) {
 		rowd[i] = NULL;
@@ -2704,7 +2709,7 @@ vm_start(STMT *s, char **params)
     int rc;
 
 #ifdef CANT_PASS_VALIST_AS_CHARPTR
-    sql = sqlite_mprintf(s->query,
+    sql = sqlite_mprintf((char *) s->query,
 			 params[0], params[1],
 			 params[2], params[3],
 			 params[4], params[5],
@@ -2877,7 +2882,7 @@ static void
 time_func(sqlite_func *context, int argc, const char **argv)
 {
     char buf[128];
-    int what = (int) sqlite_user_data(context);
+    PTRDIFF_T what = (PTRDIFF_T) sqlite_user_data(context);
 #ifdef _WIN32
     SYSTEMTIME st;
 
@@ -3501,7 +3506,7 @@ substparam(STMT *s, int pnum, char **outp)
 #ifdef WINTERFACE
 	if (type == SQL_C_WCHAR) {
 	    if (*p->lenp == SQL_NTS) {
-		p->max = uc_strlen(p->param);
+		p->max = uc_strlen(p->param) * sizeof (SQLWCHAR);
 	    } else if (*p->lenp >= 0) {
 		p->max = *p->lenp;
 	    }
@@ -3685,6 +3690,7 @@ outofmem:
     p->param0 = data;
     freep(&p->parbuf);
     p->param = p->param0;
+    p->bound = 1;
     p->need = 0;
     if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
 	p->need = 1;
@@ -4276,7 +4282,8 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, size, ret, nrows, ncols, namec, uniquec, offs;
+    int i, ret, nrows, ncols, namec, uniquec, offs;
+    PTRDIFF_T size;
     char **rowp = NULL, *errp = NULL, tname[512];
 
     sret = mkresultset(stmt, pkeySpec, array_size(pkeySpec));
@@ -4607,9 +4614,10 @@ drvspecialcolumns(SQLHSTMT stmt, SQLUSMALLINT id,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, size, ret, nrows, ncols, nnnrows, nnncols, offs;
+    int i, ret, nrows, ncols, nnnrows, nnncols, offs;
     int namec = -1, uniquec = -1, namecc = -1, typecc = -1;
     int notnullcc = -1, mkrowid = 0;
+    PTRDIFF_T size;
     char *errp = NULL, tname[512];
     char **rowp = NULL, **rowppp = NULL;
 
@@ -4979,7 +4987,8 @@ drvforeignkeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, size, ret, nrows, ncols, offs, namec, seqc, fromc, toc;
+    int i, ret, nrows, ncols, offs, namec, seqc, fromc, toc;
+    PTRDIFF_T size;
     char **rowp, *errp = NULL, pname[512], fname[512];
 
     sret = mkresultset(stmt, fkeySpec, array_size(fkeySpec));
@@ -5913,7 +5922,7 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 	ret = SQL_NO_DATA;
 	break;
     case SQL_ATTR_OUTPUT_NTS:
-	if ((SQLINTEGER) val == SQL_TRUE) {
+	if (val == (SQLPOINTER) SQL_TRUE) {
 	    ret = SQL_SUCCESS;
 	}
 	break;
@@ -5922,11 +5931,11 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 	    ret = SQL_ERROR;
 	    break;
 	}
-	if ((SQLINTEGER) val == SQL_OV_ODBC2) {
+	if (val == (SQLPOINTER) SQL_OV_ODBC2) {
 	    e->ov3 = 0;
 	    ret = SQL_SUCCESS;
 	}
-	if ((SQLINTEGER) val == SQL_OV_ODBC3) {
+	if (val == (SQLPOINTER) SQL_OV_ODBC3) {
 	    e->ov3 = 1;
 	    ret = SQL_SUCCESS;
 	}
@@ -6565,38 +6574,38 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 
     switch (attr) {
     case SQL_ATTR_CURSOR_TYPE:
-	if ((SQLUINTEGER) val == SQL_CURSOR_FORWARD_ONLY) {
+	if (val == (SQLPOINTER) SQL_CURSOR_FORWARD_ONLY) {
 	    s->curtype = SQL_CURSOR_FORWARD_ONLY;
 	} else {
 	    s->curtype = SQL_CURSOR_STATIC;
 	}
-	if ((SQLUINTEGER) val != SQL_CURSOR_FORWARD_ONLY &&
-	    (SQLUINTEGER) val != SQL_CURSOR_STATIC) {
+	if (val != (SQLPOINTER) SQL_CURSOR_FORWARD_ONLY &&
+	    val != (SQLPOINTER) SQL_CURSOR_STATIC) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_SCROLLABLE:
-	if ((SQLUINTEGER) val == SQL_NONSCROLLABLE) {
+	if (val == (SQLPOINTER) SQL_NONSCROLLABLE) {
 	    s->curtype = SQL_CURSOR_FORWARD_ONLY;
 	} else {
 	    s->curtype = SQL_CURSOR_STATIC;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_ASYNC_ENABLE:
-	if ((SQLUINTEGER) val != SQL_ASYNC_ENABLE_OFF) {
+	if (val != (SQLPOINTER) SQL_ASYNC_ENABLE_OFF) {
     e01s02:
 	    setstat(s, -1, "option value changed", "01S02");
 	    return SQL_SUCCESS_WITH_INFO;
 	}
 	return SQL_SUCCESS;
     case SQL_CONCURRENCY:
-	if ((SQLUINTEGER) val != SQL_CONCUR_LOCK) {
+	if (val != (SQLPOINTER) SQL_CONCUR_LOCK) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
 #ifdef SQL_ATTR_CURSOR_SENSITIVITY
     case SQL_ATTR_CURSOR_SENSITIVITY:
-	if ((SQLUINTEGER) val != SQL_UNSPECIFIED) {
+	if (val != (SQLPOINTER) SQL_UNSPECIFIED) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
@@ -6604,22 +6613,22 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_QUERY_TIMEOUT:
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
-	if ((SQLUINTEGER) val != SQL_RD_ON &&
-	    (SQLUINTEGER) val != SQL_RD_OFF) {
+	if (val != (SQLPOINTER) SQL_RD_ON &&
+	    val != (SQLPOINTER) SQL_RD_OFF) {
 	    goto e01s02;
 	}
-	s->retr_data = (int) val;
+	s->retr_data = (PTRDIFF_T) val;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
-	if ((SQLUINTEGER) val < 1) {
+	if ((PTRDIFF_T) val < 1) {
 	    setstat(s, -1, "invalid rowset size", "HY000");
 	    return SQL_ERROR;
 	} else {
 	    SQLUSMALLINT *rst = &s->row_status1;
 
-	    if ((SQLUINTEGER) val > 1) {
-		rst = xmalloc(sizeof (SQLUSMALLINT) * (SQLUINTEGER) val);
+	    if ((PTRDIFF_T) val > 1) {
+		rst = xmalloc(sizeof (SQLUSMALLINT) * (PTRDIFF_T) val);
 		if (!rst) {
 		    return nomem(s);
 		}
@@ -6628,7 +6637,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 		freep(&s->row_status0);
 	    }
 	    s->row_status0 = rst;
-	    s->rowset_size = (SQLUINTEGER) val;
+	    s->rowset_size = (PTRDIFF_T) val;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_STATUS_PTR:
@@ -6641,7 +6650,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	if ((SQLUINTEGER) val != SQL_PARAM_BIND_BY_COLUMN) {
+	if (val != (SQLPOINTER) SQL_PARAM_BIND_BY_COLUMN) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
@@ -6655,33 +6664,33 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_proc = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
-	if ((SQLUINTEGER) val < 1) {
+	if ((PTRDIFF_T) val < 1) {
 	    goto e01s02;
 	}
-	s->paramset_size = (SQLUINTEGER) val;
+	s->paramset_size = (PTRDIFF_T) val;
 	s->paramset_count = 0;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
-	s->bind_type = (SQLUINTEGER) val;
+	s->bind_type = (PTRDIFF_T) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
 	s->bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS:
-	if ((SQLUINTEGER) val != SQL_UB_OFF &&
-	    (SQLUINTEGER) val != SQL_UB_ON) {
+	if (val != (SQLPOINTER) SQL_UB_OFF &&
+	    val != (SQLPOINTER) SQL_UB_ON) {
 	    goto e01s02;
 	}
-	s->bkmrk = (SQLUINTEGER) val == SQL_UB_ON;
+	s->bkmrk = val == (SQLPOINTER) SQL_UB_ON;
 	return SQL_SUCCESS;
     case SQL_ATTR_NOSCAN:
-	if ((SQLUINTEGER) val != SQL_NOSCAN_OFF) {
+	if (val != (SQLPOINTER) SQL_NOSCAN_OFF) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
     case SQL_ATTR_MAX_LENGTH:
-	if ((SQLINTEGER) val != 1000000000) {
+	if (val != (SQLPOINTER) 1000000000) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
@@ -7493,7 +7502,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	    SQLSMALLINT *valLen)
 {
     SQLRETURN ret;
-    SQLSMALLINT len;
+    SQLSMALLINT len = 0;
 
     HDBC_LOCK(dbc);
     ret = drvgetinfo(dbc, type, val, valMax, &len);
@@ -8199,7 +8208,7 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     switch (attr) {
     case SQL_AUTOCOMMIT:
 	if (len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
-	    d->autocommit = (SQLINTEGER) val == SQL_AUTOCOMMIT_ON;
+	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
 	    goto doit;
 	}
 	if (val && len >= sizeof (SQLINTEGER)) {
@@ -9809,6 +9818,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    int doz, zlen = len - 1;
 	    int dlen = strlen(*data);
 	    int offs = 0;
+#ifdef WINTERFACE
+	    SQLWCHAR *ucdata = NULL;
+#endif
 
 #if defined(_WIN32) && defined(WINTERFACE)
 	    /* MS Access hack part 2 (reserved error -7748) */
@@ -9823,9 +9835,17 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 #endif
 
 #ifdef WINTERFACE
-	    SQLWCHAR *ucdata = NULL;
-
-	    doz = (type == SQL_C_CHAR || type == SQL_C_WCHAR) ? 1 : 0;
+	    switch (type) {
+	    case SQL_C_CHAR:
+		doz = 1;
+		break;
+	    case SQL_C_WCHAR:
+		doz = sizeof (SQLWCHAR);
+		break;
+	    default:
+		doz = 0;
+		break;
+	    }
 	    if (type == SQL_C_WCHAR) {
 		ucdata = uc_from_utf((SQLCHAR *) *data, dlen);
 		if (!ucdata) {
@@ -10390,8 +10410,9 @@ drvcolumns(SQLHSTMT stmt,
     SQLRETURN sret;
     STMT *s;
     DBC *d;
-    int ret, nrows, ncols, size, i, k, roffs, namec;
+    int ret, nrows, ncols, i, k, roffs, namec;
     int tnrows, tncols, npatt;
+    PTRDIFF_T size;
     char *errp = NULL, tname[512], cname[512], **rowp, **trows;
 
     sret = mkresultset(stmt, colSpec, array_size(colSpec));
@@ -11076,7 +11097,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	    break;
 #ifdef SQL_TYPE_TIME
 	case SQL_TYPE_TIME:
-	    mktypeinfo(s, 1, "date", SQL_TYPE_TIME, 26);
+	    mktypeinfo(s, 1, "time", SQL_TYPE_TIME, 26);
 	    break;
 #endif
 	case SQL_TIME:
@@ -11084,7 +11105,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	    break;
 #ifdef SQL_TYPE_TIMESTAMP
 	case SQL_TYPE_TIMESTAMP:
-	    mktypeinfo(s, 1, "date", SQL_TYPE_TIMESTAMP, 27);
+	    mktypeinfo(s, 1, "timestamp", SQL_TYPE_TIMESTAMP, 27);
 	    break;
 #endif
 	case SQL_TIMESTAMP:
@@ -11215,7 +11236,8 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     SQLRETURN sret;
     STMT *s;
     DBC *d;
-    int i, size, ret, nrows, ncols, offs, namec, uniquec;
+    int i, ret, nrows, ncols, offs, namec, uniquec;
+    PTRDIFF_T size;
     char **rowp, *errp = NULL, tname[512];
 
     sret = mkresultset(stmt, statSpec, array_size(statSpec));
@@ -13310,7 +13332,7 @@ noconn:
 	    }
 	}
 #ifdef CANT_PASS_VALIST_AS_CHARPTR
-	ret = sqlite_exec_printf(d->sqlite, s->query, selcb, s, &errp,
+	ret = sqlite_exec_printf(d->sqlite, (char *) s->query, selcb, s, &errp,
 				 params[0], params[1],
 				 params[2], params[3],
 				 params[4], params[5],
@@ -13388,9 +13410,17 @@ noconn:
 	return SQL_ERROR;
     }
     if (s->nbindparms < s->nparams) {
+unbound:
 	setstat(s, -1, "unbound parameters in query",
 		(*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
+    }
+    for (i = 0; i < s->nparams; i++) {
+	BINDPARM *p = &s->bindparms[i];
+
+	if (!p->bound) {
+	    goto unbound;
+	}
     }
     ret = starttran(s);
     if (ret != SQL_SUCCESS) {
@@ -13451,7 +13481,7 @@ again:
 	}
     }
 #ifdef CANT_PASS_VALIST_AS_CHARPTR
-    rc = sqlite_get_table_printf(d->sqlite, s->query, &s->rows,
+    rc = sqlite_get_table_printf(d->sqlite, (char *) s->query, &s->rows,
 				 &s->nrows, &ncols, &errp,
 				 params[0], params[1],
 				 params[2], params[3],
@@ -14788,7 +14818,7 @@ InUnError(char *name)
     do {
 	errmsg[0] = '\0';
 	sqlret = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
-	if (sqlret == SQL_SUCCESS || sqlret == SQL_SUCCESS_WITH_INFO) {
+	if (SQL_SUCCEEDED(sqlret)) {
 	    MessageBox(NULL, errmsg, name,
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	    ret = TRUE;
@@ -14856,8 +14886,8 @@ InUn(int remove, char *cmdline)
 	sprintf(inst, "%s\\%s", path, dllname);
 	if (!remove && usecnt > 0) {
 	    /* first install try: copy over driver dll, keeping DSNs */
-	    if (GetFileAttributes(dllname) != 0xFFFFFFFF &&
-		CopyFile(dllname, inst, 0)) {
+	    if (GetFileAttributes(dllbuf) != 0xFFFFFFFF &&
+		CopyFile(dllbuf, inst, 0)) {
 		if (!quiet) {
 		    char buf[512];
 
@@ -14902,10 +14932,10 @@ InUn(int remove, char *cmdline)
 	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
 	    return TRUE;
 	}
-	if (GetFileAttributes(dllname) == 0xFFFFFFFF) {
+	if (GetFileAttributes(dllbuf) == 0xFFFFFFFF) {
 	    return FALSE;
 	}
-	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllname, inst, 0)) {
+	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
 	    char buf[512];
 
 	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);

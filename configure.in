@@ -403,10 +403,22 @@ AC_MSG_CHECKING([for SQLBIGINT availability])
 AC_TRY_COMPILE([
 #include <sql.h>
 #include <sqltypes.h>
-],[SQLBIGINT;],[
+],[SQLBIGINT thisisbig;],[
 AC_MSG_RESULT(yes)
 ODBC_FLAGS="$ODBC_FLAGS -DHAVE_LONG_LONG=1"
 ],[AC_MSG_RESULT(no)])
+
+AC_MSG_CHECKING([for ptrdiff_t availability])
+AC_TRY_COMPILE([
+#include <stddef.h>
+#include <stdlib.h>
+],[ptrdiff_t apdt = 0;],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DPTRDIFF_T=ptrdiff_t"
+],[
+AC_MSG_RESULT(no)
+ODBC_FLAGS="$ODBC_FLAGS -DPTRDIFF_T=int"
+])
 
 CFLAGS="$SAVED_CFLAGS"
 

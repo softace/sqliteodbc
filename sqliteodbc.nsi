@@ -233,7 +233,7 @@ SectionEnd
 Section "Uninstall"
 
 ExecWait '"$INSTDIR\uninstq.exe"'
-
+ 
 ; Delete Files 
 RMDir /r "$INSTDIR\*" 
 RMDir /r "$INSTDIR\*.*" 

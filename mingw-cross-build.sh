@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.5.1
+VER3=3.5.4
 TCCVER=0.9.23
 
 echo "===================="
@@ -227,14 +227,14 @@ true || patch sqlite3/src/shell.c <<'EOD'
 --- sqlite3/src/shell.c.orig        2006-06-06 14:32:21.000000000 +0200
 +++ sqlite3/src/shell.c     2006-07-23 11:04:50.000000000 +0200
 @@ -21,6 +21,10 @@
- #include "sqlite3.h"
  #include <ctype.h>
+ #include <stdarg.h>
  
 +#if defined(_WIN32) && defined(DRIVER_VER_INFO)
 +# include <windows.h>
 +#endif
 +
- #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__)
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__OS2__)
  # include <signal.h>
  # include <pwd.h>
 @@ -1676,6 +1676,17 @@
@@ -290,14 +290,14 @@ patch sqlite3/src/libshell.c <<'EOD'
 --- sqlite3/src/libshell.c.orig  2007-01-08 23:40:05.000000000 +0100
 +++ sqlite3/src/libshell.c  2007-01-10 18:35:43.000000000 +0100
 @@ -21,6 +21,10 @@
- #include "sqlite3.h"
  #include <ctype.h>
- 
+ #include <stdarg.h>
+
 +#ifdef _WIN32
 +# include <windows.h>
 +#endif
 +
- #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__) && !defined(__OS2__)
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__OS2__)
  # include <signal.h>
  # include <pwd.h>
 @@ -1774,7 +1778,7 @@
@@ -436,7 +436,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.25 2007/10/11 08:19:48 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.28 2008/01/01 19:07:32 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -595,9 +595,11 @@ echo "Cleanup after build ..."
 echo "======================="
 make -C sqlite -f ../mf-sqlite.mingw-cross clean
 rm -f sqlite/sqlite.exe
+mv sqlite3/sqlite3.c sqlite3/sqlite3.amalg
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
-rm -f sqlite/sqlite3.exe
+rm -f sqlite3/sqlite3.exe
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
+mv sqlite3/sqlite3.amalg sqlite3/sqlite3.c
 
 echo "==========================="
 echo "Creating NSIS installer ..."

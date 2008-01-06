@@ -1,6 +1,21 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jan 06 2008 version 0.77 released
+
+	* update to SQLite 3.5.4
+	* fixed length/offset issues in SQLGetData() when reading data
+	  in multiple chunks, thanks Sam Kanai for reporting
+	* fix in parameter binding regarding SQL_C_WCHAR/SQL_NTS buffers,
+	  thanks Sam Kanai for reporting
+	* fix regarding SQL_RESET_PARAMS and unbound parameter semantic,
+	  thanks Sam Kanai for reporting and providing initial fix
+	* fixes in Win32 rundll32 install/uninstall handlers
+	* more 64bit fixes
+	* fixed wrong typeinfo for time/timestamp
+	* now use sqlite3_bind_*() functions for SQLite3 driver's
+	  parameter passing
+
 Thu Oct 11 2007 version 0.76 released
 
 	* update to SQLite 3.5.1

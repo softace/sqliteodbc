@@ -123,7 +123,8 @@ doxy:
 		doxygen doxygen.conf
 
 clean:
-		rm -f *.lo *.la *.o libsqliteodbc.la libsqlite3odbc.la *~ core
+		rm -f *.lo *.la libsqliteodbc.la libsqlite3odbc.la *~ core
+		rm -f *.o
 		rm -rf .libs .deps
 
 distclean:	clean

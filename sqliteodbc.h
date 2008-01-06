@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.46 2007/04/24 07:20:23 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.48 2008/01/06 09:24:13 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -47,13 +47,14 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 #if defined(HAVE_LOCALECONV) || defined(_WIN32)
 #include <locale.h>
 #endif
 #include <stdarg.h>
+#include <stddef.h>
 #include <string.h>
 #include <sql.h>
 #include <sqlext.h>
@@ -208,6 +209,7 @@ typedef struct {
     void *param0;	/**< Parameter buffer, initial value */
     int inc;		/**< Increment for paramset size > 1 */
     int need;		/**< True when SQL_LEN_DATA_AT_EXEC */
+    int bound;		/**< True when SQLBindParameter() called */ 
     int offs, len;	/**< Offset/length for SQLParamData()/SQLPutData() */
     void *parbuf;	/**< Buffer for SQL_LEN_DATA_AT_EXEC etc. */
     char strbuf[64];	/**< String buffer for scalar data */
