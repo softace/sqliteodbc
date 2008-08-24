@@ -1,6 +1,21 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Aug 24 2008 version 0.78 released
+
+	* update to SQLite 3.6.1
+	* relaxed fixupsql() parsing to be able to support
+	  "CREATE TRIGGER ..." SQL statements in SQLPrepare() et.al.
+	* added XML output format to impexp.c
+	* provide SQLAllocHandle/SQLFreeHandle for iODBC, too,
+	  thanks Nick Davis for patch
+	* double free fix in SQLPrimaryKeys(), thanks Ingo Bormuth
+	  for reporting
+	* increased some PRECISION fields in SQLGetTypeInfo()
+	* fix in SQLSetConnect(Attr|Option)(..SQL_AUTOCOMMIT..)
+	  when a transaction is in progress and autocommit is turned on
+	  again, thanks Sam Kanai for reporting
+
 Sun Jan 06 2008 version 0.77 released
 
 	* update to SQLite 3.5.4
@@ -252,7 +267,7 @@ Sat May 01 2004 version 0.62 released
 	* added missing SQL_DESC_TYPE_NAME case in SQLColAttribute(),
 	  patch provided by Chris Waters
 	  
-Sat Apr 24 version 0.61 released
+Sat Apr 24 2004 version 0.61 released
 
 	* fixed getrowdata() to support SQLGetData() with NULL ptr and
 	  SQLFetch() to retrieve proper data length, thanks to Joel Reed

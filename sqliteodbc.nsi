@@ -89,6 +89,8 @@ Section "-Main (required)" InstallationInfo
  File "sqlite3_mod_fts3.dll"
  File "sqlite3_mod_blobtoxy.dll"
  File "sqlite3_mod_impexp.dll"
+; SQLite 3.6.*
+ File "sqlite3_mod_rtree.dll"
  File "license.terms"
  File "license.txt"
  File "README"
@@ -215,6 +217,9 @@ Section /o "SQLite+TCC" TccInstall
  File "tccex/samplext.c"
  File "tccex/sqlite.c"
  File "tccex/sqlite3.c"
+ File "tccex/obench.c"
+ File "tccex/sbench.c"
+ File "tccex/README.bench"
  SetOutPath "$INSTDIR\TCC\samples\a10n"
  File "sqlite3/sqlite3.c"
 ; deprecated as of 3.5.1

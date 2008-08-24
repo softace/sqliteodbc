@@ -1,7 +1,7 @@
 #!/usr/make
 #
-# Makefile for SQLITE, use in conjunction with mingw-cross-build.sh
-# since some patches are needed (libshell.c etc.)
+# Makefile for SQLITE rtree extensions, use in conjunction with
+# mingw-cross-build.sh
 
 #### The toplevel directory of the source tree.  This is the directory
 #    that contains this "Makefile.in" and the "configure.in" script.
@@ -36,7 +36,7 @@ THREADLIB =
 #### Specify any extra libraries needed to access required functions.
 #
 #TLIBS = -lrt    # fdatasync on Solaris 8
-TLIBS = -lcomdlg32
+TLIBS = 
 
 #### Leave SQLITE_DEBUG undefined for maximum speed.  Use SQLITE_DEBUG=1
 #    to check for memory leaks.  Use SQLITE_DEBUG=2 to print a log of all
@@ -49,8 +49,7 @@ TLIBS = -lcomdlg32
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS =	-DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_SOUNDEX=1 \
-	-DWIN32=1 -DSQLITE_OS_WIN=1
+OPTS  = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -75,6 +74,13 @@ TCC = /opt/mingw/bin/i386-mingw32msvc-gcc -O2 -D_OFF_T_ -DNO_TCL
 AR = /opt/mingw/bin/i386-mingw32msvc-ar cr
 #RANLIB = ranlib
 RANLIB = /opt/mingw/bin/i386-mingw32msvc-ranlib
+
+# MKSHLIB = gcc -shared
+# SO = so
+# SHPREFIX = lib
+MKSHLIB = /opt/mingw/bin/i386-mingw32msvc-ar -shared
+SO = dll
+SHPREFIX =
 
 #### Extra compiler options needed for programs that use the TCL library.
 #
@@ -107,14 +113,45 @@ LIBREADLINE =
 # NAWK = nawk
 NAWK = awk
 
-#### Special libshell target
-LIBOBJ += libshell.o
+# This is how we compile
+#
+TCCX = $(TCC) $(OPTS) $(THREADSAFE) $(USLEEP) -I. -I$(TOP) -I$(TOP)/src
 
-libshell.o:	$(TOP)/src/libshell.c sqlite3.h
-	$(TCCX) -c $(TOP)/src/libshell.c
+# Object files for rtree
+#
+RTREEOBJ+= rtree.o
 
-SRC += $(TOP)/src/libshell.c
+# rtree source code files.
+#
+RTREESRC += \
+  $(TOP)/ext/rtree/rtree.h \
+  $(TOP)/ext/rtree/rtree.c
 
-# You should not have to change anything below this line
-###############################################################################
-include $(TOP)/main.mk
+# Common headers
+HDR += $(TOP)/sqlite3.h \
+  $(TOP)/src/sqlite3ext.h
+
+# Header files used by rtree
+#
+RTREEHDR += \
+  $(TOP)/ext/rtree/rtree.h
+
+# This is the default Makefile target.  The objects listed here
+# are what get build when you type just "make" with no arguments.
+#
+all:	sqlite3_mod_rtree.$(SO)
+
+# Rules to build individual files
+#
+
+sqlite3_mod_rtree.$(SO):	$(RTREEOBJ)
+	$(TCCX) -shared -Wl,--kill-at \
+	    -Wl,-out-implib,libsqlite3rtree.a -Wl,--strip-all \
+	    -o sqlite3_mod_rtree.$(SO) $(RTREEOBJ)
+
+rtree.o:	$(TOP)/ext/rtree/rtree.c $(RTREEHDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/rtree/rtree.c
+
+clean:
+	rm -f $(RTREEOBJ) libsqlite3rtree.a sqlite3_mod_rtree.$(SO)
+

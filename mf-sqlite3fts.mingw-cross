@@ -49,7 +49,8 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_CORE=0
+OPTS =	-DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS3=1 \
+	-DWIN32=1 -DSQLITE_OS_WIN=1
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -127,7 +128,7 @@ FTS2OBJ+= fts2.o fts2_hash.o fts2_porter.o fts2_tokenizer1.o
 
 # Object files for FTS3
 #
-FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer1.o
+FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer.o fts3_tokenizer1.o
 
 # FTS1 source code files.
 #
@@ -242,6 +243,9 @@ fts3_hash.o:	$(TOP)/ext/fts3/fts3_hash.c $(FTS3HDR) $(HDR)
 
 fts3_porter.o:	$(TOP)/ext/fts2/fts2_porter.c $(FTS3HDR) $(HDR)
 	$(TCCX) -c $(TOP)/ext/fts3/fts3_porter.c
+
+fts3_tokenizer.o:	$(TOP)/ext/fts3/fts3_tokenizer.c $(FTS3HDR) $(HDR)
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_tokenizer.c
 
 fts3_tokenizer1.o:	$(TOP)/ext/fts3/fts3_tokenizer1.c $(FTS3HDR) $(HDR)
 	$(TCCX) -c $(TOP)/ext/fts3/fts3_tokenizer1.c

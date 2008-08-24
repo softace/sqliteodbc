@@ -53,7 +53,8 @@
  *         256   ORACLE
  *         512   SQL Server
  *         768   MySQL
- *   
+ *
+ *
  *  SQLite function:
  *       SELECT export_csv(filename, prefix1, tablename1, ...]);
  *
@@ -71,10 +72,61 @@
  *          CREATE TABLE B(c);
  *          INSERT INTO B VALUES('hello');
  *          SELECT export_csv('out.csv', 'aa', 'A', 'bb', 'B');
- *          -- CSV output 
+ *          -- CSV output
  *          "aa",1,2
  *          "aa",3,"foo"
  *          "bb","hello"
+ *
+ *
+ *  SQLite function:
+ *       SELECT export_xml(filename, appendflag, indent, root,
+ *                         item, tablename);
+ *
+ *  C function (STANDALONE):
+ *       int impexp_export_xml(sqlite3 *db, char *filename,
+ *                             int append, int indent, char *root,
+ *                             char *item, char *tablename);
+ *
+ *       Writes a table as simple XML to provided filename. The
+ *       rows are optionally enclosed with the "root" tag,
+ *       the row data is enclosed in "item" tags:
+ *          
+ *          <item>
+ *           <columnname TYPE="INTEGER|REAL|NULL|TEXT|BLOB">value</columnname>
+ *           ...
+ *          </item>
+ *
+ *       e.g.
+ *
+ *          CREATE TABLE A(a,b);
+ *          INSERT INTO A VALUES(1,2.1);
+ *          INSERT INTO A VALUES(3,'foo');
+ *          INSERT INTO A VALUES('',NULL);
+ *          INSERT INTO A VALUES(X'010203','<blob>');
+ *          SELECT export_xml('out.xml', 0, 2, 'TBL_A', 'ROW', 'A');
+ *          -- XML output
+ *            <TBL_A>
+ *             <ROW>
+ *              <a TYPE="INTEGER">1</a>
+ *              <b TYPE="REAL">2.1</b>
+ *             </ROW>
+ *             <ROW>
+ *              <a TYPE="INTEGER">3</a>
+ *              <b TYPE="TEXT">foo</b>
+ *             </ROW>
+ *             <ROW>
+ *              <a TYPE="TEXT"></a>
+ *              <b TYPE="NULL"></b>
+ *             </ROW>
+ *             <ROW>
+ *              <a TYPE="BLOB">&#x01;&#x02;&x03;</a>
+ *              <b TYPE="TEXT">&lt;blob&gt;</b>
+ *             </ROW>
+ *            </TBL_A>
+ *
+ *       Quoting of XML entities is performed only on the data,
+ *       not on column names and root/item tags.
+ *
  *
  * On Win32 the filename argument may be specified as NULL in order
  * to open a system file dialog for interactive filename selection.
@@ -456,6 +508,185 @@ quote_csv_func(sqlite3_context *context, int argc, sqlite3_value **argv)
 }
 
 static void
+indent_xml_func(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+    static const char spaces[] = "                                ";
+    int n = 0;
+
+    if (argc > 0) {
+	n = sqlite3_value_int(argv[0]);
+	if (n > 32) {
+	    n = 32;
+	} else if (n < 0) {
+	    n = 0;
+	}
+    }
+    sqlite3_result_text(context, spaces, n, SQLITE_STATIC);
+}
+
+static void
+quote_xml_func(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+    static const char xdigits[] = "0123456789ABCDEF";
+    int type, addtype = 0;
+
+    if (argc < 1) {
+	return;
+    }
+    if (argc > 1) {
+	addtype = sqlite3_value_int(argv[1]);
+    }
+    type = sqlite3_value_type(argv[0]);
+    switch (type) {
+    case SQLITE_NULL: {
+	if (addtype > 0) {
+	    sqlite3_result_text(context, " TYPE=\"NULL\">", -1, SQLITE_STATIC);
+	} else {
+	    sqlite3_result_text(context, "", 0, SQLITE_STATIC);
+	}
+	break;
+    }
+    case SQLITE_INTEGER:
+    case SQLITE_FLOAT: {
+	if (addtype > 0) {
+	    char *text = (char *) sqlite3_malloc(128);
+	    int k;
+
+	    if (!text) {
+		sqlite3_result_error(context, "out of memory", -1);
+		return;
+	    }
+	    strcpy(text, (type == SQLITE_FLOAT) ? " TYPE=\"REAL\">" :
+		   " TYPE=\"INTEGER\">");
+	    k = strlen(text);
+	    strcpy(text + k, (char *) sqlite3_value_text(argv[0]));
+	    k = strlen(text);
+	    sqlite3_result_text(context, text, k, SQLITE_TRANSIENT);
+	    sqlite3_free(text);
+	} else {
+	    sqlite3_result_value(context, argv[0]);
+	}
+	break;
+    }
+    case SQLITE_BLOB: {
+	char *text = 0;
+	char const *blob = sqlite3_value_blob(argv[0]);
+	int nblob = sqlite3_value_bytes(argv[0]);
+	int i, k = 0;
+
+	if (6 * nblob + 34 > 1000000000) {
+	    sqlite3_result_error(context, "value too large", -1);
+	    return;
+	}
+	text = (char *) sqlite3_malloc((6 * nblob) + 34);
+	if (!text) {
+	    sqlite3_result_error(context, "out of memory", -1);
+	    return;
+	}
+	if (addtype > 0) {
+	    strcpy(text, " TYPE=\"BLOB\">");
+	    k = strlen(text);
+	}
+	for (i = 0; i < nblob; i++) {
+	    text[k++] = '&';
+	    text[k++] = '#';
+	    text[k++] = 'x';
+	    text[k++] = xdigits[(blob[i] >> 4 ) & 0x0F];
+	    text[k++] = xdigits[blob[i] & 0x0F];
+	    text[k++] = ';';
+	}
+	text[k] = '\0';
+	sqlite3_result_text(context, text, k, SQLITE_TRANSIENT);
+	sqlite3_free(text);
+	break;
+    }
+    case SQLITE_TEXT: {
+	int i, n;
+	const unsigned char *arg = sqlite3_value_text(argv[0]);
+	char *p;
+
+	if (!arg) {
+	    return;
+	}
+	for (i = 0, n = 0; arg[i]; i++) {
+	    if (arg[i] == '"' || arg[i] == '\'' ||
+		arg[i] == '<' || arg[i] == '>' ||
+		arg[i] == '&' || arg[i] < ' ') {
+		n += 5;
+	    }
+	}
+	if (i + n + 32 > 1000000000) {
+	    sqlite3_result_error(context, "value too large", -1);
+	    return;
+	}
+	p = sqlite3_malloc(i + n + 32);
+	if (!p) {
+	    sqlite3_result_error(context, "out of memory", -1);
+	    return;
+	}
+	n = 0;
+	if (addtype > 0) {
+	    strcpy(p, " TYPE=\"TEXT\">");
+	    n = strlen(p);
+	}	    
+	for (i = 0; arg[i]; i++) {
+	    if (arg[i] == '"') {
+		p[n++] = '&';
+		p[n++] = 'q';
+		p[n++] = 'u';
+		p[n++] = 'o';
+		p[n++] = 't';
+		p[n++] = ';';
+	    } else if (arg[i] == '\'') {
+		p[n++] = '&';
+		p[n++] = 'a';
+		p[n++] = 'p';
+		p[n++] = 'o';
+		p[n++] = 's';
+		p[n++] = ';';
+	    } else if (arg[i] == '<') {
+		p[n++] = '&';
+		p[n++] = 'l';
+		p[n++] = 't';
+		p[n++] = ';';
+	    } else if (arg[i] == '>') {
+		p[n++] = '&';
+		p[n++] = 'g';
+		p[n++] = 't';
+		p[n++] = ';';
+	    } else if (arg[i] == '&') {
+		p[n++] = '&';
+		p[n++] = 'a';
+		p[n++] = 'm';
+		p[n++] = 'p';
+		p[n++] = ';';
+	    } else if (arg[i] < ' ') {
+		p[n++] = '&';
+		p[n++] = '#';
+		p[n++] = 'x';
+		p[n++] = xdigits[(arg[i] >> 4 ) & 0x0F];
+		p[n++] = xdigits[arg[i] & 0x0F];
+		p[n++] = ';';
+	    } else if (addtype < 0 && arg[i] == ' ') {
+		p[n++] = '&';
+		p[n++] = '#';
+		p[n++] = 'x';
+		p[n++] = xdigits[(arg[i] >> 4 ) & 0x0F];
+		p[n++] = xdigits[arg[i] & 0x0F];
+		p[n++] = ';';
+	    } else {
+		p[n++] = arg[i];
+	    }
+	}
+	p[n] = '\0';
+	sqlite3_result_text(context, p, n, SQLITE_TRANSIENT);
+	sqlite3_free(p);
+	break;
+    }
+    }
+}
+
+static void
 import_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 {
     sqlite3 *db = (sqlite3 *) sqlite3_user_data(ctx);
@@ -550,8 +781,19 @@ typedef struct {
     int quote_mode;
     char *where;
     int nlines;
+    int indent;
     FILE *out;
 } DUMP_DATA;
+
+static void
+indent(DUMP_DATA *dd)
+{
+    int i;
+
+    for (i = 0; i < dd->indent; i++) {
+	fputc(' ', dd->out);
+    }
+}
 
 static int
 table_dump(DUMP_DATA *dd, char **errp, int fmt, const char *query, ...)
@@ -592,15 +834,12 @@ table_dump(DUMP_DATA *dd, char **errp, int fmt, const char *query, ...)
 	if (dd->quote_mode >= 0) {
 	    fputc(';', dd->out);
 	}
-	fputc('\n', dd->out);
+	if (dd->quote_mode >= -1) {
+	    fputc('\n', dd->out);
+	}
 	rc = sqlite3_step(select);
     }
-    if (rc != SQLITE_OK) 
     rc = sqlite3_finalize(select);
-    if (errp && *errp) {
-	sqlite3_free(*errp);
-	*errp = 0;
-    }
     if (rc != SQLITE_OK) {
 	if (errp) {
 	    *errp = sqlite3_mprintf("%s", sqlite3_errmsg(dd->db));
@@ -649,6 +888,44 @@ append(char *in, char const *append, char quote)
 	in[len - 1] = '\0';
     }
     return in;
+}
+
+static void
+quote_xml_str(DUMP_DATA *dd, char *str)
+{
+    static const char xdigits[] = "0123456789ABCDEF";
+    int i;
+
+    if (!str) {
+	return;
+    }
+    for (i = 0; str[i]; i++) {
+	if (str[i] == '"') {
+	    fputs("&quot;", dd->out);
+	} else if (str[i] == '\'') {
+	    fputs("&apos;", dd->out);
+	} else if (str[i] == '<') {
+	    fputs("&lt;", dd->out);
+	} else if (str[i] == '>') {
+	    fputs("&gt;", dd->out);
+	} else if (str[i] == '&') {
+	    fputs("&amp;", dd->out);
+	} else if ((unsigned char) str[i] <= ' ') {
+	    char buf[8];
+
+	    buf[0] = '&';
+	    buf[1] = '&';
+	    buf[2] = '#';
+	    buf[3] = 'x';
+	    buf[4] = xdigits[(str[i] >> 4 ) & 0x0F];
+	    buf[5] = xdigits[str[i] & 0x0F];
+	    buf[6] = ';';
+	    buf[7] = '\0';
+	    fputs(buf, dd->out);
+	} else {
+	    fputc(str[i], dd->out);
+	}
+    }
 }
 
 static int
@@ -753,6 +1030,7 @@ bailout0:
     if (strcmp(type, "table") == 0) {
 	sqlite3_stmt *stmt = 0;
 	char *select = 0, *table_info = 0, *tmp = 0;
+	char buffer[256];
    
 	table_info = append(table_info, "PRAGMA table_info(", 0);
 	table_info = append(table_info, table, '"');
@@ -772,7 +1050,18 @@ bailout1:
 	    }
 	    return 1;
 	}
-	if (dd->quote_mode < 0) {
+	if (dd->quote_mode < -1) {
+	    if (dd->where) {
+		select = append(select, "SELECT ", 0);
+		sprintf(buffer, "indent_xml(%d)", dd->indent);
+		select = append(select, buffer, 0);
+		select = append(select, " || '<' || quote_xml(", 0);
+		select = append(select, dd->where, '"');
+		select = append(select, ",-1) || '>\n' || ", 0);
+	    } else {
+		select = append(select, "SELECT ", 0);
+	    }
+	} else if (dd->quote_mode < 0) {
 	    if (dd->where) {
 		select = append(select, "SELECT quote_csv(", 0);
 		select = append(select, dd->where, '"');
@@ -834,7 +1123,17 @@ bailout1:
 	    const char *type = (const char *) sqlite3_column_text(stmt, 2);
 	    int tlen = strlen(type ? type : "");
 
-	    if (dd->quote_mode < 0) {
+	    if (dd->quote_mode < -1) {
+		sprintf(buffer, "indent_xml(%d)", dd->indent + 1);
+		select = append(select, buffer, 0);
+		select = append(select, "|| '<' || quote_xml(", 0);
+		select = append(select, text, '\'');
+		select = append(select, ",-1) || quote_xml(", 0);
+		select = append(select, text, '"');
+		select = append(select, ",1) || '</' || quote_xml(", 0);
+		select = append(select, text, '\'');
+		select = append(select, ",-1) || '>\n'", 0);
+	    } else if (dd->quote_mode < 0) {
 		/* leave out BLOB columns */
 		if ((tlen >= 4 && strncasecmp(type, "BLOB", 4) == 0) ||
 		    (tlen >= 6 && strncasecmp(type, "BINARY", 6) == 0)) {
@@ -861,9 +1160,17 @@ bailout1:
 	    }
 	    rc = sqlite3_step(stmt);
 	    if (rc == SQLITE_ROW) {
-		select = append(select, ") || ',' || ", 0);
+		if (dd->quote_mode > -1) {
+		    select = append(select, ") || ',' || ", 0);
+		} else {
+		    select = append(select, " || ", 0);
+		}
 	    } else {
-		select = append(select, ") ", 0);
+		if (dd->quote_mode > -1) {
+		    select = append(select, ") ", 0);
+		} else {
+		    select = append(select, " ", 0);
+		}
 	    }
 	}
 	rc = sqlite3_finalize(stmt);
@@ -871,9 +1178,17 @@ bailout1:
 	    goto bailout1;
 	}
 	if (dd->quote_mode >= 0) {
-	    select = append(select, "|| ')' FROM  ", 0);
+	    select = append(select, "|| ')' FROM ", 0);
 	} else {
-	    select = append(select, "FROM  ", 0);
+	    if (dd->quote_mode < -1 && dd->where) {
+		sprintf(buffer, " || indent_xml(%d)", dd->indent);
+		select = append(select, buffer, 0);
+		select = append(select, " || '</' || quote_xml(", 0);
+		select = append(select, dd->where, '"');
+		select = append(select, ",-1) || '>\n' FROM ", 0);
+	    } else {
+		select = append(select, "FROM ", 0);
+	    }
 	}
 	select = append(select, table, '"');
 	if (dd->quote_mode >= 0 && dd->where) {
@@ -946,6 +1261,7 @@ export_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     dd->db = db;
     dd->where = 0;
     dd->nlines = -1;
+    dd->indent = 0;
     if (nargs > 0) {
 	if (sqlite3_value_type(args[0]) != SQLITE_NULL) {
 	    filename = (char *) sqlite3_value_text(args[0]);
@@ -1037,6 +1353,7 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     dd->db = db;
     dd->where = 0;
     dd->nlines = -1;
+    dd->indent = 0;
     dd->with_schema = 0;
     dd->quote_mode = -1;
     if (nargs > 0) {
@@ -1078,7 +1395,8 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	}
 	schema_dump(dd, 0,
 		    "SELECT name, type, sql FROM sqlite_master"
-		    " WHERE tbl_name LIKE %Q AND type = 'table'"
+		    " WHERE tbl_name LIKE %Q AND "
+		    " (type = 'table' OR type = 'view')"
 		    " AND sql NOT NULL",
 		    sqlite3_value_text(args[i + 1]));
     }
@@ -1086,6 +1404,111 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 done:
     sqlite3_result_int(ctx, dd->nlines);
 }
+
+static void
+export_xml_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
+{
+    DUMP_DATA dd0, *dd = &dd0;
+    sqlite3 *db = (sqlite3 *) sqlite3_user_data(ctx);
+    int i;
+    char *filename = 0;
+    char *openmode = "w";
+#ifdef _WIN32
+    char fnbuf[MAX_PATH];
+#endif
+
+    dd->db = db;
+    dd->where = 0;
+    dd->nlines = -1;
+    dd->indent = 0;
+    dd->with_schema = 0;
+    dd->quote_mode = -2;
+    if (nargs > 0) {
+	if (sqlite3_value_type(args[0]) != SQLITE_NULL) {
+	    filename = (char *) sqlite3_value_text(args[0]);
+	}
+    }
+#ifdef _WIN32
+    if (!filename) {
+	OPENFILENAME ofn;
+
+	memset(&ofn, 0, sizeof (ofn));
+	memset(fnbuf, 0, sizeof (fnbuf));
+	ofn.lStructSize = sizeof (ofn);
+	ofn.lpstrFile = fnbuf;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.Flags = OFN_HIDEREADONLY | OFN_NOCHANGEDIR | OFN_EXPLORER |
+		    OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	if (GetSaveFileName(&ofn)) {
+	    filename = fnbuf;
+	}
+    }
+#endif
+    if (!filename) {
+	goto done;
+    }
+    if (nargs > 1) {
+	if (sqlite3_value_type(args[1]) != SQLITE_NULL) {
+	    if (sqlite3_value_int(args[1])) {
+		openmode = "a";
+	    }
+	}
+    }
+    if (nargs > 2) {
+	if (sqlite3_value_type(args[2]) != SQLITE_NULL) {
+	    dd->indent = sqlite3_value_int(args[2]);
+	    if (dd->indent < 0) {
+		dd->indent = 0;
+	    }
+	}
+    }
+    dd->out = fopen(filename, openmode);
+    if (!dd->out) {
+	goto done;
+    }
+    dd->nlines = 0;
+    for (i = 3; i < nargs; i += 3) {
+	char *root = 0;
+
+	if (sqlite3_value_type(args[i]) != SQLITE_NULL) {
+	    root = (char *) sqlite3_value_text(args[i]);
+	    if (root && !root[0]) {
+		root = 0;
+	    }
+	}
+	dd->where = 0;
+	if (sqlite3_value_type(args[i + 1]) != SQLITE_NULL) {
+	    dd->where = (char *) sqlite3_value_text(args[i + 1]);
+	    if (dd->where && !dd->where[0]) {
+		dd->where = 0;
+	    }
+	}
+	if (root) {
+	    indent(dd);
+	    dd->indent++;
+	    fputs("<", dd->out);
+	    quote_xml_str(dd, root);
+	    fputs(">\n", dd->out);
+	}
+	schema_dump(dd, 0,
+		    "SELECT name, type, sql FROM sqlite_master"
+		    " WHERE tbl_name LIKE %Q AND"
+		    " (type = 'table' OR type = 'view')"
+		    " AND sql NOT NULL",
+		    sqlite3_value_text(args[i + 2]));
+	if (root) {
+	    dd->indent--;
+	    indent(dd);
+	    fputs("</", dd->out);
+	    quote_xml_str(dd, root);
+	    fputs(">\n", dd->out);
+	}
+    }
+    fclose(dd->out);
+done:
+    sqlite3_result_int(ctx, dd->nlines);
+}
+
 
 #ifdef STANDALONE
 int
@@ -1192,6 +1615,7 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
     dd->db = db;
     dd->where = 0;
     dd->nlines = -1;
+    dd->indent = 0;
     dd->with_schema = 0;
     dd->quote_mode = -1;
 #ifdef _WIN32
@@ -1225,12 +1649,81 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
 	dd->where = (prefix && prefix[0]) ? prefix : 0;
 	schema_dump(dd, 0,
 		    "SELECT name, type, sql FROM sqlite_master"
-		    " WHERE tbl_name LIKE %Q AND type = 'table'"
+		    " WHERE tbl_name LIKE %Q AND"
+		    " (type = 'table' OR type = 'view')"
 		    " AND sql NOT NULL", table);
 	prefix = va_arg(ap, char *);
 	table = va_arg(ap, char *);
     }
     va_end(ap);
+    fclose(dd->out);
+done:
+    return dd->nlines;
+}
+#endif
+
+#ifdef STANDALONE
+int
+impexp_export_xml(sqlite3 *db, char *filename, int append, int indnt,
+		  char *root, char *item, char *tablename)
+{
+    DUMP_DATA dd0, *dd = &dd0;
+#ifdef _WIN32
+    char fnbuf[MAX_PATH];
+#endif
+
+    if (!db) {
+	return 0;
+    }
+    dd->db = db;
+    dd->where = item;
+    dd->nlines = -1;
+    dd->indent = indnt > 0 ? indnt : 0;
+    dd->with_schema = 0;
+    dd->quote_mode = -2;
+#ifdef _WIN32
+    if (!filename) {
+	OPENFILENAME ofn;
+
+	memset(&ofn, 0, sizeof (ofn));
+	memset(fnbuf, 0, sizeof (fnbuf));
+	ofn.lStructSize = sizeof (ofn);
+	ofn.lpstrFile = fnbuf;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.Flags = OFN_HIDEREADONLY | OFN_NOCHANGEDIR | OFN_EXPLORER |
+		    OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	if (GetSaveFileName(&ofn)) {
+	    filename = fnbuf;
+	}
+    }
+#endif
+    if (!filename) {
+	goto done;
+    }
+    dd->out = fopen(filename, append ? "a" : "w");
+    if (!dd->out) {
+	goto done;
+    }
+    dd->nlines = 0;
+    if (root) {
+	indent(dd);
+	dd->indent++;
+	fputs("<", dd->out);
+	quote_xml_str(dd, root);
+	fputs(">\n", dd->out);
+    }
+    schema_dump(dd, 0,
+		"SELECT name, type, sql FROM sqlite_master"
+		" WHERE tbl_name LIKE %Q AND"
+		" (type = 'table' OR type = 'view')"
+		" AND sql NOT NULL", tablename);
+    if (root) {
+	dd->indent--;
+	indent(dd);
+	fputs("</", dd->out);
+	quote_xml_str(dd, root);
+	fputs(">\n", dd->out);
+    }
     fclose(dd->out);
 done:
     return dd->nlines;
@@ -1257,7 +1750,10 @@ sqlite3_extension_init(sqlite3 *db, char **errmsg,
 	{ "import_sql",	import_func,     -1, SQLITE_UTF8 },
 	{ "export_sql",	export_func,     -1, SQLITE_UTF8 },
 	{ "quote_csv",	quote_csv_func,  -1, SQLITE_UTF8 },
-	{ "export_csv",	export_csv_func, -1, SQLITE_UTF8 }
+	{ "export_csv",	export_csv_func, -1, SQLITE_UTF8 },
+	{ "indent_xml",	indent_xml_func,  1, SQLITE_UTF8 },
+	{ "quote_xml",	quote_xml_func,  -1, SQLITE_UTF8 },
+	{ "export_xml",	export_xml_func, -1, SQLITE_UTF8 }
     };
 
 #ifndef STANDALONE

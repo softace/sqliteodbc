@@ -11,8 +11,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.5.4
-TCCVER=0.9.23
+VER3=3.6.1
+TCCVER=0.9.24
 
 echo "===================="
 echo "Preparing sqlite ..."
@@ -356,19 +356,30 @@ patch sqlite3/src/minshell.c <<'EOD'
 +}
 EOD
 
-# amalgamation: add libshell.c
-test -r sqlite3/tool/mksqlite3c.tcl && patch -d sqlite3 -p1 <<'EOD'
+# amalgamation: add libshell.c 
+test "$VER3" != "3.5.6" && test -r sqlite3/tool/mksqlite3c.tcl && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/tool/mksqlite3c.tcl	2007-04-02 14:20:10.000000000 +0200
 +++ sqlite3/tool/mksqlite3c.tcl	2007-04-03 09:42:03.000000000 +0200
-@@ -200,6 +200,8 @@
+@@ -194,6 +194,7 @@
+    where.c
+ 
+    parse.c
++   libshell.c
+
     tokenize.c
+    complete.c
+EOD
+test "$VER3" = "3.5.6" && test -r sqlite3/tool/mksqlite3c.tcl && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/tool/mksqlite3c.tcl	2007-04-02 14:20:10.000000000 +0200
++++ sqlite3/tool/mksqlite3c.tcl	2007-04-03 09:42:03.000000000 +0200
+@@ -200,6 +200,7 @@
  
     main.c
-+
+
 +   libshell.c
- } {
-   copy_file tsrc/$file
- }
+    fts3.c
+    fts3_hash.c
+    fts3_porter.c
 EOD
 
 # patch: parse foreign key constraints on virtual tables
@@ -377,9 +388,9 @@ diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
 +++ sqlite3/src/build.c	2007-01-30 08:14:41.000000000 +0100
 @@ -2063,7 +2063,7 @@
-   char *z;
  
    assert( pTo!=0 );
+   db = pParse->db;
 -  if( p==0 || pParse->nErr || IN_DECLARE_VTAB ) goto fk_end;
 +  if( p==0 || pParse->nErr ) goto fk_end;
    if( pFromCol==0 ){
@@ -436,7 +447,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.28 2008/01/01 19:07:32 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.29 2008/08/23 19:42:58 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -515,16 +526,175 @@ true || patch -d sqlite3 -p1 <<'EOD'
    }
  
 EOD
+# patch: Win32 locking and pager unlock, for SQLite3 >= 3.5.4
+patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/os_win.c       2007-12-13 22:38:58.000000000 +0100
++++ sqlite3/src/os_win.c    2008-01-18 10:01:48.000000000 +0100
+@@ -855,8 +855,8 @@
+   ** the PENDING_LOCK byte is temporary.
+   */
+   newLocktype = pFile->locktype;
+-  if( pFile->locktype==NO_LOCK
+-   || (locktype==EXCLUSIVE_LOCK && pFile->locktype==RESERVED_LOCK)
++  if( locktype==SHARED_LOCK
++   || (locktype==EXCLUSIVE_LOCK && pFile->locktype<PENDING_LOCK)
+   ){
+     int cnt = 3;
+     while( cnt-->0 && (res = LockFile(pFile->h, PENDING_BYTE, 0, 1, 0))==0 ){
+@@ -907,7 +907,18 @@
+       newLocktype = EXCLUSIVE_LOCK;
+     }else{
+       OSTRACE2("error-code = %d\n", GetLastError());
+-      getReadLock(pFile);
++      if( !getReadLock(pFile) ){
++        /* This should never happen.  We should always be able to
++        ** reacquire the read lock */
++        OSTRACE1("could not re-get a SHARED lock.\n");
++        if( newLocktype==PENDING_LOCK || pFile->locktype==PENDING_LOCK ){
++          UnlockFile(pFile->h, PENDING_BYTE, 0, 1, 0);
++        }
++        if( pFile->locktype==RESERVED_LOCK ){
++          UnlockFile(pFile->h, RESERVED_BYTE, 0, 1, 0);
++        }
++        newLocktype = NO_LOCK;
++      }
+     }
+   }
+ 
+@@ -982,6 +993,7 @@
+       /* This should never happen.  We should always be able to
+       ** reacquire the read lock */
+       rc = SQLITE_IOERR_UNLOCK;
++      locktype = NO_LOCK;
+     }
+   }
+   if( type>=RESERVED_LOCK ){
+--- sqlite3.orig/src/pager.c        2007-12-13 22:54:11.000000000 +0100
++++ sqlite3/src/pager.c     2008-01-18 10:06:35.000000000 +0100
+@@ -4850,6 +4850,9 @@
+   }
+   assert( pPager->state==PAGER_SYNCED || !pPager->dirtyCache );
+   rc = pager_end_transaction(pPager, pPager->setMaster);
++  if( rc==SQLITE_OK ){
++    pager_unlock(pPager);
++  }
+   rc = pager_error(pPager, rc);
+   pagerLeave(pPager);
+   return rc;
+@@ -4909,6 +4912,9 @@
+   pagerEnter(pPager);
+   if( !pPager->dirtyCache || !pPager->journalOpen ){
+     rc = pager_end_transaction(pPager, pPager->setMaster);
++    if( rc==SQLITE_OK ){
++      pager_unlock(pPager);
++    }
+     pagerLeave(pPager);
+     return rc;
+   }
+EOD
+
+# patch: compile fix for FTS3 as extension module
+patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
++++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
+@@ -274,10 +274,6 @@
+ 
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+-#if defined(SQLITE_ENABLE_FTS3) && !defined(SQLITE_CORE)
+-# define SQLITE_CORE 1
+-#endif
+-
+ #include <assert.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+@@ -6389,7 +6385,7 @@
+   return rc;
+ }
+ 
+-#if !SQLITE_CORE
++#ifndef SQLITE_CORE
+ int sqlite3_extension_init(
+   sqlite3 *db, 
+   char **pzErrMsg,
+--- sqlite3.orig/ext/fts3/fts3_porter.c  2008-02-01 16:40:34.000000000 +0100
++++ sqlite3/ext/fts3/fts3_porter.c       2008-03-16 11:34:50.000000000 +0100
+@@ -31,6 +31,11 @@
+ #include <string.h>
+ #include <ctype.h>
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ #include "fts3_tokenizer.h"
+ 
+ /*
+--- sqlite3.orig/ext/fts3/fts3_tokenizer1.c      2007-11-23 18:31:18.000000000 +0100
++++ sqlite3/ext/fts3/fts3_tokenizer1.c   2008-03-16 11:35:37.000000000 +0100
+@@ -31,6 +31,11 @@
+ #include <string.h>
+ #include <ctype.h>
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ #include "fts3_tokenizer.h"
+ 
+ typedef struct simple_tokenizer {
+--- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
++++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
+@@ -29,6 +29,11 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ #include "sqlite3.h"
+ #include "fts3_hash.h"
+ 
+--- sqlite3.orig/ext/fts3/fts3_tokenizer.c	2008-06-24 03:29:58.000000000 +0200
++++ sqlite3/ext/fts3/fts3_tokenizer.c	2008-07-17 08:38:24.000000000 +0200
+@@ -27,7 +27,7 @@
+ 
+ #include "sqlite3ext.h"
+ #ifndef SQLITE_CORE
+-  SQLITE_EXTENSION_INIT1
++extern const sqlite3_api_routines *sqlite3_api;
+ #endif
+ 
+ #include "fts3_hash.h"
+EOD
+# patch: compile fix for rtree as extension module
+patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/rtree/rtree.c	2008-07-16 16:43:35.000000000 +0200
++++ sqlite3/ext/rtree/rtree.c	2008-07-17 08:59:53.000000000 +0200
+@@ -2812,7 +2812,7 @@
+   return rc;
+ }
+ 
+-#if !SQLITE_CORE
++#ifndef SQLITE_CORE
+ int sqlite3_extension_init(
+   sqlite3 *db,
+   char **pzErrMsg,
+EOD
 
 echo "===================="
 echo "Preparing TinyCC ..."
 echo "===================="
-test -r tcc-${TCCVER}.tar.gz || \
-    wget -c http://fabrice.bellard.free.fr/tcc/tcc-${TCCVER}.tar.gz
-test -r tcc-${TCCVER}.tar.gz || exit 1
+test -r tcc-${TCCVER}.tar.bz2 || \
+    wget -c http://download.savannah.nongnu.org/releases/tinycc/tcc-${TCCVER}.tar.bz2
+test -r tcc-${TCCVER}.tar.bz2 || exit 1
 
 rm -rf tcc tcc-${TCCVER}
-tar xzf tcc-${TCCVER}.tar.gz
+tar xjf tcc-${TCCVER}.tar.bz2
 ln -sf tcc-${TCCVER} tcc
 patch -d tcc -p1 < tcc-${TCCVER}.patch
 
@@ -535,6 +705,7 @@ make -f Makefile.mingw-cross clean
 make -C sqlite -f ../mf-sqlite.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
+make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean
 
 echo "============================="
 echo "Building SQLite 2 ... ISO8859"
@@ -578,17 +749,23 @@ make -f Makefile.mingw-cross sqliteodbcu.dll sqliteu.exe
 echo "==================================="
 echo "Building SQLite3 FTS extensions ..."
 echo "==================================="
-make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross all
-mv sqlite3/sqlite3_mod_*.dll .
+make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean all
+mv sqlite3/sqlite3_mod_fts*.dll .
+
+echo "====================================="
+echo "Building SQLite3 rtree extensions ..."
+echo "====================================="
+make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean all
+mv sqlite3/sqlite3_mod_rtree.dll .
 
 echo "============================"
 echo "Building DLL import defs ..."
 echo "============================"
 # requires wine: create .def files with tiny_impdef.exe
 # for all .dll files which provide SQLite
-wine TCC/tiny_impdef.exe -p sqliteodbc.dll > TCC/lib/sqlite.def
-wine TCC/tiny_impdef.exe -p sqliteodbcu.dll > TCC/lib/sqliteu.def
-wine TCC/tiny_impdef.exe -p sqlite3odbc.dll > TCC/lib/sqlite3.def
+wine TCC/tiny_impdef.exe sqliteodbc.dll -o TCC/lib/sqlite.def
+wine TCC/tiny_impdef.exe sqliteodbcu.dll -o TCC/lib/sqliteu.def
+wine TCC/tiny_impdef.exe sqlite3odbc.dll -o TCC/lib/sqlite3.def
 
 echo "======================="
 echo "Cleanup after build ..."
@@ -599,6 +776,7 @@ mv sqlite3/sqlite3.c sqlite3/sqlite3.amalg
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 rm -f sqlite3/sqlite3.exe
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
+make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean
 mv sqlite3/sqlite3.amalg sqlite3/sqlite3.c
 
 echo "==========================="

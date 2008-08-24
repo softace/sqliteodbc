@@ -1,0 +1,14 @@
+Benchmarking SQLite/ODBC using TCC on Win32
+
+ sbench.c -- SQLite 3.x standalone test
+
+  ..\tcc -run -lsqlite3 sbench.c -- -dbname \TEMP\BENCH.DB \
+   -init -v -tpc 200 -clients 4
+
+ obench.c -- ODBC based test
+
+  ..\tcc -run -lodbc32 obench.c -- \
+   -dsn "Driver={SQLite3 ODBC Driver};Database=\TEMP\BENCH.DB" \
+   -init -v -tpc 200 -clients 4
+
+

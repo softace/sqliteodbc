@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.139 2008/01/06 09:25:08 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.141 2008/08/23 19:45:54 chw Exp chw $
  *
- * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2008 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -112,7 +112,7 @@ xrealloc_(void *old, int n, char *file, int line)
     int nn = n + 4 * sizeof (long), nnn;
     long *p, *pp;
 
-    if (n == 0) {
+    if (n == 0 || !old) {
 	return xmalloc_(n, file, line);
     }
     p = &((long *) old)[-2];
@@ -137,9 +137,6 @@ xrealloc_(void *old, int n, char *file, int line)
     fprintf(stderr, "realloc\t%p,%d\t%p\t%s:%d\n", old, n, &pp[2], file, line);
 #endif
     p = pp;
-    if (n > p[1]) {
-	memset(p + p[1], 0, 3 * sizeof (long));
-    }
     p[1] = n;
     nn = nn / sizeof (long) - 1;
     p[nn] = 0xdead5678;
@@ -152,6 +149,9 @@ xfree_(void *x, char *file, int line)
     long *p;
     int n;
 
+    if (!x) {
+	return;
+    }
     p = &((long *) x)[-2];
     if (p[0] != 0xdead1234) {
 	fprintf(stderr, "*** low end corruption @ %p\n", x);
@@ -1603,7 +1603,7 @@ fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg,
 	 int version, char ***namepp)
 {
     char *q = sql, *qz = NULL, *p, *inq = NULL, *out;
-    int np = 0, size;
+    int np = 0, isddl = -1, size;
     char **npp = NULL, *ncp = NULL;
 
     *errmsg = NULL;
@@ -1687,19 +1687,41 @@ errout:
 	    }
 	    break;
 	case ';':
-	    if (inq) {
-		*p++ = *q;
-	    } else {
-		do {
-		    ++q;
-		} while (*q && ISSPACE(*q));
-		if (*q) {		
-		    freep(&out);
-		    *errmsg = "only one SQL statement allowed";
-		    goto errout;
+	    if (!inq) {
+		if (isddl < 0) {
+		    char *qq = out;
+
+		    while (*qq && ISSPACE(*qq)) {
+			++qq;
+		    }
+		    if (*qq && *qq != ';') {
+			size = strlen(qq);
+			if ((size >= 5) &&
+			    (strncasecmp(qq, "create", 5) == 0)) {
+			    isddl = 1;
+			} else if ((size >= 4) &&
+				   (strncasecmp(qq, "drop", 4) == 0)) {
+			    isddl = 1;
+			} else { 
+			    isddl = 0;
+			}
+		    }
 		}
-		--q;
+		if (isddl == 0) {
+		    char *qq = q;
+
+		    do {
+			++qq;
+		    } while (*qq && ISSPACE(*qq));
+		    if (*qq && *qq != ';') {
+onlyone:
+			freep(&out);
+			*errmsg = "only one SQL statement allowed";
+			goto errout;
+		    }
+		}
 	    }
+	    *p++ = *q;
 	    break;
 	case '%':
 	    *p++ = '%';
@@ -1745,11 +1767,16 @@ errout:
 	*nparam = np;
     }
     if (isselect) {
-	p = out;
-	while (*p && ISSPACE(*p)) {
-	    ++p;
+	if (isddl > 0) {
+	    *isselect = 0;
+	} else {
+	    p = out;
+	    while (*p && ISSPACE(*p)) {
+		++p;
+	    }
+	    size = strlen(p);
+	    *isselect = (size >= 6) && (strncasecmp(p, "select", 6) == 0);
 	}
-	*isselect = strncasecmp(p, "select", 6) == 0;
     }
     if (namepp) {
 	*namepp = npp;
@@ -4392,7 +4419,6 @@ nodata:
 	errp = NULL;
     }
     if (ncols * nrows <= 0) {
-	sqlite_free_table(rowp);
 	goto nodata2;
     }
     size = 0;
@@ -4428,6 +4454,7 @@ nodata:
     s->rows = xmalloc((size + 1) * sizeof (char *));
     if (!s->rows) {
 	s->nrows = 0;
+	sqlite_free_table(rowp);
 	return nomem(s);
     }
     s->rows[0] = (char *) size;
@@ -5426,11 +5453,12 @@ starttran(STMT *s)
  * Internal commit or rollback transaction.
  * @param d database connection pointer
  * @param comptype type of transaction's end, SQL_COMMIT or SQL_ROLLBACK
+ * @param force force action regardless of DBC's autocommit state
  * @result ODBC error code
  */
 
 static SQLRETURN
-endtran(DBC *d, SQLSMALLINT comptype)
+endtran(DBC *d, SQLSMALLINT comptype, int force)
 {
     int fail = 0, ret;
     char *sql, *errp = NULL;
@@ -5439,7 +5467,7 @@ endtran(DBC *d, SQLSMALLINT comptype)
 	setstatd(d, -1, "not connected", (*d->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
-    if (d->autocommit || !d->intrans) {
+    if ((!force && d->autocommit) || !d->intrans) {
 	return SQL_SUCCESS;
     }
     switch (comptype) {
@@ -5505,7 +5533,7 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 	    return SQL_INVALID_HANDLE;
 	}
 	d = (DBC *) handle;
-	ret = endtran(d, comptype);
+	ret = endtran(d, comptype, 0);
 	HDBC_UNLOCK((SQLHDBC) handle);
 	return ret;
     case SQL_HANDLE_ENV:
@@ -5522,7 +5550,7 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 #endif
 	d = ((ENV *) handle)->dbcs;
 	while (d) {
-	    ret = endtran(d, comptype);
+	    ret = endtran(d, comptype, 0);
 	    if (ret != SQL_SUCCESS) {
 		fail++;
 		comptype = SQL_ROLLBACK;
@@ -8215,7 +8243,7 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
 doit:
 	    if (d->autocommit && d->intrans) {
-		return endtran(d, SQL_COMMIT);
+		return endtran(d, SQL_COMMIT, 1);
 	    } else if (!d->autocommit) {
 		vm_end(d->vm_stmt);
 	    }
@@ -8438,7 +8466,7 @@ drvsetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLUINTEGER param)
     case SQL_AUTOCOMMIT:
 	d->autocommit = param == SQL_AUTOCOMMIT_ON;
 	if (d->autocommit && d->intrans) {
-	    return endtran(d, SQL_COMMIT);
+	    return endtran(d, SQL_COMMIT, 1);
 	} else if (!d->autocommit) {
 	    vm_end(d->vm_stmt);
 	}
@@ -9319,8 +9347,6 @@ SQLCloseCursor(SQLHSTMT stmt)
     return drvfreestmt(stmt, SQL_CLOSE);
 }
 
-#if defined(WITHOUT_DRIVERMGR) || !defined(HAVE_IODBC) || defined(_WIN32)
-
 /**
  * Allocate a HENV, HDBC, or HSTMT handle.
  * @param type handle type
@@ -9355,9 +9381,6 @@ SQLAllocHandle(SQLSMALLINT type, SQLHANDLE input, SQLHANDLE *output)
     }
     return SQL_ERROR;
 }
-#endif
-
-#if defined(WITHOUT_DRIVERMGR) || !defined(HAVE_IODBC) || defined(_WIN32)
 
 /**
  * Free a HENV, HDBC, or HSTMT handle.
@@ -9379,7 +9402,6 @@ SQLFreeHandle(SQLSMALLINT type, SQLHANDLE h)
     }
     return SQL_ERROR;
 }
-#endif
 
 /**
  * Free dynamically allocated column descriptions of STMT.
@@ -10787,7 +10809,7 @@ done:
 static COL typeSpec[] = {
     { "SYSTEM", "TYPE", "TYPE_NAME", SCOL_VARCHAR, 50 },
     { "SYSTEM", "TYPE", "DATA_TYPE", SQL_SMALLINT, 2 },
-    { "SYSTEM", "TYPE", "PRECISION", SQL_INTEGER, 4 },
+    { "SYSTEM", "TYPE", "PRECISION", SQL_INTEGER, 9 },
     { "SYSTEM", "TYPE", "LITERAL_PREFIX", SCOL_VARCHAR, 50 },
     { "SYSTEM", "TYPE", "LITERAL_SUFFIX", SCOL_VARCHAR, 50 },
     { "SYSTEM", "TYPE", "CREATE_PARAMS", SCOL_VARCHAR, 50 },
@@ -10856,7 +10878,7 @@ mktypeinfo(STMT *s, int row, char *typename, int type, int tind)
 	s->rows[offs + 2] = "5";
 	break;
     case SQL_INTEGER:
-	s->rows[offs + 2] = "7";
+	s->rows[offs + 2] = "9";
 	break;
     case SQL_FLOAT:
 	s->rows[offs + 2] = "7";
