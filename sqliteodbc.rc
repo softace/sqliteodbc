@@ -98,7 +98,7 @@ BEGIN
 #endif
             VALUE "FileVersion", VERSION "\0"
             VALUE "InternalName", "SQLITEODBC\0"
-            VALUE "LegalCopyright", "Copyright © 2001-2007 <chw@ch-werner.de>\0"
+            VALUE "LegalCopyright", "Copyright © 2001-2008 <chw@ch-werner.de>\0"
             VALUE "LegalTrademarks", "\0"
 #ifdef SQLITE_UTF8
             VALUE "OriginalFilename", "SQLITEODBCU.DLL\0"

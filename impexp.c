@@ -56,22 +56,25 @@
  *
  *
  *  SQLite function:
- *       SELECT export_csv(filename, prefix1, tablename1, ...]);
+ *       SELECT export_csv(filename, prefix1, tablename1, schema1, ...]);
  *
  *  C function (STANDALONE):
- *       int impexp_export_csv(sqlite3 *db, char *filename, ...);
+ *       int impexp_export_csv(sqlite3 *db, char *prefix1, char *filename,
+ *                             char *schema, ...);
  *
  *       Writes entire tables as CSV to provided filename. The
  *       rows are optionally introduced with a column made up of
- *       the prefix (non-empty string) for the respective table,
- *       e.g.
+ *       the prefix (non-empty string) for the respective table.
+ *       If "schema" is NULL, "sqlite_master" is used, otherwise
+ *       specify e.g. "sqlite_temp_master" for temporary tables or 
+ *       "att.sqlite_master" for the attached database "att".
  *
  *          CREATE TABLE A(a,b);
  *          INSERT INTO A VALUES(1,2);
  *          INSERT INTO A VALUES(3,'foo');
  *          CREATE TABLE B(c);
  *          INSERT INTO B VALUES('hello');
- *          SELECT export_csv('out.csv', 'aa', 'A', 'bb', 'B');
+ *          SELECT export_csv('out.csv', 'aa', 'A', NULL, 'bb', 'B', NULL);
  *          -- CSV output
  *          "aa",1,2
  *          "aa",3,"foo"
@@ -79,17 +82,20 @@
  *
  *
  *  SQLite function:
- *       SELECT export_xml(filename, appendflag, indent, root,
- *                         item, tablename);
+ *       SELECT export_xml(filename, appendflag, indent,
+ *                         [root, item, tablename, schema]+);
  *
  *  C function (STANDALONE):
  *       int impexp_export_xml(sqlite3 *db, char *filename,
  *                             int append, int indent, char *root,
- *                             char *item, char *tablename);
+ *                             char *item, char *tablename, char *schema);
  *
  *       Writes a table as simple XML to provided filename. The
  *       rows are optionally enclosed with the "root" tag,
- *       the row data is enclosed in "item" tags:
+ *       the row data is enclosed in "item" tags. If "schema"
+ *       is NULL, "sqlite_master" is used, otherwise specify
+ *       e.g. "sqlite_temp_master" for temporary tables or 
+ *       "att.sqlite_master" for the attached database "att".
  *          
  *          <item>
  *           <columnname TYPE="INTEGER|REAL|NULL|TEXT|BLOB">value</columnname>
@@ -1293,7 +1299,6 @@ export_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     if (nargs > 1) {
 	mode = sqlite3_value_int(args[1]);
     }
-    sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", 0, 0, 0);
     dd->with_schema = !(mode & 1);
     dd->quote_mode = (mode >> 8) & 3;
     dd->nlines = 0;
@@ -1334,7 +1339,6 @@ export_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	dd->nlines++;
     }
     fclose(dd->out);
-    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", 0, 0, 0);
 done:
     sqlite3_result_int(ctx, dd->nlines);
 }
@@ -1385,7 +1389,9 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	goto done;
     }
     dd->nlines = 0;
-    for (i = 1; i < nargs; i += 2) {
+    for (i = 1; i < nargs; i += 3) {
+	char *schema = 0, *sql;
+
 	dd->where = 0;
 	if (sqlite3_value_type(args[i]) != SQLITE_NULL) {
 	    dd->where = (char *) sqlite3_value_text(args[i]);
@@ -1393,12 +1399,20 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 		dd->where = 0;
 	    }
 	}
-	schema_dump(dd, 0,
-		    "SELECT name, type, sql FROM sqlite_master"
-		    " WHERE tbl_name LIKE %Q AND "
-		    " (type = 'table' OR type = 'view')"
-		    " AND sql NOT NULL",
-		    sqlite3_value_text(args[i + 1]));
+	if (sqlite3_value_type(args[i + 2]) != SQLITE_NULL) {
+	    schema = (char *) sqlite3_value_text(args[i + 2]);
+	}
+	if (!schema || schema[0] == '\0') {
+	    schema = "sqlite_master";
+	}
+	sql = sqlite3_mprintf("SELECT name, type, sql FROM %s"
+			      " WHERE tbl_name LIKE %%Q AND "
+			      " (type = 'table' OR type = 'view')"
+			      " AND sql NOT NULL", schema);
+	if (sql) {
+	    schema_dump(dd, 0, sql, sqlite3_value_text(args[i + 1]));
+	    sqlite3_free(sql);
+	}
     }
     fclose(dd->out);
 done:
@@ -1467,8 +1481,8 @@ export_xml_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	goto done;
     }
     dd->nlines = 0;
-    for (i = 3; i < nargs; i += 3) {
-	char *root = 0;
+    for (i = 3; i < nargs; i += 4) {
+	char *root = 0, *schema = 0, *sql;
 
 	if (sqlite3_value_type(args[i]) != SQLITE_NULL) {
 	    root = (char *) sqlite3_value_text(args[i]);
@@ -1490,12 +1504,20 @@ export_xml_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	    quote_xml_str(dd, root);
 	    fputs(">\n", dd->out);
 	}
-	schema_dump(dd, 0,
-		    "SELECT name, type, sql FROM sqlite_master"
-		    " WHERE tbl_name LIKE %Q AND"
-		    " (type = 'table' OR type = 'view')"
-		    " AND sql NOT NULL",
-		    sqlite3_value_text(args[i + 2]));
+	if (sqlite3_value_type(args[i + 3]) != SQLITE_NULL) {
+	    schema = (char *) sqlite3_value_text(args[i + 3]);
+	}
+	if (!schema || schema[0] == '\0') {
+	    schema = "sqlite_master";
+	}
+	sql = sqlite3_mprintf("SELECT name, type, sql FROM %s"
+			      " WHERE tbl_name LIKE %%Q AND"
+			      " (type = 'table' OR type = 'view')"
+			      " AND sql NOT NULL", schema);
+	if (sql) {
+	    schema_dump(dd, 0, sql, sqlite3_value_text(args[i + 2]));
+	    sqlite3_free(sql);
+	}
 	if (root) {
 	    dd->indent--;
 	    indent(dd);
@@ -1550,7 +1572,6 @@ impexp_export_sql(sqlite3 *db, char *filename, int mode, ...)
     if (!dd->out) {
 	goto done;
     }
-    sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", 0, 0, 0);
     dd->with_schema = !(mode & 1);
     dd->nlines = 0;
     if (fputs("BEGIN TRANSACTION;\n", dd->out) >= 0) {
@@ -1592,7 +1613,6 @@ impexp_export_sql(sqlite3 *db, char *filename, int mode, ...)
 	dd->nlines++;
     }
     fclose(dd->out);
-    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", 0, 0, 0);
 done:
     return dd->nlines;
 }
@@ -1604,7 +1624,7 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
 {
     DUMP_DATA dd0, *dd = &dd0;
     va_list ap;
-    char *prefix, *table;
+    char *prefix, *table, *schema;
 #ifdef _WIN32
     char fnbuf[MAX_PATH];
 #endif
@@ -1645,15 +1665,25 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
     va_start(ap, filename);
     prefix = va_arg(ap, char *);
     table = va_arg(ap, char *);
+    schema = va_arg(ap, char *);
     while (table != NULL) {
+	char *sql;
+
 	dd->where = (prefix && prefix[0]) ? prefix : 0;
-	schema_dump(dd, 0,
-		    "SELECT name, type, sql FROM sqlite_master"
-		    " WHERE tbl_name LIKE %Q AND"
-		    " (type = 'table' OR type = 'view')"
-		    " AND sql NOT NULL", table);
+	if (!schema || schema[0] == '\0') {
+	    schema = "sqlite_master";
+	}
+	sql = sqlite3_mprintf("SELECT name, type, sql FROM %s"
+			      " WHERE tbl_name LIKE %%Q AND"
+			      " (type = 'table' OR type = 'view')"
+			      " AND sql NOT NULL", schema);
+	if (sql) {
+	    schema_dump(dd, 0, sql, table);
+	    sqlite3_free(sql);
+	}
 	prefix = va_arg(ap, char *);
 	table = va_arg(ap, char *);
+	schema = va_arg(ap, char *);
     }
     va_end(ap);
     fclose(dd->out);
@@ -1665,9 +1695,10 @@ done:
 #ifdef STANDALONE
 int
 impexp_export_xml(sqlite3 *db, char *filename, int append, int indnt,
-		  char *root, char *item, char *tablename)
+		  char *root, char *item, char *tablename, char *schema)
 {
     DUMP_DATA dd0, *dd = &dd0;
+    char *sql;
 #ifdef _WIN32
     char fnbuf[MAX_PATH];
 #endif
@@ -1712,11 +1743,17 @@ impexp_export_xml(sqlite3 *db, char *filename, int append, int indnt,
 	quote_xml_str(dd, root);
 	fputs(">\n", dd->out);
     }
-    schema_dump(dd, 0,
-		"SELECT name, type, sql FROM sqlite_master"
-		" WHERE tbl_name LIKE %Q AND"
-		" (type = 'table' OR type = 'view')"
-		" AND sql NOT NULL", tablename);
+    if (!schema || schema[0] == '\0') {
+	schema = "sqlite_master";
+    }
+    sql = sqlite3_mprintf("SELECT name, type, sql FROM %s"
+			  " WHERE tbl_name LIKE %%Q AND"
+			  " (type = 'table' OR type = 'view')"
+			  " AND sql NOT NULL", schema);
+    if (sql) {
+	schema_dump(dd, 0, sql, tablename);
+	sqlite3_free(sql);
+    }
     if (root) {
 	dd->indent--;
 	indent(dd);

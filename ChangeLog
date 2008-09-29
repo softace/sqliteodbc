@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Sep 29 2008 version 0.79 released
+
+	* update to SQLite 3.6.3
+	* fixes in SQLGetData for zero-length SQL_C_CHAR and SQL_C_BINARY
+	* fixed off-by-one counting problem for SQL_ATTR_ROW_NUMBER and
+	  SQL_ROW_NUMBER, thanks Christian Mueller for initial fix
+
 Sun Aug 24 2008 version 0.78 released
 
 	* update to SQLite 3.6.1

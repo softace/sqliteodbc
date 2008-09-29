@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.6.1
+VER3=3.6.3
 TCCVER=0.9.24
 
 echo "===================="
@@ -388,9 +388,9 @@ diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
 +++ sqlite3/src/build.c	2007-01-30 08:14:41.000000000 +0100
 @@ -2063,7 +2063,7 @@
+   char *z;
  
    assert( pTo!=0 );
-   db = pParse->db;
 -  if( p==0 || pParse->nErr || IN_DECLARE_VTAB ) goto fk_end;
 +  if( p==0 || pParse->nErr ) goto fk_end;
    if( pFromCol==0 ){
@@ -404,7 +404,7 @@ diff -u sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
      if( pTab ){
        v = sqlite3GetVdbe(pParse);
 +#ifndef SQLITE_OMIT_VIRTUAL_TABLE
-+      if( pTab->isVirtual ) sqlite3ViewGetColumnNames(pParse, pTab);
++      if( pTab->pVtab ) sqlite3ViewGetColumnNames(pParse, pTab);
 +#endif
        pFK = pTab->pFKey;
        if( pFK ){
@@ -447,7 +447,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.29 2008/08/23 19:42:58 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.31 2008/09/22 19:17:43 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -503,28 +503,6 @@ true || patch -d sqlite3 -p1 <<'EOD'
      }
    }
    if( type>=RESERVED_LOCK ){
---- sqlite3.orig/src/pager.c	2007-04-16 17:02:19.000000000 +0200
-+++ sqlite3/src/pager.c	2007-05-11 19:42:47.000000000 +0200
-@@ -3878,6 +3878,9 @@
-   assert( pPager->journalOpen || !pPager->dirtyCache );
-   assert( pPager->state==PAGER_SYNCED || !pPager->dirtyCache );
-   rc = pager_end_transaction(pPager);
-+  if ( rc==SQLITE_OK ){
-+    pager_unlock(pPager);
-+  }
-   return pager_error(pPager, rc);
- }
- 
-@@ -3934,6 +3937,9 @@
- 
-   if( !pPager->dirtyCache || !pPager->journalOpen ){
-     rc = pager_end_transaction(pPager);
-+    if ( rc==SQLITE_OK ){
-+      pager_unlock(pPager);
-+    }
-     return rc;
-   }
- 
 EOD
 # patch: Win32 locking and pager unlock, for SQLite3 >= 3.5.4
 patch -d sqlite3 -p1 <<'EOD'
@@ -569,28 +547,6 @@ patch -d sqlite3 -p1 <<'EOD'
      }
    }
    if( type>=RESERVED_LOCK ){
---- sqlite3.orig/src/pager.c        2007-12-13 22:54:11.000000000 +0100
-+++ sqlite3/src/pager.c     2008-01-18 10:06:35.000000000 +0100
-@@ -4850,6 +4850,9 @@
-   }
-   assert( pPager->state==PAGER_SYNCED || !pPager->dirtyCache );
-   rc = pager_end_transaction(pPager, pPager->setMaster);
-+  if( rc==SQLITE_OK ){
-+    pager_unlock(pPager);
-+  }
-   rc = pager_error(pPager, rc);
-   pagerLeave(pPager);
-   return rc;
-@@ -4909,6 +4912,9 @@
-   pagerEnter(pPager);
-   if( !pPager->dirtyCache || !pPager->journalOpen ){
-     rc = pager_end_transaction(pPager, pPager->setMaster);
-+    if( rc==SQLITE_OK ){
-+      pager_unlock(pPager);
-+    }
-     pagerLeave(pPager);
-     return rc;
-   }
 EOD
 
 # patch: compile fix for FTS3 as extension module

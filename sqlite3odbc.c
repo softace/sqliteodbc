@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.80 2008/08/23 19:45:13 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.81 2008/09/13 06:22:13 chw Exp chw $
  *
  * Copyright (c) 2004-2008 Christian Werner <chw@ch-werner.de>
  *
@@ -762,6 +762,8 @@ utf_to_wmb(char *str, int len)
     return str;
 }
 
+#ifdef WINTERFACE
+
 /**
  * Convert multibyte, current code page string to UNICODE string,
  * @param str multibyte string to be converted
@@ -823,6 +825,8 @@ uc_to_wmb(WCHAR *wstr, int len)
     str[nchar] = '\0';
     return str;
 }
+
+#endif /* WINTERFACE */
 
 #endif /* _WIN32 */
 
@@ -6856,6 +6860,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
     STMT *s = (STMT *) stmt;
+    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *uval = (SQLUINTEGER *) val;
 
     switch (attr) {
@@ -6875,16 +6880,12 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
 #endif
     case SQL_ATTR_ROW_NUMBER:
-	{
-	    STMT *s = (STMT *) stmt;
-	    DBC *d = (DBC *) s->dbc;
-
-	    if (s == d->cur_s3stmt) {
-		*uval = (d->s3stmt_rownum < 0) ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
-	    }
+	if (s == d->cur_s3stmt) {
+	    *uval = (d->s3stmt_rownum < 0) ?
+		    SQL_ROW_NUMBER_UNKNOWN : (d->s3stmt_rownum + 1);
+	} else {
+	    *uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
-	*uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ATTR_ASYNC_ENABLE:
 	*uval = SQL_ASYNC_ENABLE_OFF;
@@ -7192,6 +7193,7 @@ static SQLRETURN
 drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
     STMT *s = (STMT *) stmt;
+    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *ret = (SQLUINTEGER *) param;
 
     switch (opt) {
@@ -7202,15 +7204,12 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	*ret = s->curtype;
 	return SQL_SUCCESS;
     case SQL_ROW_NUMBER:
-	{
-	    DBC *d = (DBC *) s->dbc;
-
-	    if (s == d->cur_s3stmt) {
-		*ret = (d->s3stmt_rownum < 0) ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->s3stmt_rownum;
-	    }
+	if (s == d->cur_s3stmt) {
+	    *ret = (d->s3stmt_rownum < 0) ?
+		   SQL_ROW_NUMBER_UNKNOWN : (d->s3stmt_rownum + 1);
+	} else {
+	    *ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
-	*ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ASYNC_ENABLE:
 	*ret = SQL_ASYNC_ENABLE_OFF;
@@ -10284,7 +10283,7 @@ converr:
 		bin = s->bincache;
 	    }
 	    if (partial && len && s->bindcols) {
-		if (dlen && s->bindcols[col].offs >= dlen) {
+		if (s->bindcols[col].offs >= dlen) {
 		    s->bindcols[col].offs = 0;
 		    return SQL_NO_DATA;
 		}
@@ -10362,7 +10361,7 @@ converr:
 	    doz = (type == SQL_C_CHAR) ? 1 : 0;
 #endif
 	    if (partial && len && s->bindcols) {
-		if (dlen && s->bindcols[col].offs >= dlen) {
+		if (s->bindcols[col].offs >= dlen) {
 		    s->bindcols[col].offs = 0;
 #ifdef WINTERFACE
 		    uc_free(ucdata);

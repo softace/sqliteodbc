@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.141 2008/08/23 19:45:54 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.142 2008/09/13 06:22:13 chw Exp chw $
  *
  * Copyright (c) 2001-2008 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1714,7 +1714,6 @@ errout:
 			++qq;
 		    } while (*qq && ISSPACE(*qq));
 		    if (*qq && *qq != ';') {
-onlyone:
 			freep(&out);
 			*errmsg = "only one SQL statement allowed";
 			goto errout;
@@ -6440,6 +6439,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
     STMT *s = (STMT *) stmt;
+    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *uval = (SQLUINTEGER *) val;
 
     switch (attr) {
@@ -6459,16 +6459,12 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
 #endif
     case SQL_ATTR_ROW_NUMBER:
-	{
-	    STMT *s = (STMT *) stmt;
-	    DBC *d = (DBC *) s->dbc;
-
-	    if (s == d->vm_stmt) {
-		*uval = (d->vm_rownum < 0) ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
-	    }
+	if (s == d->vm_stmt) {
+	    *uval = (d->vm_rownum < 0) ?
+		    SQL_ROW_NUMBER_UNKNOWN : (d->vm_rownum + 1);
+	} else {
+	    *uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
-	*uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ATTR_ASYNC_ENABLE:
 	*uval = SQL_ASYNC_ENABLE_OFF;
@@ -6784,6 +6780,7 @@ static SQLRETURN
 drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
     STMT *s = (STMT *) stmt;
+    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *ret = (SQLUINTEGER *) param;
 
     switch (opt) {
@@ -6794,15 +6791,12 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	*ret = s->curtype;
 	return SQL_SUCCESS;
     case SQL_ROW_NUMBER:
-	{
-	    DBC *d = (DBC *) s->dbc;
-
-	    if (s == d->vm_stmt) {
-		*ret = (d->vm_rownum < 0) ?
-		    SQL_ROW_NUMBER_UNKNOWN : d->vm_rownum;
-	    }
+	if (s == d->vm_stmt) {
+	    *ret = (d->vm_rownum < 0) ?
+		   SQL_ROW_NUMBER_UNKNOWN : (d->vm_rownum + 1);
+	} else {
+	    *ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
-	*ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : s->rowp;
 	return SQL_SUCCESS;
     case SQL_ASYNC_ENABLE:
 	*ret = SQL_ASYNC_ENABLE_OFF;
@@ -9779,7 +9773,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    }
 #endif
 	    if (partial && len && s->bindcols) {
-		if (dlen && s->bindcols[col].offs >= dlen) {
+		if (s->bindcols[col].offs >= dlen) {
 		    s->bindcols[col].offs = 0;
 		    return SQL_NO_DATA;
 		}
@@ -9879,7 +9873,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    doz = type == SQL_C_CHAR ? 1 : 0;
 #endif
 	    if (partial && len && s->bindcols) {
-		if (dlen && s->bindcols[col].offs >= dlen) {
+		if (s->bindcols[col].offs >= dlen) {
 		    s->bindcols[col].offs = 0;
 #ifdef WINTERFACE
 		    uc_free(ucdata);
