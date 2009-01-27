@@ -24,8 +24,8 @@ USLEEP =
 #    multi-threaded program, then define the following macro
 #    appropriately:
 #
-THREADSAFE = -DTHREADSAFE=1
-#THREADSAFE = -DTHREADSAFE=0
+THREADSAFE = -DSQLITE_THREADSAFE=1
+#THREADSAFE = -DSQLITE_THREADSAFE=0
 
 #### Specify any extra linker options needed to make the library
 #    thread safe
@@ -49,7 +49,8 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=2
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
-OPTS  = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1
+OPTS  = -DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 \
+	-DWIN32=1 -DSQLITE_OS_WIN=1 $(THREADSAFE)
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.

@@ -24,8 +24,8 @@ USLEEP =
 #    multi-threaded program, then define the following macro
 #    appropriately:
 #
-THREADSAFE = -DTHREADSAFE=1
-#THREADSAFE = -DTHREADSAFE=0
+THREADSAFE = -DSQLITE_THREADSAFE=1
+#THREADSAFE = -DSQLITE_THREADSAFE=0
 
 #### Specify any extra linker options needed to make the library
 #    thread safe
@@ -50,7 +50,7 @@ TLIBS =
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
 OPTS =	-DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS3=1 \
-	-DWIN32=1 -DSQLITE_OS_WIN=1
+	-DWIN32=1 -DSQLITE_OS_WIN=1 $(THREADSAFE)
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -128,7 +128,8 @@ FTS2OBJ+= fts2.o fts2_hash.o fts2_porter.o fts2_tokenizer1.o
 
 # Object files for FTS3
 #
-FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer.o fts3_tokenizer1.o
+FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer.o fts3_tokenizer1.o \
+	fts3_expr.o fts3_icu.o
 
 # FTS1 source code files.
 #
@@ -161,7 +162,9 @@ FTS3SRC += \
   $(TOP)/ext/fts3/fts3_hash.h \
   $(TOP)/ext/fts3/fts3_porter.c \
   $(TOP)/ext/fts3/fts3_tokenizer.h \
-  $(TOP)/ext/fts3/fts3_tokenizer1.c
+  $(TOP)/ext/fts3/fts3_tokenizer1.c \
+  $(TOP)/ext/fts3/fts3_expr.c \
+  $(TOP)/ext/fts3/fts3_icu.c
 
 # Common headers
 HDR += $(TOP)/sqlite3.h \
@@ -186,7 +189,8 @@ FTS1HDR += \
 FTS3HDR += \
   $(TOP)/ext/fts3/fts3.h \
   $(TOP)/ext/fts3/fts3_hash.h \
-  $(TOP)/ext/fts3/fts3_tokenizer.h
+  $(TOP)/ext/fts3/fts3_tokenizer.h \
+  $(TOP)/ext/fts3/fts3_expr.h
 
 # This is the default Makefile target.  The objects listed here
 # are what get build when you type just "make" with no arguments.
@@ -249,6 +253,12 @@ fts3_tokenizer.o:	$(TOP)/ext/fts3/fts3_tokenizer.c $(FTS3HDR) $(HDR)
 
 fts3_tokenizer1.o:	$(TOP)/ext/fts3/fts3_tokenizer1.c $(FTS3HDR) $(HDR)
 	$(TCCX) -c $(TOP)/ext/fts3/fts3_tokenizer1.c
+
+fts3_expr.o:	$(TOP)/ext/fts3/fts3_expr.c $(FTS3HDR) $(HDR)	
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_expr.c
+
+fts3_icu.o:	$(TOP)/ext/fts3/fts3_icu.c $(FTS3HDR) $(HDR)	
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_icu.c
 
 sqlite3_mod_fts3.$(SO):	$(FTS3OBJ)
 	$(TCCX) -shared -Wl,--kill-at \

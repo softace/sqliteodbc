@@ -1,8 +1,8 @@
 #!/bin/sh
 #
 # Build script for cross compiling and packaging SQLite
-# ODBC drivers and tools using MinGW and NSIS.
-# Tested on Fedora Core 3 and 5.
+# ODBC drivers and tools for Win32 using MinGW and NSIS.
+# Tested on Fedora Core 3/5/8, Debian Etch, RHEL 5.
 #
 # Cross toolchain and NSIS for Linux/i386 can be fetched from
 #  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.i386.rpm
@@ -11,8 +11,17 @@
 set -e
 
 VER2=2.8.17
-VER3=3.6.3
+VER3=3.6.10
 TCCVER=0.9.24
+
+if test -n "$SQLITE_DLLS" ; then
+    export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
+    ADD_NSIS="-DWITH_SQLITE_DLLS"
+fi
+
+if test -n "$WITH_SOURCES" ; then
+    ADD_NSIS="$ADD_NSIS -DWITH_SOURCES"
+fi
 
 echo "===================="
 echo "Preparing sqlite ..."
@@ -447,7 +456,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.31 2008/09/22 19:17:43 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.38 2009/01/27 09:00:03 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -627,6 +636,25 @@ patch -d sqlite3 -p1 <<'EOD'
  
  #include "fts3_hash.h"
 EOD
+# patch: FTS3 again, for SQLite3 >= 3.6.8
+test "$VER3" == "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" && \
+  patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3_expr.c	2009-01-01 15:06:13.000000000 +0100
++++ sqlite3/ext/fts3/fts3_expr.c	2009-01-14 09:55:13.000000000 +0100
+@@ -57,6 +57,12 @@
+ #define SQLITE_FTS3_DEFAULT_NEAR_PARAM 10
+ 
+ #include "fts3_expr.h"
++
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ #include "sqlite3.h"
+ #include <ctype.h>
+ #include <string.h>
+EOD
 # patch: compile fix for rtree as extension module
 patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2008-07-16 16:43:35.000000000 +0200
@@ -667,6 +695,9 @@ echo "============================="
 echo "Building SQLite 2 ... ISO8859"
 echo "============================="
 make -C sqlite -f ../mf-sqlite.mingw-cross all
+if test -n "$SQLITE_DLLS" ; then
+    make -C sqlite -f ../mf-sqlite.mingw-cross sqlite.dll
+fi
 
 echo "====================="
 echo "Building SQLite 3 ..."
@@ -674,6 +705,9 @@ echo "====================="
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross all
 test -r sqlite3/tool/mksqlite3c.tcl && \
   make -C sqlite3 -f ../mf-sqlite3.mingw-cross sqlite3.c
+if test -n "$SQLITE_DLLS" ; then
+    make -C sqlite3 -f ../mf-sqlite3.mingw-cross sqlite3.dll
+fi
 
 echo "==================="
 echo "Building TinyCC ..."
@@ -696,6 +730,9 @@ echo "Building SQLite 2 ... UTF8"
 echo "=========================="
 make -C sqlite -f ../mf-sqlite.mingw-cross clean
 make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 all
+if test -n "$SQLITE_DLLS" ; then
+    make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 sqliteu.dll
+fi
 
 echo "========================="
 echo "Building drivers ... UTF8"
@@ -723,6 +760,18 @@ wine TCC/tiny_impdef.exe sqliteodbc.dll -o TCC/lib/sqlite.def
 wine TCC/tiny_impdef.exe sqliteodbcu.dll -o TCC/lib/sqliteu.def
 wine TCC/tiny_impdef.exe sqlite3odbc.dll -o TCC/lib/sqlite3.def
 
+if test -n "$SQLITE_DLLS" ; then
+    mv sqlite/sqlite.dll .
+    mv sqlite/sqliteu.dll .
+    mv sqlite3/sqlite3.dll .
+fi
+
+if test -n "$SQLITE_DLLS" ; then
+    wine TCC/tiny_impdef.exe sqlite.dll -o TCC/lib/sqlite.def
+    wine TCC/tiny_impdef.exe sqliteu.dll -o TCC/lib/sqliteu.def
+    wine TCC/tiny_impdef.exe sqlite3.dll -o TCC/lib/sqlite3.def
+fi
+
 echo "======================="
 echo "Cleanup after build ..."
 echo "======================="
@@ -742,4 +791,5 @@ cp -p README readme.txt
 unix2dos < license.terms > license.txt
 unix2dos -k TCC/doc/COPYING
 unix2dos -k TCC/doc/readme.txt
-makensis sqliteodbc.nsi
+makensis $ADD_NSIS sqliteodbc.nsi
+

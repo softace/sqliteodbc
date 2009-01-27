@@ -15,7 +15,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.6.3, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.6.10, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -41,7 +41,7 @@ experimental. That type is used for SQLite schema containing text
 or varchar with a size specifier larger than 255.
 
 The data type mapping obtains per-column meta information from the
-"PRAGMA table_info=..." SQLite statement. If SELECTs are used which
+"PRAGMA table_info(...)" SQLite statement. If SELECTs are used which
 contain columns for which the table qualifier cannot be determined,
 no meta information for data type mapping is available and therefore
 the database source data type will be SQL_VARCHAR or SQL_LONGVARCHAR
@@ -260,12 +260,36 @@ DNS-less connection to the driver
     Driver=SQLITE3;Database=full-path-to-db;...
 
 
+Build Instructions for Alpha/Tru64 (OSF1 V5.1) and HP/UX (B.11.23 U ia64)
+
+  Nikola Radovanovic had success with these commands to build
+  all required components:
+
+  sqlite (3.6.7):
+    ./configure --prefix=$HOME/development --disable-tcl \
+      CC='cc -pthread' CFLAGS='-DSQLITE_ENABLE_COLUMN_METADATA=1'
+    gmake && gmake install
+
+  unixODBC (2.2.12):
+    ./configure --prefix=${HOME}/development --disable-gui \
+      --without-x --enable-iconv=no
+    gmake && gmake install
+
+  sqliteodbc (>0.79):
+    ./configure --with-sqlite3=${HOME}/development \
+      --with-odbc=${HOME}/development --prefix=${HOME}/development \
+      --enable-winterface=no
+    OSF1:  gmake && gmake install
+    HP/UX: gmake CFLAGS="+DD64" && gmake install
+
+
+
 TODO:
 
 - improve documentation
 
 
-2008-09-29
+2009-01-27
 Christian Werner
 mailto:chw@ch-werner.de
 

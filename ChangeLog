@@ -1,6 +1,26 @@
 SQLite ODBC Driver
 ------------------
 
+Tue Jan 27 2009 version 0.80 released
+
+	* update to SQLite 3.6.10
+	* Tru64 and HP/UX 64 bit fixes and build notes in README
+	  thanks to Nikola Radovanovic
+	* length/indicator fixes for parameter arrays
+	* getrowdata fixes for length/indicator and truncation
+	* added Win32 build option to use sqlite*.dll instead of
+	  static linking
+	* initial Win64 support, thanks Nikolas Taylor for help
+	* fixed x86_64 problems in SQLite2 driver
+	* provide ODBC2/ODBC3 column names for metadata w.r.t. SQL_HENV
+	* provide proper SQL_DESC_LENGTH for SQL_BIT
+	* fixes in SQLBindCol regarding SQL_BIND_BY_COLUMN
+	* made SQL_DESC_OCTET_LENGTH/SQL_DESC_TYPE_NAME more
+	  consistent w.r.t. wide-char types
+	* fix in iODBC include path in configure.in, thanks
+	  Ingo Bormuth for patch
+	* again fixes in SQLGetData for SQL_NO_DATA paths
+
 Mon Sep 29 2008 version 0.79 released
 
 	* update to SQLite 3.6.3

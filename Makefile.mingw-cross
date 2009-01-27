@@ -47,11 +47,11 @@ all:		sqliteodbc.dll sqlite3odbc.dll \
 
 sqliteodbc.o:	sqliteodbc.c sqliteodbc.h resource.h
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
-		    $(SQLITE_FLAGS) sqliteodbc.c
+		    $(SQLITE_FLAGS) $(ADD_CFLAGS) sqliteodbc.c
 
 sqliteodbcu.o:	sqliteodbc.c sqliteodbc.h resource.h
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
-		    $(SQLITE_FLAGS) -o sqliteodbcu.o sqliteodbc.c
+		    $(SQLITE_FLAGS) $(ADD_CFLAGS) -o sqliteodbcu.o sqliteodbc.c
 
 sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
@@ -64,7 +64,8 @@ sqliteodbc.dll:		sqliteodbc.o sqliteodbcres.o
 sqlite.exe:		sqliteodbc.dll sqlite/src/minshell.c sqlite/sqlite.h \
 			sqliteres.o
 		$(CC) $(CFLAGS) $(SQLITE_FLAGS) -Isqlite -o sqlite.exe \
-		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbc
+		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbc \
+		    $(SQLITE_LIB)
 		$(STRIP) sqlite.exe
 
 sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
@@ -78,7 +79,8 @@ sqliteodbcu.dll:	sqliteodbcu.o sqliteodbcures.o
 sqliteu.exe:		sqliteodbcu.dll sqlite/src/minshell.c sqlite/sqlite.h \
 			sqliteres.o
 		$(CC) $(CFLAGS) -Isqlite -o sqliteu.exe \
-		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbcu
+		    sqlite/src/minshell.c sqliteres.o -L. -lsqliteodbcu \
+		    $(SQLITE_LIB)
 		$(STRIP) sqliteu.exe
 
 sqliteodbcres.o:	sqliteodbc.rc resource.h
@@ -95,11 +97,11 @@ resource.h:	resource.h.in
 
 sqlite3odbc.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
 		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
-		    $(SQLITE3_FLAGS) sqlite3odbc.c
+		    $(SQLITE3_FLAGS) $(ADD_CFLAGS) sqlite3odbc.c
 
 sqlite3odbcnw.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
 		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(ODBC_FLAGS) \
-		    $(SQLITE3_FLAGS) -DWITHOUT_WINTERFACE=1 \
+		    $(SQLITE3_FLAGS) $(ADD_CFLAGS) -DWITHOUT_WINTERFACE=1 \
 		    -o sqlite3odbcnw.o sqlite3odbc.c
 
 sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o
@@ -122,7 +124,8 @@ sqlite3odbcnw.dll:	sqlite3odbcnw.o sqlite3odbcres.o
 
 sqlite3.exe:		sqlite3odbc.dll sqlite3/src/minshell.c sqliteres.o
 		$(CC) $(CFLAGS) $(SQLITE3_FLAGS) -Isqlite3 -o sqlite3.exe \
-		    sqlite3/src/minshell.c sqliteres.o -L. -lsqlite3odbc
+		    sqlite3/src/minshell.c sqliteres.o -L. -lsqlite3odbc \
+		    $(SQLITE3_LIB)
 		$(STRIP) sqlite3.exe
 
 sqlite3odbcres.o:	sqlite3odbc.rc resource3.h
@@ -141,8 +144,9 @@ sqliteres.o:	sqliteres.rc
 		$(RC) -o sqliteres.o sqliteres.rc
 
 inst.exe:	inst.c sqliteres.o
-		$(CC) $(CFLAGS) -mwindows -o inst.exe inst.c sqliteres.o \
-		-lodbc32 -lodbccp32 -lkernel32 -luser32
+		$(CC) $(CFLAGS) $(ADD_CFLAGS) -mwindows -o inst.exe \
+		    inst.c sqliteres.o -lodbc32 -lodbccp32 -lkernel32 \
+		    -luser32
 		$(STRIP) inst.exe
 
 instq.exe:	inst.exe
@@ -155,8 +159,9 @@ uninstq.exe:	inst.exe
 		cp -p inst.exe uninstq.exe
 
 adddsn.exe:	adddsn.c sqliteres.o
-		$(CC) $(CFLAGS) -mwindows -o adddsn.exe adddsn.c sqliteres.o \
-		-lodbc32 -lodbccp32 -lkernel32 -luser32
+		$(CC) $(CFLAGS) $(ADD_CFLAGS) -mwindows -o adddsn.exe \
+		    adddsn.c sqliteres.o -lodbc32 -lodbccp32 -lkernel32 \
+		    -luser32
 		$(STRIP) adddsn.exe
 
 remdsn.exe:	adddsn.exe
@@ -169,7 +174,7 @@ remsysdsn.exe:	adddsn.exe
 		cp -p adddsn.exe remsysdsn.exe
 
 SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c sqliteres.o
-		$(CC) $(CFLAGS) -o SQLiteODBCInstaller.exe \
+		$(CC) $(CFLAGS) $(ADD_CFLAGS) -o SQLiteODBCInstaller.exe \
 		SQLiteODBCInstaller.c sqliteres.o -lkernel32 -luser32
 		$(STRIP) SQLiteODBCInstaller.exe
 

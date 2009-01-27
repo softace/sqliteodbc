@@ -24,8 +24,8 @@ USLEEP =
 #    multi-threaded program, then define the following macro
 #    appropriately:
 #
-THREADSAFE = -DTHREADSAFE=1
-#THREADSAFE = -DTHREADSAFE=0
+THREADSAFE = -DSQLITE_THREADSAFE=1
+#THREADSAFE = -DSQLITE_THREADSAFE=0
 
 #### Specify any extra linker options needed to make the library
 #    thread safe
@@ -50,7 +50,7 @@ TLIBS = -lcomdlg32
 #OPTS = -DSQLITE_DEBUG=1
 #OPTS = 
 OPTS =	-DNDEBUG=1 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_SOUNDEX=1 \
-	-DWIN32=1 -DSQLITE_OS_WIN=1
+	-DWIN32=1 -DSQLITE_OS_WIN=1 $(THREADSAFE)
 #OPTS += -DHAVE_FDATASYNC=1
 
 #### The suffix to add to executable files.  ".exe" for windows.
@@ -118,3 +118,10 @@ SRC += $(TOP)/src/libshell.c
 # You should not have to change anything below this line
 ###############################################################################
 include $(TOP)/main.mk
+
+sqlite3.dll:	$(LIBOBJ)
+	rm -f libsqlite3.a
+	$(TCC) $(CFLAGS) -shared -Wl,--kill-at \
+	    -Wl,--out-implib,libsqlite3.a -Wl,--strip-all \
+	    -o sqlite3.dll $(LIBOBJ) \
+	    -lcomdlg32 -lkernel32 -luser32 -lmsvcrt

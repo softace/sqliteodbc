@@ -2,11 +2,14 @@
 ;
 ; Run it with
 ;
-;    .../makensis [-DWITH_SOURCES] this-file.nsi
+;    .../makensis [-DWITH_SOURCES] [-DWITH_SQLITE_DLLS] this-file.nsi
 ;
 ; to create the installer sqliteodbc.exe
 ;
 ; If -DWITH_SOURCES is specified, source code is included.
+; If -DWITH_SQLITE_DLLS is specified, separate SQLite DLLs
+; are packaged which allows to exchange these independently
+; of the ODBC drivers in the Win32 system folder.
 
 ; -------------------------------
 ; Start
@@ -95,6 +98,11 @@ Section "-Main (required)" InstallationInfo
  File "license.txt"
  File "README"
  File "readme.txt"
+!ifdef WITH_SQLITE_DLLS
+ File "sqlite.dll"
+ File "sqliteu.dll"
+ File "sqlite3.dll"
+!endif
 
 ; Shortcuts
  SetOutPath "$SMPROGRAMS\${PROD_NAME0}"
@@ -175,12 +183,14 @@ Section /o "Source Code" SourceInstall
  File "source\makefile.os2"
  File "source\resourceos2.h"
  File "source\README.OS2"
+ File "source\README.ic"
  File "source\drvdsninst.sh"
  File "source\drvdsnuninst.sh"
  File "source\Makefile.mingw-cross"
  File "source\mf-sqlite.mingw-cross"
  File "source\mf-sqlite3.mingw-cross"
  File "source\mf-sqlite3fts.mingw-cross"
+ File "source\mf-sqlite3rtree.mingw-cross"
  File "source\mingw-cross-build.sh"
  File "source\sqliteodbc.nsi"
  File "source\SQLiteODBCInstaller.c"
@@ -190,11 +200,22 @@ Section /o "Source Code" SourceInstall
  File "source\sqlite.ico"
  File "source\sqliteodbc.ico"
  File "source\tcc-0.9.23.patch"
+ File "source\tcc-0.9.24.patch"
  File "source\sqlite+tcc.c"
  File "source\strict_typing.sql"
+ File "source\README.sqlite+tcc"
  SetOutPath "$INSTDIR\source\missing"
  File "source\missing/ini.h"
  File "source\missing/log.h"
+ SetOutPath "$INSTDIR\source\tccex"
+ File "source\tccex\README.bench"
+ File "source\tccex\obench.c"
+ File "source\tccex\sbench.c"
+ File "source\tccex\sqlite.c"
+ File "source\tccex\sqlite3.c"
+ File "source\tccex\samplext.c"
+ SetOutPath "$INSTDIR\source\tccex\a10n"
+ File "source\tccex\a10n\README.txt"
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN

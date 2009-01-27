@@ -5779,7 +5779,7 @@ echo "configure:5779: checking for ODBC headers and libraries" >&5
 for i in $ODBC_DIR ; do
    if test -r "$i/include/iodbc/sql.h" -o -r "$i/include/sql.h" ; then
       if test -r "$i/include/iodbc/iodbcinst.h" ; then
-         ODBC_FLAGS="-DHAVE_IODBC=1 -I$i/iodbc/include"
+         ODBC_FLAGS="-DHAVE_IODBC=1 -I$i/include/iodbc"
          if test -r "$i/lib/libiodbcinst.la" ; then
             ODBC_LIB="$i/lib/libiodbcinst.la"
          else

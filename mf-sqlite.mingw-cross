@@ -109,3 +109,17 @@ libshell.o:	$(TOP)/src/libshell.c sqlite.h
 # You should not have to change anything below this line
 ###############################################################################
 include $(TOP)/main.mk
+
+sqlite.dll:	$(LIBOBJ)
+	rm -f libsqlite.a
+	$(TCC) $(CFLAGS) -shared -Wl,--kill-at \
+	    -Wl,--out-implib,libsqlite.a -Wl,--strip-all \
+	    -o sqlite.dll $(LIBOBJ) \
+	    -lcomdlg32 -lkernel32 -luser32 -lmsvcrt
+
+sqliteu.dll:	$(LIBOBJ)
+	rm -f libsqlite.a
+	$(TCC) $(CFLAGS) -shared -Wl,--kill-at \
+	    -Wl,--out-implib,libsqlite.a -Wl,--strip-all \
+	    -o sqliteu.dll $(LIBOBJ) \
+	    -lcomdlg32 -lkernel32 -luser32 -lmsvcrt

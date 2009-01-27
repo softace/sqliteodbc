@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.10 2007/07/26 15:17:25 chw Exp chw $
+ * $Id: inst.c,v 1.11 2008/12/06 10:53:19 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -35,6 +35,13 @@ static char *DriverDLL[3] = {
     "sqliteodbcu.dll",
     "sqlite3odbc.dll"
 };
+#ifdef WITH_SQLITE_DLLS
+static char *EngineDLL[3] = {
+    "sqlite.dll",
+    "sqliteu.dll",
+    "sqlite3.dll"
+};
+#endif
 
 static int quiet = 0;
 static int nosys = 0;
@@ -121,13 +128,14 @@ CopyOrDelModules(char *dllname, char *path, BOOL del)
  * @param remove true for uninstall
  * @param drivername print name of driver
  * @param dllname file name of driver DLL
+ * @param dll2name file name of additional DLL
  * @param dsname name for data source
  */
 
 static BOOL
-InUn(int remove, char *drivername, char *dllname, char *dsname)
+InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 {
-    char path[301], driver[300], attr[300], inst[400];
+    char path[301], driver[300], attr[300], inst[400], inst2[400];
     WORD pathmax = sizeof (path) - 1, pathlen;
     DWORD usecnt, mincnt;
 
@@ -156,11 +164,17 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    ++p;
 	}
 	sprintf(inst, "%s\\%s", path, dllname);
+	if (dll2name) {
+	    sprintf(inst2, "%s\\%s", path, dll2name);
+	}
 	if (!remove && usecnt > 0) {
 	    /* first install try: copy over driver dll, keeping DSNs */
 	    if (GetFileAttributes(dllname) != 0xFFFFFFFF &&
 		CopyFile(dllname, inst, 0) &&
 		CopyOrDelModules(dllname, path, 0)) {
+		if (dll2name != NULL) {
+		    CopyFile(dll2name, inst2, 0);
+		}
 		return TRUE;
 	    }
 	}
@@ -179,6 +193,7 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 		char buf[512];
 
 		DeleteFile(inst);
+		/* but keep inst2 */
 		CopyOrDelModules(dllname, path, 1);
 		if (!quiet) {
 		    sprintf(buf, "%s uninstalled.", drivername);
@@ -211,6 +226,14 @@ InUn(int remove, char *drivername, char *dllname, char *dsname)
 	    MessageBox(NULL, buf, "CopyFile",
 		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
 	    return FALSE;
+	}
+	if (dll2name != NULL && !CopyFile(dll2name, inst2, 0)) {
+	    char buf[512];
+
+	    sprintf(buf, "Copy %s to %s failed", dll2name, inst2);
+	    MessageBox(NULL, buf, "CopyFile",
+		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+	    /* but go on hoping that an SQLite engine is in place */
 	}
 	if (!CopyOrDelModules(dllname, path, 0)) {
 	    return FALSE;
@@ -277,7 +300,12 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     quiet = strstr(p, "instq") != NULL;
     nosys = strstr(p, "nosys") != NULL;
     for (i = 0; i < 3; i++) {
-	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], DSName[i]);
+#ifdef WITH_SQLITE_DLLS
+	p = EngineDLL[i];
+#else
+	p = NULL;
+#endif
+	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], p, DSName[i]);
     }
     if (!remove && (ret[0] || ret[1] || ret[2])) {
 	if (!quiet) {

@@ -15,16 +15,16 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.25 2008/08/23 19:42:32 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.27 2009/01/08 11:57:14 chw Exp chw $
  *
- * Copyright (c) 2004-2008 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
  * DISCLAIMER OF ALL WARRANTIES.
  */
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #include <stdio.h>
 #include <io.h>
@@ -35,7 +35,7 @@
 #include <unistd.h>
 #endif
 #include <stdlib.h>
-#if defined(HAVE_LOCALECONV) || defined(_WIN32)
+#if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
 #include <locale.h>
 #endif
 #include <stdarg.h>
@@ -49,7 +49,7 @@
 #ifdef HAVE_IODBC
 #include <iodbcinst.h>
 #endif
-#if defined(HAVE_UNIXODBC) || defined(_WIN32)
+#if defined(HAVE_UNIXODBC) || defined(_WIN32) || defined(_WIN64)
 #include <odbcinst.h>
 #endif
 
@@ -95,7 +95,7 @@ struct stmt;
 typedef struct {
     int magic;			/**< Magic cookie */
     int ov3;			/**< True for SQL_OV_ODBC3 */
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     CRITICAL_SECTION cs;	/**< For serializing most APIs */
     DWORD owner;		/**< Current owner of CS or 0 */
 #endif
@@ -189,7 +189,9 @@ typedef struct {
 typedef struct {
     int type, stype;	/**< ODBC and SQL types */
     int coldef, scale;	/**< from SQLBindParameter() */
-    int max, *lenp;	/**< Max. size, actual size of parameter buffer */
+    SQLLEN max;		/**< Max. size size of parameter buffer */
+    SQLLEN *lenp;	/**< Actual size of parameter buffer */
+    SQLLEN *lenp0;	/**< Actual size of parameter buffer, initial value */
     void *param;	/**< Parameter buffer */
     void *param0;	/**< Parameter buffer, initial value */
     int inc;		/**< Increment for paramset size > 1 */
