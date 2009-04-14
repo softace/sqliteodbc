@@ -1,6 +1,26 @@
 SQLite ODBC Driver
 ------------------
 
+Tue Apr 14 2009 version 0.81 released
+
+	* update to SQLite 3.6.13
+	* use sqlite3_table_column_metadata() when available to
+	  optimize out "PRAGMA table_info()"
+	* configure now prefers the amalgamation SQLite3 source if
+	  it finds sqlite3.c/sqlite3.h using the --with-sqlite3 switch
+	* various hacks to make MS Excel/Query happy
+	* various fixes and enhancements in impexp.c
+	* keep sqlite3_stmt pointers as long as possible between
+	  SQLPrepare() and SQLExecute() in order to minimize
+	  SQLite API calls
+	* provide current date when retrieving TIME rows as TIMESTAMP
+	* now use amalgamation source sqlite3.c when building
+	  SQLite3 drivers
+	* partial implementation of SQLSetPos(), fixes in length
+	  handling for deferred parameters, and row-wise parameter
+	  array binding to make Database Template Library (DTL) happy
+	* 64 Bit fixes for getrowdata() thanks Nikolas Taylor for fix
+
 Tue Jan 27 2009 version 0.80 released
 
 	* update to SQLite 3.6.10

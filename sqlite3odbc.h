@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.27 2009/01/08 11:57:14 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.30 2009/03/22 08:45:33 chw Exp chw $
  *
  * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
  *
@@ -136,10 +136,14 @@ typedef struct dbc {
     int trans_disable;		/**< True for no transaction support */
     struct stmt *cur_s3stmt;	/**< Current STMT executing sqlite statement */
     int s3stmt_rownum;		/**< Current row number */
+    int s3stmt_needmeta;	/**< True to get meta data in s3stmt_step(). */
     FILE *trace;		/**< sqlite3_trace() file pointer or NULL */
 #ifdef USE_DLOPEN_FOR_GPPS
     void *instlib;
     int (*gpps)();
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+    int xcelqrx;
 #endif
 } DBC;
 
@@ -258,8 +262,10 @@ typedef struct stmt {
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
+    SQLUINTEGER parm_bind_type;	/**< SQL_ATTR_PARAM_BIND_TYPE */
     int curtype;		/**< Cursor type */
     sqlite3_stmt *s3stmt;	/**< SQLite statement handle or NULL */
+    int s3stmt_noreset;		/**< False when sqlite3_reset() needed. */
     char *bincell;		/**< Cache for blob data */
     char *bincache;		/**< Cache for blob data */
     int binlen;			/**< Length of blob data */

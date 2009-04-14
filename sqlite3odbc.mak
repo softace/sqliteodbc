@@ -1,4 +1,6 @@
 # VC++ 6 Makefile
+# uses the SQLite3 amalgamation source which must
+# be unpacked below in the same folder as this makefile
 
 CC=		cl
 LN=		link
@@ -11,17 +13,22 @@ CDEBUG=		-Zi
 LDEBUG=		/RELEASE
 !ENDIF
 
-CFLAGS=		-I. -Isqlite3 -Gs -GX -D_WIN32 -D_DLL -nologo $(CDEBUG) \
-		-DHAVE_SQLITE3COLUMNTABLENAME=1 -Daccess=_access
+CFLAGS=		-I. -Gs -GX -D_WIN32 -D_DLL -nologo $(CDEBUG) \
+		-DHAVE_SQLITE3COLUMNTABLENAME=1 \
+		-DHAVE_SQLITE3PREPAREV2=1 \
+		-DHAVE_SQLITE3VFS=1 \
+		-DHAVE_SQLITE3LOADEXTENSION=1 \
+		-DSQLITE_ENABLE_COLUMN_METADATA=1 \
+		-DWITHOUT_SHELL=1
 CFLAGSEXE=	-I. -Gs -GX -D_WIN32 -nologo $(CDEBUG)
 DLLLFLAGS=	/NODEFAULTLIB $(LDEBUG) /NOLOGO /MACHINE:IX86 \
 		/SUBSYSTEM:WINDOWS /DLL
 DLLLIBS=	msvcrt.lib odbccp32.lib kernel32.lib \
-		user32.lib comdlg32.lib sqlite3\libsqlite3.lib
+		user32.lib comdlg32.lib
 
 DRVDLL=		sqlite3odbc.dll
 
-OBJECTS=	sqlite3odbc.obj
+OBJECTS=	sqlite3odbc.obj sqlite3.obj
 
 .c.obj:
 		$(CC) $(CFLAGS) /c $<
@@ -38,8 +45,6 @@ clean:
 		del *.res
 		del resource3.h
 		del *.exe
-		cd sqlite3
-		nmake -f ..\sqlite3.mak clean
 		cd ..
 
 uninst.exe:	inst.exe
@@ -75,21 +80,16 @@ SQLiteODBCInstaller.exe:	SQLiteODBCInstaller.c
 sqlite3odbc.c:	resource3.h
 
 sqlite3odbc.res:	sqlite3odbc.rc resource3.h
-		$(RC) -I. -Isqlite3 -fo sqlite3odbc.res -r sqlite3odbc.rc
+		$(RC) -I. -fo sqlite3odbc.res -r sqlite3odbc.rc
 
-sqlite3odbc.dll:	sqlite3\libsqlite3.lib $(OBJECTS) sqlite3odbc.res
+sqlite3odbc.dll:	$(OBJECTS) sqlite3odbc.res
 		$(LN) $(DLLLFLAGS) $(OBJECTS) sqlite3odbc.res \
 		-def:sqlite3odbc.def -out:$@ $(DLLLIBS)
 
-VERSION_C:	VERSION
+VERSION_C:	fixup.exe VERSION
 		.\fixup < VERSION > VERSION_C . ,
 
 resource3.h:	resource.h.in VERSION_C fixup.exe
 		.\fixup < resource.h.in > resource3.h \
 		    --VERS-- @VERSION \
 		    --VERS_C-- @VERSION_C
-
-sqlite3\libsqlite3.lib:	fixup.exe mkopc3.exe
-		cd sqlite3
-		nmake -f ..\sqlite3.mak
-		cd ..

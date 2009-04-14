@@ -6,7 +6,7 @@ libdir =	@libdir@
 CC =		@CC@
 INSTALL =	@INSTALL@
 LIBTOOL =	./libtool
-CFLAGS=		@CFLAGS@ -DDRIVER_VER_INFO=\"@VER_INFO@\"
+CFLAGS=		@CFLAGS@ -DDRIVER_VER_INFO=\"@VER_INFO@\" @SQLITE3_A10N_FLAGS@
 SQLITE_INC =	@SQLITE_INC@
 SQLITE_LIB =	@SQLITE_LIB@
 SQLITE_FLAGS =	-DHAVE_LIBVERSION=@SQLITE_LIBVERSION@ \
@@ -22,7 +22,10 @@ SQLITE3_FLAGS = -DHAVE_SQLITE3COLUMNTABLENAME=@SQLITE3_COLUMNTABLENAME@ \
 		-DHAVE_SQLITE3PREPAREV2=@SQLITE3_PREPARE_V2@ \
 		-DHAVE_SQLITE3CLEARBINDINGS=@SQLITE3_CLEARBINDINGS@ \
 		-DHAVE_SQLITE3CREATEMODULEV2=@SQLITE3_CREATEMODULE_V2@ \
-		-DHAVE_SQLITE3VFS=@SQLITE3_VFS@
+		-DHAVE_SQLITE3VFS=@SQLITE3_VFS@ \
+		-DHAVE_SQLITE3TABLECOLUMNMETADATA=@SQLITE3_TABLECOLUMNMETADATA@
+SQLITE3_A10N_C =	@SQLITE3_A10N_C@
+SQLITE3_A10N_O =	@SQLITE3_A10N_O@
 ODBC_FLAGS =	@ODBC_FLAGS@
 ODBC_LIB =	@ODBC_LIB@
 VER_INFO =	@VER_INFO@
@@ -34,10 +37,10 @@ libsqliteodbc.la:	sqliteodbc.lo
 		    sqliteodbc.lo -rpath $(libdir) $(SQLITE_LIB) \
 		    $(ODBC_LIB) -release $(VER_INFO)
 
-libsqlite3odbc.la:	sqlite3odbc.lo
+libsqlite3odbc.la:	sqlite3odbc.lo $(SQLITE3_A10N_O)
 		$(LIBTOOL) --mode=link $(CC) $(CFLAGS) -o libsqlite3odbc.la \
-		    sqlite3odbc.lo -rpath $(libdir) $(SQLITE3_LIB) \
-		    $(ODBC_LIB) -release $(VER_INFO)
+		    sqlite3odbc.lo $(SQLITE3_A10N_O) -rpath $(libdir) \
+		    $(SQLITE3_LIB) $(ODBC_LIB) -release $(VER_INFO)
 
 libsqlite3_mod_blobtoxy.la:	blobtoxy.lo
 		$(LIBTOOL) --mode=link $(CC) $(CFLAGS) \
@@ -58,6 +61,9 @@ sqlite3odbc.lo:	sqlite3odbc.c sqlite3odbc.h
 		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
 		    -I$(SQLITE3_INC) $(ODBC_FLAGS) \
 		    $(SQLITE3_FLAGS) sqlite3odbc.c
+
+$(SQLITE3_A10N_O):	$(SQLITE3_A10N_C)
+		$(LIBTOOL) --mode=compile $(CC) -c $(CFLAGS) $(SQLITE3_A10N_C)
 
 blobtoxy.lo:	blobtoxy.c
 		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \

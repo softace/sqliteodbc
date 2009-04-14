@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.51 2009/01/08 11:57:14 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.53 2009/03/22 08:45:33 chw Exp chw $
  *
  * Copyright (c) 2001-2009 Christian Werner <chw@ch-werner.de>
  *
@@ -156,6 +156,9 @@ typedef struct dbc {
     void *instlib;
     int (*gpps)();
 #endif
+#if defined(_WIN32) || defined(_WIN64)
+    int xcelqrx;
+#endif
 } DBC;
 
 /**
@@ -268,6 +271,7 @@ typedef struct stmt {
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
     SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
+    SQLUINTEGER parm_bind_type;	/**< SQL_ATTR_PARAM_BIND_TYPE */
     int curtype;		/**< Cursor type */
     sqlite_vm *vm;		/**< SQLite VM or NULL */
 #if HAVE_ENCDEC

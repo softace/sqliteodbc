@@ -801,7 +801,7 @@ int RunUnInstaller( const struct RunningOptionData_Struct *pRunData )
 			break;
 
 			default:
-				_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Internel error: %s: Can not run: %d\n", __FUNCTION__, pRunData->DoFollow );
+				_snprintf( g_ErrorMessage, SQLINST_MAX_ERROR_BUFFER, "Internel error: %s: Can not run: %d\n", "RunUnInstaller", pRunData->DoFollow );
 				g_ErrorMessage[SQLINST_MAX_ERROR_BUFFER-1] = 0;
 				MessageToUser( g_ErrorMessage );
 				// Break with error

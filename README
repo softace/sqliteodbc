@@ -15,7 +15,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.6.10, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.6.13, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -186,17 +186,15 @@ Build instructions for MS Visual C++ 6.0:
 ... for SQLite 3.x.x
 
 1. Extract the source tarball sqliteodbc.tar.gz
-2. Extract the official SQLite 3.x.x. sources in the sqliteodbc
-   directory which resulted from step 1. Rename the resulting
-   sqlite directory to sqlite3
+2. Extract the amalgamation SQLite 3.x.x. sources in the sqliteodbc
+   directory which resulted from step 1.
 3. Setup your MSVC++ environment, ie PATH/INCLUDE/LIB, then
    open a command window, cd to the sqliteodbc directory and enter:
 
         nmake -f sqlite3odbc.mak
 
-   This compiles the SQLite3 sources first, creates a link library
-   of the necessary object files, then compiles and links the ODBC
-   driver and the (un)install program.
+   This compiles the amalgamation SQLite3 source and the ODBC driver
+   first, then and links the ODBC driver and the (un)install program.
 
 Names of Win32 Driver DLLs:
 
@@ -289,7 +287,7 @@ TODO:
 - improve documentation
 
 
-2009-01-27
+2009-04-14
 Christian Werner
 mailto:chw@ch-werner.de
 

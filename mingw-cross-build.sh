@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.6.10
+VER3=3.6.13
 TCCVER=0.9.24
 
 if test -n "$SQLITE_DLLS" ; then
@@ -48,6 +48,7 @@ patch sqlite/main.mk <<'EOD'
           select.o table.o tokenize.o trigger.o update.o util.o \
           vacuum.o vdbe.o vdbeaux.o where.o tclsqlite.o
 EOD
+
 # display encoding
 patch sqlite/src/shell.c <<'EOD'
 --- sqlite/src/shell.c.orig	2005-04-24 00:43:22.000000000 +0200
@@ -85,6 +86,7 @@ patch sqlite/src/shell.c <<'EOD'
        zHome = find_home_dir();
        if( zHome && (zHistory = malloc(strlen(zHome)+20))!=0 ){
 EOD
+
 # use open file dialog when no database name given
 # need to link with -lcomdlg32 when enabled
 true || patch sqlite/src/shell.c <<'EOD'
@@ -178,6 +180,7 @@ patch sqlite/src/libshell.c <<'EOD'
    }
    if( i<argc ){
 EOD
+
 rm -f sqlite/src/minshell.c
 touch sqlite/src/minshell.c
 patch sqlite/src/minshell.c <<'EOD'
@@ -230,6 +233,7 @@ patch sqlite3/main.mk <<'EOD'
    $(TOP)/src/analyze.c \
    $(TOP)/src/attach.c \
 EOD
+
 # use open file dialog when no database name given
 # need to link with -lcomdlg32 when enabled
 true || patch sqlite3/src/shell.c <<'EOD'
@@ -337,6 +341,7 @@ patch sqlite3/src/libshell.c <<'EOD'
      data.zDbFilename = ":memory:";
  #else
 EOD
+
 rm -f sqlite3/src/minshell.c
 touch sqlite3/src/minshell.c
 patch sqlite3/src/minshell.c <<'EOD'
@@ -421,7 +426,7 @@ diff -u sqlite3.orig/src/pragma.c sqlite3/src/pragma.c
 diff -u sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
 --- sqlite3.orig/src/vtab.c	2007-01-09 15:01:14.000000000 +0100
 +++ sqlite3/src/vtab.c	2007-01-30 08:23:22.000000000 +0100
-@@ -436,6 +436,9 @@
+@@ -540,6 +540,9 @@
    int rc = SQLITE_OK;
    Table *pTab = db->pVTab;
    char *zErr = 0;
@@ -429,9 +434,9 @@ diff -u sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
 +  FKey *pFKey;
 +#endif
  
-   if( !pTab ){
-     sqlite3Error(db, SQLITE_MISUSE, 0);
-@@ -464,6 +467,15 @@
+   sqlite3_mutex_enter(db->mutex);
+   pTab = db->pVTab;
+@@ -568,6 +571,15 @@
    }
    sParse.declareVtab = 0;
  
@@ -444,9 +449,9 @@ diff -u sqlite3.orig/src/vtab.c sqlite3/src/vtab.c
 +  }
 +#endif
 +
-   sqlite3_finalize((sqlite3_stmt*)sParse.pVdbe);
-   sqlite3DeleteTable(0, sParse.pNewTable);
-   sParse.pNewTable = 0;
+   if( sParse.pVdbe ){
+     sqlite3VdbeFinalize(sParse.pVdbe);
+   }
 EOD
 
 # patch: re-enable NO_TCL in tclsqlite.c (3.3.15)
@@ -456,7 +461,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.38 2009/01/27 09:00:03 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.40 2009/04/14 12:07:37 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -513,8 +518,9 @@ true || patch -d sqlite3 -p1 <<'EOD'
    }
    if( type>=RESERVED_LOCK ){
 EOD
-# patch: Win32 locking and pager unlock, for SQLite3 >= 3.5.4
-patch -d sqlite3 -p1 <<'EOD'
+
+# patch: Win32 locking and pager unlock, for SQLite3 >= 3.5.4 && <= 3.6.10
+true || patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/os_win.c       2007-12-13 22:38:58.000000000 +0100
 +++ sqlite3/src/os_win.c    2008-01-18 10:01:48.000000000 +0100
 @@ -855,8 +855,8 @@
@@ -549,6 +555,49 @@ patch -d sqlite3 -p1 <<'EOD'
    }
  
 @@ -982,6 +993,7 @@
+       /* This should never happen.  We should always be able to
+       ** reacquire the read lock */
+       rc = SQLITE_IOERR_UNLOCK;
++      locktype = NO_LOCK;
+     }
+   }
+   if( type>=RESERVED_LOCK ){
+EOD
+
+# patch: Win32 locking and pager unlock, for SQLite3 >= 3.6.11
+patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/os_win.c    2009-02-15 14:07:09.000000000 +0100
++++ sqlite3/src/os_win.c    2009-02-20 16:39:48.000000000 +0100
+@@ -922,7 +922,7 @@
+   newLocktype = pFile->locktype;
+   if(   (pFile->locktype==NO_LOCK)
+      || (   (locktype==EXCLUSIVE_LOCK)
+-         && (pFile->locktype==RESERVED_LOCK))
++         && (pFile->locktype<RESERVED_LOCK))
+   ){
+     int cnt = 3;
+     while( cnt-->0 && (res = LockFile(pFile->h, PENDING_BYTE, 0, 1, 0))==0 ){
+@@ -981,7 +981,18 @@
+     }else{
+       error = GetLastError();
+       OSTRACE2("error-code = %d\n", error);
+-      getReadLock(pFile);
++      if( !getReadLock(pFile) ){
++        /* This should never happen.  We should always be able to
++        ** reacquire the read lock */
++        OSTRACE1("could not re-get a SHARED lock.\n");
++        if( newLocktype==PENDING_LOCK || pFile->locktype==PENDING_LOCK ){
++          UnlockFile(pFile->h, PENDING_BYTE, 0, 1, 0);
++        }
++        if( pFile->locktype==RESERVED_LOCK ){
++          UnlockFile(pFile->h, RESERVED_BYTE, 0, 1, 0);
++        }
++        newLocktype = NO_LOCK;
++      }
+     }
+   }
+ 
+@@ -1057,6 +1068,7 @@
        /* This should never happen.  We should always be able to
        ** reacquire the read lock */
        rc = SQLITE_IOERR_UNLOCK;
@@ -636,8 +685,10 @@ patch -d sqlite3 -p1 <<'EOD'
  
  #include "fts3_hash.h"
 EOD
+
 # patch: FTS3 again, for SQLite3 >= 3.6.8
-test "$VER3" == "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" && \
+test "$VER3" == "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" \
+  -o "$VER3" = "3.6.11" -o "$VER3" = "3.6.12" -o "$VER3" = "3.6.13" && \
   patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2009-01-01 15:06:13.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_expr.c	2009-01-14 09:55:13.000000000 +0100

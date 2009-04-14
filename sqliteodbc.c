@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.148 2009/01/20 09:22:00 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.155 2009/03/22 11:57:57 chw Exp chw $
  *
  * Copyright (c) 2001-2009 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -2399,11 +2399,31 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	}
     }
 done:
+    /* Replace missing year/month/day with current date */
+    if (!err && (m & 1) == 0) {
+#ifdef _WIN32
+	SYSTEMTIME t;
+
+	GetLocalTime(&t);
+	tss->year = t.wYear;
+	tss->month = t.wMonth;
+	tss->day = t.wDay;
+#else
+	struct timeval tv;
+	struct tm tm;
+
+	gettimeofday(&tv, NULL);
+	tm = *localtime(&tv.tv_sec);
+	tss->year = tm.tm_year + 1900;
+	tss->month = tm.tm_mon + 1;
+	tss->day = tm.tm_mday;
+#endif
+    }
     /* final check for overflow */
     if (err ||
 	tss->month < 1 || tss->month > 12 ||
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
-	tss->hour > 23 || tss->minute > 60 || tss->second > 60) {
+	tss->hour > 23 || tss->minute > 59 || tss->second > 59) {
 	return -1;
     }
     return ((m & 7) < 1) ? -1 : 0;
@@ -2533,6 +2553,39 @@ connfail:
     d->dbname = xstrdup(name);
     freep(&d->dsn);
     d->dsn = xstrdup(dsn);
+#if defined(_WIN32) || defined(_WIN64)
+    {
+	char pname[MAX_PATH];
+	HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+			       FALSE, GetCurrentProcessId());
+
+	pname[0] = '\0';
+	if (h) {
+	    HMODULE m = NULL, l = LoadLibrary("psapi.dll");
+	    DWORD need;
+	    typedef BOOL (WINAPI *epmfunc)(HANDLE, HMODULE *, DWORD, LPDWORD);
+	    typedef BOOL (WINAPI *gmbfunc)(HANDLE, HMODULE, LPSTR, DWORD);
+	    epmfunc epm;
+	    gmbfunc gmb;
+
+	    if (l) {
+		epm = GetProcAddress(l, "EnumProcessModules");
+		gmb = GetProcAddress(l, "GetModuleBaseNameA");
+		if (epm && gmb && epm(h, &m, sizeof (m), &need)) {
+		    gmb(h, m, pname, sizeof (pname));
+		}
+		FreeLibrary(l);
+	    }
+	    CloseHandle(h);
+	}
+	d->xcelqrx = strncasecmp(pname, "EXCEL", 5) == 0 ||
+		     strncasecmp(pname, "MSQRY", 5) == 0;
+	if (d->trace && d->xcelqrx) {
+	    fprintf(d->trace, "-- enabled EXCEL quirks\n");
+	    fflush(d->trace);
+	}
+    }
+#endif
     return SQL_SUCCESS;
 }
 
@@ -3528,7 +3581,8 @@ substparam(STMT *s, int pnum, char **outp)
 	return SQL_SUCCESS;
     default:
     error:
-	setstat(s, -1, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
+	setstat(s, -1, "unsupported parameter type",
+		(*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
     if (!p->parbuf && p->lenp) {
@@ -3823,12 +3877,12 @@ setupparbuf(STMT *s, BINDPARM *p)
 {
     if (!p->parbuf) {
 	p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
-	if (p->len <= 0 && p->len != SQL_NTS &&
+	if (p->len < 0 && p->len != SQL_NTS &&
 	    p->len != SQL_NULL_DATA) {
 	    setstat(s, -1, "invalid length", "HY009");
 	    return SQL_ERROR;
 	}
-	if (p->len > 0) {
+	if (p->len >= 0) {
 	    p->parbuf = xmalloc(p->len + 1);
 	    if (!p->parbuf) {
 		return nomem(s);
@@ -4435,7 +4489,11 @@ drvprimarykeys(SQLHSTMT stmt,
 		char buf[32];
 
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(tname);
 		s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
 		sprintf(buf, "%d", seq++);
@@ -4536,7 +4594,11 @@ nodata:
 			int roffs = (offs + m) * s->ncols;
 
 			s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+			s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 			s->rows[roffs + 1] = xstrdup("");
+#endif
 			s->rows[roffs + 2] = xstrdup(tname);
 			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
@@ -5205,7 +5267,11 @@ nodata:
 		}
 	    }
 	    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 	    s->rows[roffs + 1] = xstrdup("");
+#endif
 	    s->rows[roffs + 2] = xstrdup(ptab);
 	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + toc]);
 	    s->rows[roffs + 4] = xstrdup("");
@@ -5340,7 +5406,11 @@ nodata:
 		    }
 		}
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(ptab);
 		s->rows[roffs + 3] = xstrdup(rowpp[k * nncols + toc]);
 		s->rows[roffs + 4] = xstrdup("");
@@ -6791,9 +6861,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	if (val != (SQLPOINTER) SQL_PARAM_BIND_BY_COLUMN) {
-	    goto e01s02;
-	}
+	s->parm_bind_type = (PTRDIFF_T) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	s->parm_oper = (SQLUSMALLINT *) val;
@@ -7100,8 +7168,38 @@ SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
 }
 #endif
 
+/*
+ * Internal set position on result in HSTMT.
+ * @param stmt statement handle
+ * @param row row to be positioned
+ * @param op operation code
+ * @param lock locking type
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+drvsetpos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
+{
+    STMT *s = (STMT *) stmt;
+
+    if (op != SQL_POSITION) {
+	return drvunimplstmt(stmt);
+    }
+    if (!s->rows || row <= 0 || row > s->nrows) {
+	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
+	return SQL_ERROR;
+    }
+    s->rowp = row - 1;
+    return SQL_SUCCESS;
+}
+
 /**
- * Function not implemented.
+ * Set position on result in HSTMT.
+ * @param stmt statement handle
+ * @param row row to be positioned
+ * @param op operation code
+ * @param lock locking type
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
@@ -7110,7 +7208,7 @@ SQLSetPos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
-    ret = drvunimplstmt(stmt);
+    ret = drvsetpos(stmt, row, op, lock);
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -7310,11 +7408,17 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
     case SQL_MAX_ROW_SIZE_INCLUDES_LONG:
-#ifdef SQL_CATALOG_NAME
-    case SQL_CATALOG_NAME:
-#endif
 	strmak(val, "N", valMax, valLen);
 	break;
+#ifdef SQL_CATALOG_NAME
+    case SQL_CATALOG_NAME:
+#if defined(_WIN32) || defined(_WIN64)
+	strmak(val, d->xcelqrx ? "Y": "N", valMax, valLen);
+#else
+	strmak(val, "N", valMax, valLen);
+#endif
+	break;
+#endif
     case SQL_DATA_SOURCE_READ_ONLY:
 	strmak(val, "N", valMax, valLen);
 	break;
@@ -7391,10 +7495,20 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, ".", valMax, valLen);
 	break;
     case SQL_QUALIFIER_TERM:
+#if defined(_WIN32) || defined(_WIN64)
+	strmak(val, d->xcelqrx ? "CATALOG" : "", valMax, valLen);
+#else
 	strmak(val, "", valMax, valLen);
+#endif
 	break;
     case SQL_QUALIFIER_USAGE:
+#if defined(_WIN32) || defined(_WIN64)
+	*((SQLUINTEGER *) val) = d->xcelqrx ?
+	    (SQL_CU_DML_STATEMENTS | SQL_CU_INDEX_DEFINITION |
+	     SQL_CU_TABLE_DEFINITION) : 0;
+#else
 	*((SQLUINTEGER *) val) = 0;
+#endif
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
@@ -7543,7 +7657,12 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FILE_USAGE:
-	*((SQLSMALLINT *) val) = SQL_FILE_CATALOG;
+#if defined(_WIN32) || defined(_WIN64)
+	*((SQLSMALLINT *) val) =
+	    d->xcelqrx ? SQL_FILE_CATALOG : SQL_FILE_NOT_SUPPORTED;
+#else
+	*((SQLSMALLINT *) val) = SQL_FILE_NOT_SUPPORTED;
+#endif
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GROUP_BY:
@@ -7799,7 +7918,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     exists[SQL_API_SQLDRIVERS] = SQL_FALSE;
     exists[SQL_API_SQLPROCEDURES] = SQL_TRUE;
     exists[SQL_API_SQLEXTENDEDFETCH] = SQL_TRUE;
-    exists[SQL_API_SQLSETPOS] = SQL_FALSE;
+    exists[SQL_API_SQLSETPOS] = SQL_TRUE;
     exists[SQL_API_SQLFOREIGNKEYS] = SQL_TRUE;
     exists[SQL_API_SQLSETSCROLLOPTIONS] = SQL_TRUE;
     exists[SQL_API_SQLMORERESULTS] = SQL_TRUE;
@@ -8211,9 +8330,12 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_TRANSLATE_OPTION:
     case SQL_ATTR_KEYSET_SIZE:
     case SQL_ATTR_QUERY_TIMEOUT:
-    case SQL_ATTR_PARAM_BIND_TYPE:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_PARAM_BIND_TYPE:
+	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	*buflen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ATTR_ROW_BIND_TYPE:
 	*((SQLUINTEGER *) val) = SQL_BIND_BY_COLUMN;
@@ -8350,7 +8472,16 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
 	    goto doit;
 	}
+	if (len == SQL_IS_POINTER) {
+	    if (val == (SQLPOINTER) SQL_AUTOCOMMIT_ON ||
+		val == (SQLPOINTER) SQL_AUTOCOMMIT_OFF) {
+		d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
+		goto doit;
+	    }
+	    goto getit;
+	}
 	if (val && len >= sizeof (SQLINTEGER)) {
+getit:
 	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
 doit:
 	    if (d->autocommit && d->intrans) {
@@ -9133,6 +9264,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->bind_type = SQL_BIND_BY_COLUMN;
     s->bind_offs = NULL;
     s->paramset_size = 1;
+    s->parm_bind_type = SQL_PARAM_BIND_BY_COLUMN;
     sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
     sl = d->stmt;
     pl = NULL;
@@ -9738,7 +9870,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_ULONG:
 	case SQL_C_LONG:
 	case SQL_C_SLONG:
-	    *((long *) val) = 0;
+	    *((SQLINTEGER *) val) = 0;
 	    break;
 	case SQL_C_FLOAT:
 	    *((float *) val) = 0;
@@ -9813,11 +9945,11 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_ULONG:
 	case SQL_C_LONG:
 	case SQL_C_SLONG:
-	    *((int *) val) = strtol(*data, &endp, 0);
+	    *((SQLINTEGER *) val) = strtol(*data, &endp, 0);
 	    if (endp && endp == *data) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
-		*lenp = sizeof (int);
+		*lenp = sizeof (SQLINTEGER);
 	    }
 	    break;
 	case SQL_C_FLOAT:
@@ -10318,13 +10450,15 @@ drvtables(SQLHSTMT stmt,
 	return SQL_SUCCESS;
     }
     if (cat && (catLen > 0 || catLen == SQL_NTS) && cat[0] == '%') {
-	return SQL_SUCCESS;
+	table = NULL;
+	goto doit;
     }
     if (schema && (schemaLen > 0 || schemaLen == SQL_NTS) &&
 	schema[0] == '%') {
 	if ((!cat || catLen == 0 || !cat[0]) &&
 	    (!table || tableLen == 0 || !table[0])) {
-	    return SQL_SUCCESS;
+	    table = NULL;
+	    goto doit;
 	}
     }
     if (type && (typeLen > 0 || typeLen == SQL_NTS) && type[0] != '\0') {
@@ -10371,6 +10505,7 @@ drvtables(SQLHSTMT stmt,
 	    return SQL_SUCCESS;
 	}
     }
+doit:
     if (!table) {
 	size = 1;
 	tname[0] = '%';
@@ -10388,6 +10523,20 @@ drvtables(SQLHSTMT stmt,
     if (ret != SQL_SUCCESS) {
 	return ret;
     }
+#if defined(_WIN32) || defined(_WIN64)
+    rc = sqlite_get_table_printf(d->sqlite,
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "upper(type) as 'TABLE_TYPE', "
+				 "NULL as 'REMARKS' "
+				 "from sqlite_master where %s "
+				 "and tbl_name %s '%q'",
+				 &s->rows, &s->nrows, &ncols, &errp,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 where, npatt ? "like" : "=", tname);
+#else
     rc = sqlite_get_table_printf(d->sqlite,
 				 "select NULL as 'TABLE_QUALIFIER', "
 				 "NULL as 'TABLE_OWNER', "
@@ -10398,6 +10547,7 @@ drvtables(SQLHSTMT stmt,
 				 "and tbl_name %s '%q'",
 				 &s->rows, &s->nrows, &ncols, &errp,
 				 where, npatt ? "like" : "=", tname);
+#endif
     if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
 	    freeresult(s, 0);
@@ -10741,7 +10891,11 @@ drvcolumns(SQLHSTMT stmt,
 	    for (k = 0; k < nr; k++) {
 		m = asize * (roffs + k);
 		s->rows[m + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[m + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[m + 1] = xstrdup("");
+#endif
 		s->rows[m + 2] = xstrdup(trows[i]);
 		s->rows[m + 8] = xstrdup("10");
 		s->rows[m + 9] = xstrdup("0");
@@ -11543,7 +11697,11 @@ nodata:
 		s->nrows = 1;
 		roffs = s->ncols;
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(tname);
 		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
 		s->rows[roffs + 5] = xstrdup("(autoindex 0)");
@@ -13877,11 +14035,19 @@ done2:
 		    p->param = NULL;
 		}
 		freep(&p->parbuf);
-		if (p->lenp0 && p->inc > 0) {
+		if (p->lenp0 &&
+		    s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+		    p->lenp = (SQLLEN *) ((char *) p->lenp0 +
+			s->paramset_count * s->parm_bind_type);
+		} else if (p->lenp0 && p->inc > 0) {
 		    p->lenp = p->lenp0 + s->paramset_count;
 		}
 		if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
-		    if (p->param0 && p->inc > 0) {
+		    if (p->param0 &&
+			s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+			p->param = (char *) p->param0 +
+			    s->paramset_count * s->parm_bind_type;
+		    } else if (p->param0 && p->inc > 0) {
 			p->param = (char *) p->param0 +
 			    s->paramset_count * p->inc;
 		    }

@@ -127,7 +127,14 @@ fi
 AC_MSG_CHECKING([for SQLite3 header and library])
 for i in $SQLITE3_DIR ; do
    if test -r "$i/sqlite3.h" ; then
-      if test -r "$i/libsqlite3.la" ; then
+      if test -r "$i/sqlite3.c" ; then
+         SQLITE3_INC="$i"
+         SQLITE3_LIB="unknown"
+         SQLITE3_LIBDIR=""
+         SQLITE3_A10N_C="$i/sqlite3.c"
+         SQLITE3_A10N_O="sqlite3.lo"
+         break
+      elif test -r "$i/libsqlite3.la" ; then
          SQLITE3_INC="$i"
          SQLITE3_LIB="$i/libsqlite3.la"
          SQLITE3_LIBDIR=$i
@@ -156,9 +163,18 @@ else
    UNINST_TARGETS="$UNINST_TARGETS uninstall-3"
    DRVINST_TARGETS="$DRVINST_TARGETS drvinst-3"
    DRVUNINST_TARGETS="$DRVUNINST_TARGETS drvuninst-3"
+   if test -n "$SQLITE3_A10N_C" ; then
+      SQLITE3_LIB=""
+      SQLITE3_A10N_FLAGS="$SQLITE3_A10N_FLAGS -DSQLITE_ENABLE_COLUMN_METADATA=1"
+      SQLITE3_A10N_FLAGS="$SQLITE3_A10N_FLAGS -DSQLITE_DLL=1 -DSQLITE_SOUNDEX=1"
+      SQLITE3_A10N_FLAGS="$SQLITE3_A10N_FLAGS -DSQLITE_THREADSAFE=1"
+   fi
 fi
 AC_SUBST(SQLITE3_INC)
 AC_SUBST(SQLITE3_LIB)
+AC_SUBST(SQLITE3_A10N_C)
+AC_SUBST(SQLITE3_A10N_O)
+AC_SUBST(SQLITE3_A10N_FLAGS)
 
 # test for availability of some sqlite3_*() funcs
 
@@ -166,42 +182,60 @@ if test -n "$SQLITE3_LIBDIR" ; then
    SQLITE3_LIBDIR="-L$SQLITE3_LIBDIR"
 fi
 
-saved_CFLAGS=$CFLAGS
-CFLAGS="$CFLAGS -I$SQLITE3_INC"
-saved_LIBS=$LIBS
-LIBS="$LIBS $SQLITE3_LIBDIR"
-AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
-	     SQLITE3_LOADEXTENSION=1,
-	     SQLITE3_LOADEXTENSION=0)
-if test "$SQLITE3_LOADEXTENSION" = "0" ; then
-   unset ac_cv_lib_sqlite3_sqlite3_load_extension
-   # try again with -ldl
-   LIBS="$LIBS -ldl $SQLITE3_LIBDIR"
+if test -n "$SQLITE3_A10N_C" ; then
+   SQLITE3_LOADEXTENSTION=1
+   SQLITE3_COLUMNTABLENAME=1
+   SQLITE3_OVERLOADFUNCTION=1
+   SQLITE3_PREPARE_V2=1
+   SQLITE3_CLEARBINDINGS=1
+   SQLITE3_CREATEMODULE_V2=1
+   SQLITE3_LOADEXTENSION=1
+   SQLITE3_TABLECOLUMNMETADATA=1
+   SQLITE3_VFS=1
+else
+   saved_CFLAGS=$CFLAGS
+   CFLAGS="$CFLAGS -I$SQLITE3_INC"
+   saved_LIBS=$LIBS
+   LIBS="$LIBS $SQLITE3_LIBDIR"
    AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
 		SQLITE3_LOADEXTENSION=1,
 		SQLITE3_LOADEXTENSION=0)
-   if test "$SQLITE3_LOADEXTENSION" = "1" ; then
-      SQLITE3_LIB="$SQLITE3_LIB -ldl"
+   if test "$SQLITE3_LOADEXTENSION" = "0" ; then
+      unset ac_cv_lib_sqlite3_sqlite3_load_extension
+      # try again with -ldl
+      LIBS="$LIBS -ldl $SQLITE3_LIBDIR"
+      AC_CHECK_LIB(sqlite3,sqlite3_load_extension,
+		   SQLITE3_LOADEXTENSION=1,
+		   SQLITE3_LOADEXTENSION=0)
+      if test "$SQLITE3_LOADEXTENSION" = "1" ; then
+         SQLITE3_LIB="$SQLITE3_LIB -ldl"
+      fi
    fi
+   AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
+		SQLITE3_COLUMNTABLENAME=1,
+		SQLITE3_COLUMNTABLENAME=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_overload_function,
+		SQLITE3_OVERLOADFUNCTION=1,
+		SQLITE3_OVERLOADFUNCTION=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_prepare_v2,
+		SQLITE3_PREPARE_V2=1,
+		SQLITE3_PREPARE_V2=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_clear_bindings,
+		SQLITE3_CLEARBINDINGS=1,
+		SQLITE3_CLEARBINDINGS=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_create_module_v2,
+		SQLITE3_CREATEMODULE_V2=1,
+		SQLITE3_CREATEMODULE_V2=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_vfs_register,
+		SQLITE3_VFS=1,
+		SQLITE3_VFS=0)
+   AC_CHECK_LIB(sqlite3,sqlite3_table_column_metadata,
+		SQLITE3_TABLECOLUMNMETADATA=1,
+		SQLITE3_TABLECOLUMNMETADATA=0)
+   LIBS=$saved_LIBS
+   CFLAGS=$saved_CFLAGS
 fi
-AC_CHECK_LIB(sqlite3,sqlite3_column_table_name,
-	     SQLITE3_COLUMNTABLENAME=1,
-	     SQLITE3_COLUMNTABLENAME=0)
-AC_CHECK_LIB(sqlite3,sqlite3_overload_function,
-	     SQLITE3_OVERLOADFUNCTION=1,
-	     SQLITE3_OVERLOADFUNCTION=0)
-AC_CHECK_LIB(sqlite3,sqlite3_prepare_v2,
-	     SQLITE3_PREPARE_V2=1,
-	     SQLITE3_PREPARE_V2=0)
-AC_CHECK_LIB(sqlite3,sqlite3_clear_bindings,
-	     SQLITE3_CLEARBINDINGS=1,
-	     SQLITE3_CLEARBINDINGS=0)
-AC_CHECK_LIB(sqlite3,sqlite3_create_module_v2,
-	     SQLITE3_CREATEMODULE_V2=1,
-	     SQLITE3_CREATEMODULE_V2=0)
-AC_CHECK_LIB(sqlite3,sqlite3_vfs_register,
-	     SQLITE3_VFS=1,
-	     SQLITE3_VFS=0)
+
 if test "$SQLITE3_LOADEXTENSION" = "1" ; then
    EXT_BLOBTOXY=libsqlite3_mod_blobtoxy.la
    EXT_IMPEXP=libsqlite3_mod_impexp.la
@@ -211,14 +245,13 @@ else
    EXT_IMPEXP=""
 fi
 
-LIBS=$saved_LIBS
-CFLAGS=$saved_CFLAGS
 AC_SUBST(SQLITE3_COLUMNTABLENAME)
 AC_SUBST(SQLITE3_OVERLOADFUNCTION)
 AC_SUBST(SQLITE3_PREPARE_V2)
 AC_SUBST(SQLITE3_CLEARBINDINGS)
 AC_SUBST(SQLITE3_CREATEMODULE_V2)
 AC_SUBST(SQLITE3_LOADEXTENSION)
+AC_SUBST(SQLITE3_TABLECOLUMNMETADATA)
 AC_SUBST(SQLITE3_VFS)
 AC_SUBST(EXT_BLOBTOXY)
 AC_SUBST(EXT_IMPEXP)

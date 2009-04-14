@@ -56,13 +56,15 @@
  *
  *
  *  SQLite function:
- *       SELECT export_csv(filename, prefix1, tablename1, schema1, ...]);
+ *       SELECT export_csv(filename, hdr, prefix1, tablename1, schema1, ...]);
  *
  *  C function (STANDALONE):
- *       int impexp_export_csv(sqlite3 *db, char *prefix1, char *filename,
- *                             char *schema, ...);
+ *       int impexp_export_csv(sqlite3 *db, int hdr, char *filename,
+ *                             char *prefix1, char *tablename1,
+ *                             char *schema1, ...);
  *
- *       Writes entire tables as CSV to provided filename. The
+ *       Writes entire tables as CSV to provided filename. A header
+ *       row is written when the hdr parameter is true. The
  *       rows are optionally introduced with a column made up of
  *       the prefix (non-empty string) for the respective table.
  *       If "schema" is NULL, "sqlite_master" is used, otherwise
@@ -74,10 +76,17 @@
  *          INSERT INTO A VALUES(3,'foo');
  *          CREATE TABLE B(c);
  *          INSERT INTO B VALUES('hello');
- *          SELECT export_csv('out.csv', 'aa', 'A', NULL, 'bb', 'B', NULL);
+ *          SELECT export_csv('out.csv', 0, 'aa', 'A', NULL, 'bb', 'B', NULL);
  *          -- CSV output
  *          "aa",1,2
  *          "aa",3,"foo"
+ *          "bb","hello"
+ *          SELECT export_csv('out.csv', 1, 'aa', 'A', NULL, 'bb', 'B', NULL);
+ *          -- CSV output
+ *          "aa","a","b"
+ *          "aa",1,2
+ *          "aa",3,"foo"
+ *          "bb","c"
  *          "bb","hello"
  *
  *
@@ -840,6 +849,9 @@ table_dump(DUMP_DATA *dd, char **errp, int fmt, const char *query, ...)
 	if (dd->quote_mode >= 0) {
 	    fputc(';', dd->out);
 	}
+	if (dd->quote_mode == -1) {
+	    fputc('\r', dd->out);
+	}
 	if (dd->quote_mode >= -1) {
 	    fputc('\n', dd->out);
 	}
@@ -858,7 +870,7 @@ static char *
 append(char *in, char const *append, char quote)
 {
     int len, i;
-    int nappend = strlen(append);
+    int nappend = append ? strlen(append) : 0;
     int nin = in ? strlen(in) : 0;
     char *tmp;
 
@@ -870,6 +882,8 @@ append(char *in, char const *append, char quote)
 		len++;
 	    }
 	}
+    } else if (!nappend) {
+	return in;
     }
     tmp = (char *) sqlite3_realloc(in, len);
     if (!tmp) {
@@ -890,7 +904,9 @@ append(char *in, char const *append, char quote)
 	*p++ = quote;
 	*p++ = '\0';
     } else {
-	memcpy(in + nin, append, nappend);
+	if (nappend) {
+	    memcpy(in + nin, append, nappend);
+	}
 	in[len - 1] = '\0';
     }
     return in;
@@ -1033,9 +1049,10 @@ bailout0:
 	    }
 	}
     }
-    if (strcmp(type, "table") == 0) {
+    if (strcmp(type, "table") == 0 ||
+	(dd->quote_mode < 0 && strcmp(type, "view") == 0)) {
 	sqlite3_stmt *stmt = 0;
-	char *select = 0, *table_info = 0, *tmp = 0;
+	char *select = 0, *hdr = 0, *table_info = 0, *tmp = 0;
 	char buffer[256];
    
 	table_info = append(table_info, "PRAGMA table_info(", 0);
@@ -1048,6 +1065,9 @@ bailout0:
 #endif
 	if (rc != SQLITE_OK || !stmt) {
 bailout1:
+	    if (hdr) {
+		sqlite3_free(hdr);
+	    }
 	    if (select) {
 		sqlite3_free(select);
 	    }
@@ -1074,6 +1094,9 @@ bailout1:
 		select = append(select, ") || ',' || ", 0);
 	    } else {
 		select = append(select, "SELECT ", 0);
+	    }
+	    if (dd->indent) {
+		hdr = append(hdr, select, 0);
 	    }
 	} else {
 	    if (dd->with_schema) {
@@ -1106,17 +1129,28 @@ bailout1:
 		    select = append(select, " || ',' || ", 0);
 		}
 	    }
-	    rc = sqlite3_finalize(stmt);
+	    rc = sqlite3_reset(stmt);
 	    if (rc != SQLITE_OK) {
 		goto bailout1;
 	    }
 	    select = append(select, "|| ')'", 0);
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
-	    rc = sqlite3_prepare_v2(dd->db, table_info, -1, &stmt, 0);
-#else
-	    rc = sqlite3_prepare(dd->db, table_info, -1, &stmt, 0);
-#endif
-	    if (rc != SQLITE_OK || !stmt) {
+	}
+	if (dd->quote_mode == -1 && dd->indent) {
+	    rc = sqlite3_step(stmt);
+	    while (rc == SQLITE_ROW) {
+		const char *text = (const char *) sqlite3_column_text(stmt, 1);
+
+		hdr = append(hdr, "quote_csv(", 0);
+		hdr = append(hdr, text, '"');
+		rc = sqlite3_step(stmt);
+		if (rc == SQLITE_ROW) {
+		    hdr = append(hdr, ") || ',' || ", 0);
+		} else {
+		    hdr = append(hdr, ")", 0);
+		}
+	    }
+	    rc = sqlite3_reset(stmt);
+	    if (rc != SQLITE_OK) {
 		goto bailout1;
 	    }
 	}
@@ -1166,13 +1200,13 @@ bailout1:
 	    }
 	    rc = sqlite3_step(stmt);
 	    if (rc == SQLITE_ROW) {
-		if (dd->quote_mode > -1) {
+		if (dd->quote_mode >= -1) {
 		    select = append(select, ") || ',' || ", 0);
 		} else {
 		    select = append(select, " || ", 0);
 		}
 	    } else {
-		if (dd->quote_mode > -1) {
+		if (dd->quote_mode >= -1) {
 		    select = append(select, ") ", 0);
 		} else {
 		    select = append(select, " ", 0);
@@ -1203,6 +1237,12 @@ bailout1:
 	}
 	if (table_info) {
 	    sqlite3_free(table_info);
+	    table_info = 0;
+	}
+	if (hdr) {
+	    rc = table_dump(dd, 0, 0, hdr);
+	    sqlite3_free(hdr);
+	    hdr = 0;
 	}
 	rc = table_dump(dd, 0, 0, select);
 	if (rc == SQLITE_CORRUPT) {
@@ -1211,6 +1251,7 @@ bailout1:
 	}
 	if (select) {
 	    sqlite3_free(select);
+	    select = 0;
 	}
     }
     return 0;
@@ -1384,12 +1425,23 @@ export_csv_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
     if (!filename) {
 	goto done;
     }
+#ifdef _WIN32
+    dd->out = fopen(filename, "wb");
+#else
     dd->out = fopen(filename, "w");
+#endif
     if (!dd->out) {
 	goto done;
     }
     dd->nlines = 0;
-    for (i = 1; i < nargs; i += 3) {
+    if (nargs > 1) {
+	if (sqlite3_value_type(args[1]) != SQLITE_NULL) {
+	    if (sqlite3_value_int(args[1])) {
+		dd->indent = 1;
+	    }
+	}
+    }
+    for (i = 2; i <= nargs - 3; i += 3) {
 	char *schema = 0, *sql;
 
 	dd->where = 0;
@@ -1481,7 +1533,7 @@ export_xml_func(sqlite3_context *ctx, int nargs, sqlite3_value **args)
 	goto done;
     }
     dd->nlines = 0;
-    for (i = 3; i < nargs; i += 4) {
+    for (i = 3; i <= nargs - 4; i += 4) {
 	char *root = 0, *schema = 0, *sql;
 
 	if (sqlite3_value_type(args[i]) != SQLITE_NULL) {
@@ -1620,7 +1672,7 @@ done:
 
 #ifdef STANDALONE
 int
-impexp_export_csv(sqlite3 *db, char *filename, ...)
+impexp_export_csv(sqlite3 *db, char *filename, int hdr, ...)
 {
     DUMP_DATA dd0, *dd = &dd0;
     va_list ap;
@@ -1638,6 +1690,7 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
     dd->indent = 0;
     dd->with_schema = 0;
     dd->quote_mode = -1;
+    dd->indent = hdr != 0;
 #ifdef _WIN32
     if (!filename) {
 	OPENFILENAME ofn;
@@ -1657,12 +1710,16 @@ impexp_export_csv(sqlite3 *db, char *filename, ...)
     if (!filename) {
 	goto done;
     }
+#ifdef _WIN32
+    dd->out = fopen(filename, "wb");
+#else
     dd->out = fopen(filename, "w");
+#endif
     if (!dd->out) {
 	goto done;
     }
     dd->nlines = 0;
-    va_start(ap, filename);
+    va_start(ap, hdr);
     prefix = va_arg(ap, char *);
     table = va_arg(ap, char *);
     schema = va_arg(ap, char *);
@@ -1805,7 +1862,7 @@ sqlite3_extension_init(sqlite3 *db, char **errmsg,
 		sqlite3_create_function(db, ftab[i].name, ftab[i].nargs,
 					ftab[i].textrep, 0, 0, 0, 0);
 	    }
-	    return rc;
+	    break;
 	}
     }
     return rc;

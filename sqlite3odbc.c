@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.87 2009/01/20 09:22:00 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.96 2009/03/26 09:44:33 chw Exp chw $
  *
  * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
  *
@@ -357,6 +357,7 @@ static void freedyncols(STMT *s);
 static void freeresult(STMT *s, int clrcols);
 static void freerows(char **rowp);
 static void unbindcols(STMT *s);
+static void s3stmt_drop(STMT *s);
 
 static SQLRETURN drvexecute(SQLHSTMT stmt, int initial);
 static SQLRETURN freestmt(HSTMT stmt);
@@ -902,7 +903,7 @@ drvgpps(DBC *d, char *sect, char *ent, char *def, char *buf,
  */
 
 static void
-s3bind(sqlite3_stmt *stmt, int nparams, BINDPARM *p)
+s3bind(DBC *d, sqlite3_stmt *stmt, int nparams, BINDPARM *p)
 {
     int i;
 
@@ -912,23 +913,56 @@ s3bind(sqlite3_stmt *stmt, int nparams, BINDPARM *p)
 	    default:
 	    case SQLITE_NULL:
 		sqlite3_bind_null(stmt, i + 1);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: NULL\n", i + 1);
+		    fflush(d->trace);
+		}
 		break;
 	    case SQLITE_TEXT:
 		sqlite3_bind_text(stmt, i + 1, p->s3val, p->s3size,
 				  SQLITE_STATIC);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: '%*s'\n", i + 1,
+			    p->s3size, (char *) p->s3val);
+		    fflush(d->trace);
+		}
 		break;
 	    case SQLITE_BLOB:
 		sqlite3_bind_blob(stmt, i + 1, p->s3val, p->s3size,
 				  SQLITE_STATIC);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: [BLOB]'\n", i + 1);
+		    fflush(d->trace);
+		}
 		break;
 	    case SQLITE_FLOAT:
 		sqlite3_bind_double(stmt, i + 1, p->s3dval);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: %g\n",
+			    i + 1, p->s3dval);
+		    fflush(d->trace);
+		}
 		break;
 	    case SQLITE_INTEGER:
 		if (p->s3size > sizeof (int)) {
 		    sqlite3_bind_int64(stmt, i + 1, p->s3lival);
+		    if (d->trace) {
+			fprintf(d->trace,
+#ifdef _WIN32
+				"-- parameter %d: %I64d\n",
+#else
+				"-- parameter %d: %lld\n",
+#endif
+				i + 1, p->s3lival);
+			fflush(d->trace);
+		    }
 		} else {
 		    sqlite3_bind_int(stmt, i + 1, p->s3ival);
+		    if (d->trace) {
+			fprintf(d->trace, "-- parameter %d: %d\n",
+				i + 1, p->s3ival);
+			fflush(d->trace);
+		    }
 		}
 		break;
 	    }
@@ -1056,9 +1090,9 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	    int *ncolp, char **errp, int nparam, BINDPARM *p)
 {
     DBC *d = (DBC *) s->dbc;
-    int rc = SQLITE_OK;
+    int rc = SQLITE_OK, keep = sql == NULL;
     TBLRES tres;
-    const char *sqlleft;
+    const char *sqlleft = 0;
     int nretry = 0, haveerr = 0;
 
     if (!resp) {
@@ -1070,9 +1104,6 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
     }
     if (ncolp) {
 	*ncolp = 0;
-    }
-    if (!sql) {
-	return SQLITE_OK;
     }
     tres.errmsg = NULL;
     tres.nres = 0;
@@ -1088,8 +1119,15 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	return SQLITE_NOMEM;
     }
     tres.resarr[0] = 0;
-    while (*sql && (rc == SQLITE_OK ||
-		      (rc == SQLITE_SCHEMA && (++nretry) < 2))) {
+    if (sql == NULL) {
+	tres.stmt = s->s3stmt;
+	if (tres.stmt == NULL) {
+	    return SQLITE_NOMEM;
+	}
+	goto retrieve;
+    }
+    while (sql && *sql && (rc == SQLITE_OK ||
+			   (rc == SQLITE_SCHEMA && (++nretry) < 2))) {
 	int ncol;
 
 	tres.stmt = NULL;
@@ -1113,6 +1151,7 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	    sql = sqlleft;
 	    continue;
 	}
+retrieve:
 	if (sqlite3_bind_parameter_count(tres.stmt) != nparam) {
 	    if (errp) {
 		*errp =
@@ -1122,7 +1161,7 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	    rc = SQLITE_ERROR;
 	    goto tbldone;
 	}
-	s3bind(tres.stmt, nparam, p);
+	s3bind(d, tres.stmt, nparam, p);
 	ncol = sqlite3_column_count(tres.stmt);
 	while (1) {
 	    rc = sqlite3_step(tres.stmt);
@@ -1133,13 +1172,19 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 		}
 	    }
 	    if (rc != SQLITE_ROW) {
-		dbtraceapi(d, "sqlite3_finalize", 0);
-		rc = sqlite3_finalize(tres.stmt);
+		if (keep) {
+		    dbtraceapi(d, "sqlite3_reset", 0);
+		    rc = sqlite3_reset(tres.stmt);
+		    s->s3stmt_noreset = 1;
+		} else {
+		    dbtraceapi(d, "sqlite3_finalize", 0);
+		    rc = sqlite3_finalize(tres.stmt);
+		}
 		tres.stmt = 0;
 		if (rc != SQLITE_SCHEMA) {
 		    nretry = 0;
 		    sql = sqlleft;
-		    while (ISSPACE(*sql)) {
+		    while (sql && ISSPACE(*sql)) {
 			sql++;
 		    }
 		}
@@ -1152,8 +1197,16 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
     }
 tbldone:
     if (tres.stmt) {
-	dbtraceapi(d, "sqlite3_finalize", 0);
-	sqlite3_finalize(tres.stmt);
+	if (keep) {
+	    if (!s->s3stmt_noreset) {
+		dbtraceapi(d, "sqlite3_reset", 0);
+		sqlite3_reset(tres.stmt);
+		s->s3stmt_noreset = 1;
+	    }
+	} else {
+	    dbtraceapi(d, "sqlite3_finalize", 0);
+	    sqlite3_finalize(tres.stmt);
+	}
     }
     if (haveerr) {
 	/* message already in *errp if any */
@@ -2135,8 +2188,11 @@ findcol(char **cols, int ncols, char *name)
 static void
 fixupdyncols(STMT *s, DBC *d)
 {
-    int i, k, pk, nn, t, r, nrows, ncols;
+    int i, k;
+#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !HAVE_SQLITE3TABLECOLUMNMETADATA
+    int pk, nn, t, r, nrows, ncols;
     char **rowp, *flagp, flags[128];
+#endif
 
     if (!s->dyncols) {
 	return;
@@ -2185,6 +2241,7 @@ fixupdyncols(STMT *s, DBC *d)
 	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
     }
+#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !HAVE_SQLITE3TABLECOLUMNMETADATA
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
 	if (flagp == NULL) {
@@ -2295,6 +2352,7 @@ freet:
     if (flagp != flags) {
 	freep(&flagp);
     }
+#endif
 }
 
 /**
@@ -2715,11 +2773,31 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	}
     }
 done:
+    /* Replace missing year/month/day with current date */
+    if (!err && (m & 1) == 0) {
+#ifdef _WIN32
+	SYSTEMTIME t;
+
+	GetLocalTime(&t);
+	tss->year = t.wYear;
+	tss->month = t.wMonth;
+	tss->day = t.wDay;
+#else
+	struct timeval tv;
+	struct tm tm;
+
+	gettimeofday(&tv, NULL);
+	tm = *localtime(&tv.tv_sec);
+	tss->year = tm.tm_year + 1900;
+	tss->month = tm.tm_mon + 1;
+	tss->day = tm.tm_mday;
+#endif
+    }
     /* final check for overflow */
     if (err ||
 	tss->month < 1 || tss->month > 12 ||
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
-	tss->hour > 23 || tss->minute > 60 || tss->second > 60) {
+	tss->hour > 23 || tss->minute > 59 || tss->second > 59) {
 	return -1;
     }
     return ((m & 7) < 1) ? -1 : 0;
@@ -2950,6 +3028,39 @@ connfail:
 	fprintf(d->trace, "-- sqlite3_open: '%s'\n", d->dbname);
 	fflush(d->trace);
     }
+#if defined(_WIN32) || defined(_WIN64)
+    {
+	char pname[MAX_PATH];
+	HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+			       FALSE, GetCurrentProcessId());
+
+	pname[0] = '\0';
+	if (h) {
+	    HMODULE m = NULL, l = LoadLibrary("psapi.dll");
+	    DWORD need;
+	    typedef BOOL (WINAPI *epmfunc)(HANDLE, HMODULE *, DWORD, LPDWORD);
+	    typedef BOOL (WINAPI *gmbfunc)(HANDLE, HMODULE, LPSTR, DWORD);
+	    epmfunc epm;
+	    gmbfunc gmb;
+
+	    if (l) {
+		epm = GetProcAddress(l, "EnumProcessModules");
+		gmb = GetProcAddress(l, "GetModuleBaseNameA");
+		if (epm && gmb && epm(h, &m, sizeof (m), &need)) {
+		    gmb(h, m, pname, sizeof (pname));
+		}
+		FreeLibrary(l);
+	    }
+	    CloseHandle(h);
+	}
+	d->xcelqrx = strncasecmp(pname, "EXCEL", 5) == 0 ||
+		     strncasecmp(pname, "MSQRY", 5) == 0;
+	if (d->trace && d->xcelqrx) {
+	    fprintf(d->trace, "-- enabled EXCEL quirks\n");
+	    fflush(d->trace);
+	}
+    }
+#endif
     return SQL_SUCCESS;
 }
 
@@ -3068,6 +3179,42 @@ s3stmt_coltype(sqlite3_stmt *s3stmt, int col, DBC *d, int *guessed_types)
     return typename;
 }
 
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+
+/**
+ * Add meta data for column
+ * @param s3stmt SQLite statement pointer
+ * @param col column number
+ * @param d DBC pointer (for tracing only)
+ * @param ci pointer to COL
+ */
+
+static void
+s3stmt_addmeta(sqlite3_stmt *s3stmt, int col, DBC *d, COL *ci)
+{
+    int nn = 0, pk = 0, ai = 0;
+    const char *dn, *tn, *cn, *dummy1, *dummy2;
+
+    dn = sqlite3_column_database_name(s3stmt, col);
+    tn = sqlite3_column_table_name(s3stmt, col);
+    cn = sqlite3_column_origin_name(s3stmt, col);
+    sqlite3_table_column_metadata(d->sqlite, dn, tn, cn,
+				  &dummy1, &dummy2,
+				  &nn, &pk, &ai);
+    ci->autoinc = ai ? SQL_TRUE: SQL_FALSE;
+    ci->notnull = nn ? SQL_NO_NULLS : SQL_NULLABLE;
+    if (d->trace) {
+	fprintf(d->trace, "-- column %d %s\n",
+		col + 1, nn ? "notnull" : "nullable");
+	if (ai) {
+	    fprintf(d->trace, "-- column %d autoincrement\n", col + 1);
+	}
+	fflush(d->trace);
+    }
+}
+
+#endif
+
 /**
  * Do one sqlite statement step gathering one result row
  * @param s statement pointer
@@ -3090,7 +3237,7 @@ s3stmt_step(STMT *s)
     if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
 	++d->s3stmt_rownum;
 	ncols = sqlite3_column_count(s->s3stmt);
-	if (d->s3stmt_rownum == 0 && ncols > 0) {
+	if (d->s3stmt_needmeta && d->s3stmt_rownum == 0 && ncols > 0) {
 	    PTRDIFF_T size;
 	    char *p;
 	    COL *dyncols;
@@ -3190,8 +3337,12 @@ s3stmt_step(STMT *s)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+		s3stmt_addmeta(s->s3stmt, i, d, &dyncols[i]);
+#else
 		dyncols[i].autoinc = SQL_FALSE;
 		dyncols[i].notnull = SQL_NULLABLE;
+#endif
 		dyncols[i].typename = xstrdup(typename);
 	    }
 	    freedyncols(s);
@@ -3199,6 +3350,7 @@ s3stmt_step(STMT *s)
 	    s->dyncols = s->cols = dyncols;
 	    fixupdyncols(s, d);
 	    mkbindcols(s, s->ncols);
+	    d->s3stmt_needmeta = 0;
 	}
 	if (ncols <= 0) {
 	    goto killstmt;
@@ -3276,11 +3428,13 @@ s3stmt_step(STMT *s)
 	}
     }
 killstmt:
-    dbtraceapi(d, "sqlite3_finalize", 0);
-    rc = sqlite3_finalize(s->s3stmt);
+    dbtraceapi(d, "sqlite3_reset", 0);
+    rc = sqlite3_reset(s->s3stmt);
+    s->s3stmt_noreset = 1;
     errp = sqlite3_errmsg(d->sqlite);
-    s->s3stmt = NULL;
-    d->cur_s3stmt = NULL;
+    if (d->cur_s3stmt == s) {
+	d->cur_s3stmt = NULL;
+    }
     setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 	    errp ? errp : "unknown error", rc);
     return SQL_ERROR;	
@@ -3303,10 +3457,14 @@ s3stmt_end(STMT *s)
     if (d) {
 	d->busyint = 0;
     }
-    dbtraceapi(d, "sqlite3_finalize", 0);
-    sqlite3_finalize(s->s3stmt);
-    s->s3stmt = NULL;
-    d->cur_s3stmt = NULL;
+    if (!s->s3stmt_noreset) {
+	dbtraceapi(d, "sqlite3_reset", 0);
+	sqlite3_reset(s->s3stmt);
+	s->s3stmt_noreset = 1;
+    }
+    if (d->cur_s3stmt == s) {
+	d->cur_s3stmt = NULL;
+    }
 }
 
 /**
@@ -3328,6 +3486,25 @@ s3stmt_end_if(STMT *s)
 }
 
 /**
+ * Drop running sqlite statement in STMT
+ * @param s statement pointer
+ */
+
+static void
+s3stmt_drop(STMT *s)
+{
+    if (s->s3stmt) {
+	DBC *d = (DBC *) s->dbc;
+
+	if (d) {
+	    dbtraceapi(d, "sqlite3_finalize", 0);
+	}
+	sqlite3_finalize(s->s3stmt);
+	s->s3stmt = NULL;
+    }
+}
+
+/**
  * Start sqlite statement for execution of SELECT statement.
  * @param s statement pointer
  * @result ODBC error code
@@ -3341,48 +3518,53 @@ s3stmt_start(STMT *s)
     sqlite3_stmt *s3stmt = NULL;
     int rc, nretry = 0;
 
+    d->s3stmt_needmeta = 0;
+    if (!s->s3stmt) {
 #if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
-    dbtraceapi(d, "sqlite3_prepare_v2", (char *) s->query);
+	dbtraceapi(d, "sqlite3_prepare_v2", (char *) s->query);
 #else
-    dbtraceapi(d, "sqlite3_prepare", (char *) s->query);
+	dbtraceapi(d, "sqlite3_prepare", (char *) s->query);
 #endif
-    do {
-	s3stmt = NULL;
+	do {
+	    s3stmt = NULL;
 #if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
-	rc = sqlite3_prepare_v2(d->sqlite, (char *) s->query, -1,
-				&s3stmt, &endp);
+	    rc = sqlite3_prepare_v2(d->sqlite, (char *) s->query, -1,
+				    &s3stmt, &endp);
 #else
-	rc = sqlite3_prepare(d->sqlite, (char *) s->query, -1,
-			     &s3stmt, &endp);
+	    rc = sqlite3_prepare(d->sqlite, (char *) s->query, -1,
+				 &s3stmt, &endp);
 #endif
+	    if (rc != SQLITE_OK) {
+		if (s3stmt) {
+		    sqlite3_finalize(s3stmt);
+		    s3stmt = NULL;
+		}
+	    }
+	} while (rc == SQLITE_SCHEMA && (++nretry) < 2);
+	dbtracerc(d, rc, NULL);
 	if (rc != SQLITE_OK) {
 	    if (s3stmt) {
+		dbtraceapi(d, "sqlite3_finalize", NULL);
 		sqlite3_finalize(s3stmt);
-		s3stmt = NULL;
 	    }
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite3_errmsg(d->sqlite), rc);
+	    return SQL_ERROR;
 	}
-    } while (rc == SQLITE_SCHEMA && (++nretry) < 2);
-    dbtracerc(d, rc, NULL);
-    if (rc != SQLITE_OK) {
-	if (s3stmt) {
-	    dbtraceapi(d, "sqlite3_finalize", NULL);
+	if (sqlite3_bind_parameter_count(s3stmt) != s->nparams) {
+	    dbtraceapi(d, "sqlite3_finalize", 0);
 	    sqlite3_finalize(s3stmt);
+	    setstat(s, SQLITE_ERROR, "parameter marker count incorrect",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
 	}
-	setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		sqlite3_errmsg(d->sqlite), rc);
-	return SQL_ERROR;
+	s->s3stmt = s3stmt;
+	s->s3stmt_noreset = 1;
+	d->s3stmt_needmeta = 1;
     }
-    if (sqlite3_bind_parameter_count(s3stmt) != s->nparams) {
-	dbtraceapi(d, "sqlite3_finalize", 0);
-	sqlite3_finalize(s3stmt);
-	setstat(s, SQLITE_ERROR, "parameter marker count incorrect",
-		(*s->ov3) ? "HY000" : "S1000");
-	return SQL_ERROR;
-    }
-    s->s3stmt = s3stmt;
     d->cur_s3stmt = s;
     d->s3stmt_rownum = -1;
-    s3bind(s->s3stmt, s->nparams, s->bindparms);
+    s3bind(d, s->s3stmt, s->nparams, s->bindparms);
     return SQL_SUCCESS;
 }
 
@@ -3643,7 +3825,7 @@ seqerr:
 #endif
 		p->len = dlen;
 		p->need = -1;
-	    } else if (len <= 0) {
+	    } else if (len < 0) {
 		setstat(s, -1, "invalid length", "HY090");
 		return SQL_ERROR;
 	    } else {
@@ -3968,7 +4150,8 @@ setupparam(STMT *s, char *sql, int pnum)
 	break;
     default:
     error:
-	setstat(s, -1, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
+	setstat(s, -1, "unsupported parameter type",
+		(*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
     return SQL_SUCCESS;
@@ -4159,12 +4342,12 @@ setupparbuf(STMT *s, BINDPARM *p)
 {
     if (!p->parbuf) {
 	p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
-	if (p->len <= 0 && p->len != SQL_NTS &&
+	if (p->len < 0 && p->len != SQL_NTS &&
 	    p->len != SQL_NULL_DATA) {
 	    setstat(s, -1, "invalid length", "HY009");
 	    return SQL_ERROR;
 	}
-	if (p->len > 0) {
+	if (p->len >= 0) {
 	    p->parbuf = xmalloc(p->len + 1);
 	    if (!p->parbuf) {
 		return nomem(s);
@@ -4776,7 +4959,11 @@ drvprimarykeys(SQLHSTMT stmt,
 		char buf[32];
 
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(tname);
 		s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
 		sprintf(buf, "%d", seq++);
@@ -4897,7 +5084,11 @@ nodata:
 			int roffs = (offs + m) * s->ncols;
 
 			s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+			s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 			s->rows[roffs + 1] = xstrdup("");
+#endif
 			s->rows[roffs + 2] = xstrdup(tname);
 			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
 			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
@@ -5592,7 +5783,11 @@ nodata:
 		}
 	    }
 	    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 	    s->rows[roffs + 1] = xstrdup("");
+#endif
 	    s->rows[roffs + 2] = xstrdup(ptab);
 	    s->rows[roffs + 3] = xstrdup(rowp[i * ncols + toc]);
 	    s->rows[roffs + 4] = xstrdup("");
@@ -5736,7 +5931,11 @@ nodata:
 		    }
 		}
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(ptab);
 		s->rows[roffs + 3] = xstrdup(rowpp[k * nncols + toc]);
 		s->rows[roffs + 4] = xstrdup("");
@@ -7030,7 +7229,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUINTEGER **) val) = s->parm_bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	*((SQLUINTEGER *) val) = s->parm_bind_type;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	*((SQLUSMALLINT **) val) = s->parm_oper;
@@ -7199,9 +7398,7 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_bind_offs = (SQLUINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	if (val != (SQLPOINTER) SQL_PARAM_BIND_BY_COLUMN) {
-	    goto e01s02;
-	}
+	s->parm_bind_type = (PTRDIFF_T) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	s->parm_oper = (SQLUSMALLINT *) val;
@@ -7496,7 +7693,37 @@ SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
 #endif
 
 /**
- * Function not implemented.
+ * Internal set position on result in HSTMT.
+ * @param stmt statement handle
+ * @param row row to be positioned
+ * @param op operation code
+ * @param lock locking type
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+drvsetpos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
+{
+    STMT *s = (STMT *) stmt;
+
+    if (op != SQL_POSITION) {
+	return drvunimplstmt(stmt);
+    }
+    if (!s->rows || row <= 0 || row > s->nrows) {
+	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
+	return SQL_ERROR;
+    }
+    s->rowp = row - 1;
+    return SQL_SUCCESS;
+}
+
+/**
+ * Set position on result in HSTMT.
+ * @param stmt statement handle
+ * @param row row to be positioned
+ * @param op operation code
+ * @param lock locking type
+ * @result ODBC error code
  */
 
 SQLRETURN SQL_API
@@ -7505,7 +7732,7 @@ SQLSetPos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
-    ret = drvunimplstmt(stmt);
+    ret = drvsetpos(stmt, row, op, lock);
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -7700,11 +7927,17 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
     case SQL_MAX_ROW_SIZE_INCLUDES_LONG:
-#ifdef SQL_CATALOG_NAME
-    case SQL_CATALOG_NAME:
-#endif
 	strmak(val, "N", valMax, valLen);
 	break;
+#ifdef SQL_CATALOG_NAME
+    case SQL_CATALOG_NAME:
+#if defined(_WIN32) || defined(_WIN64)
+	strmak(val, d->xcelqrx ? "Y" : "N", valMax, valLen);
+#else
+	strmak(val, "N", valMax, valLen);
+#endif
+	break;
+#endif
     case SQL_DATA_SOURCE_READ_ONLY:
 	strmak(val, "N", valMax, valLen);
 	break;
@@ -7781,10 +8014,20 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	strmak(val, ".", valMax, valLen);
 	break;
     case SQL_QUALIFIER_TERM:
+#if defined(_WIN32) || defined(_WIN64)
+	strmak(val, d->xcelqrx ? "catalog" : "", valMax, valLen);
+#else
 	strmak(val, "", valMax, valLen);
+#endif
 	break;
     case SQL_QUALIFIER_USAGE:
+#if defined(_WIN32) || defined(_WIN64)
+	*((SQLUINTEGER *) val) = d->xcelqrx ?
+	    (SQL_CU_DML_STATEMENTS | SQL_CU_INDEX_DEFINITION |
+	     SQL_CU_TABLE_DEFINITION) : 0;
+#else
 	*((SQLUINTEGER *) val) = 0;
+#endif
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SCROLL_CONCURRENCY:
@@ -7933,7 +8176,12 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FILE_USAGE:
+#if defined(_WIN32) || defined(_WIN64)
+	*((SQLSMALLINT *) val) =
+	    d->xcelqrx ? SQL_FILE_CATALOG : SQL_FILE_NOT_SUPPORTED;
+#else
 	*((SQLSMALLINT *) val) = SQL_FILE_NOT_SUPPORTED;
+#endif
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GROUP_BY:
@@ -8189,7 +8437,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     exists[SQL_API_SQLDRIVERS] = SQL_FALSE;
     exists[SQL_API_SQLPROCEDURES] = SQL_TRUE;
     exists[SQL_API_SQLEXTENDEDFETCH] = SQL_TRUE;
-    exists[SQL_API_SQLSETPOS] = SQL_FALSE;
+    exists[SQL_API_SQLSETPOS] = SQL_TRUE;
     exists[SQL_API_SQLFOREIGNKEYS] = SQL_TRUE;
     exists[SQL_API_SQLSETSCROLLOPTIONS] = SQL_TRUE;
     exists[SQL_API_SQLMORERESULTS] = SQL_TRUE;
@@ -8592,10 +8840,13 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_TRANSLATE_OPTION:
     case SQL_ATTR_KEYSET_SIZE:
     case SQL_ATTR_QUERY_TIMEOUT:
-    case SQL_ATTR_PARAM_BIND_TYPE:
     case SQL_ATTR_CURRENT_CATALOG:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
+	break;
+    case SQL_ATTR_PARAM_BIND_TYPE:
+	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	*buflen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ATTR_ROW_BIND_TYPE:
 	*((SQLUINTEGER *) val) = SQL_BIND_BY_COLUMN;
@@ -8734,7 +8985,16 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
 	    goto doit;
 	}
+	if (len == SQL_IS_POINTER) {
+	    if (val == (SQLPOINTER) SQL_AUTOCOMMIT_ON ||
+		val == (SQLPOINTER) SQL_AUTOCOMMIT_OFF) {
+		d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
+		goto doit;
+	    }
+	    goto getit;
+	}
 	if (val && len >= sizeof (SQLINTEGER)) {
+getit:
 	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
 doit:
 	    if (d->autocommit && d->intrans) {
@@ -9531,6 +9791,7 @@ freestmt(SQLHSTMT stmt)
 	return SQL_INVALID_HANDLE;
     }
     s = (STMT *) stmt;
+    s3stmt_drop(s);
     freeresult(s, 1);
     freep(&s->query);
     d = (DBC *) s->dbc;
@@ -9604,6 +9865,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->bind_type = SQL_BIND_BY_COLUMN;
     s->bind_offs = NULL;
     s->paramset_size = 1;
+    s->parm_bind_type = SQL_PARAM_BIND_BY_COLUMN;
     sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
     sl = d->stmt;
     pl = NULL;
@@ -10185,7 +10447,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_ULONG:
 	case SQL_C_LONG:
 	case SQL_C_SLONG:
-	    *((long *) val) = 0;
+	    *((SQLINTEGER *) val) = 0;
 	    break;
 #ifdef SQL_BIGINT
 	case SQL_C_SBIGINT:
@@ -10267,11 +10529,11 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_ULONG:
 	case SQL_C_LONG:
 	case SQL_C_SLONG:
-	    *((int *) val) = strtol(*data, &endp, 0);
+	    *((SQLINTEGER *) val) = strtol(*data, &endp, 0);
 	    if (endp && endp == *data) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
-		*lenp = sizeof (int);
+		*lenp = sizeof (SQLINTEGER);
 	    }
 	    break;
 #ifdef SQL_BIGINT
@@ -10850,13 +11112,15 @@ drvtables(SQLHSTMT stmt,
 	return SQL_SUCCESS;
     }
     if (cat && (catLen > 0 || catLen == SQL_NTS) && cat[0] == '%') {
-	return SQL_SUCCESS;
+	table = NULL;
+	goto doit;
     }
     if (schema && (schemaLen > 0 || schemaLen == SQL_NTS) &&
 	schema[0] == '%') {
 	if ((!cat || catLen == 0 || !cat[0]) &&
 	    (!table || tableLen == 0 || !table[0])) {
-	    return SQL_SUCCESS;
+	    table = NULL;
+	    goto doit;
 	}
     }
     if (type && (typeLen > 0 || typeLen == SQL_NTS) && type[0] != '\0') {
@@ -10903,6 +11167,7 @@ drvtables(SQLHSTMT stmt,
 	    return SQL_SUCCESS;
 	}
     }
+doit:
     if (!table) {
 	size = 1;
 	tname[0] = '%';
@@ -10916,6 +11181,19 @@ drvtables(SQLHSTMT stmt,
     }
     tname[size] = '\0';
     npatt = unescpat(tname);
+#if defined(_WIN32) || defined(_WIN64)
+    sql = sqlite3_mprintf("select %s as 'TABLE_QUALIFIER', "
+			  "%s as 'TABLE_OWNER', "
+			  "tbl_name as 'TABLE_NAME', "
+			  "upper(type) as 'TABLE_TYPE', "
+			  "NULL as 'REMARKS' "
+			  "from sqlite_master where %s "
+			  "and tbl_name %s %Q",
+			  d->xcelqrx ? "''" : "NULL",
+			  d->xcelqrx ? "'main'" : "NULL",
+			  where,
+			  npatt ? "like" : "=", tname);
+#else
     sql = sqlite3_mprintf("select NULL as 'TABLE_QUALIFIER', "
 			  "NULL as 'TABLE_OWNER', "
 			  "tbl_name as 'TABLE_NAME', "
@@ -10924,6 +11202,7 @@ drvtables(SQLHSTMT stmt,
 			  "from sqlite_master where %s "
 			  "and tbl_name %s %Q", where,
 			  npatt ? "like" : "=", tname);
+#endif
     if (!sql) {
 	return nomem(s);
     }
@@ -11303,7 +11582,11 @@ drvcolumns(SQLHSTMT stmt,
 	    for (k = 0; k < nr; k++) {
 		m = asize * (roffs + k);
 		s->rows[m + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[m + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[m + 1] = xstrdup("");
+#endif
 		s->rows[m + 2] = xstrdup(trows[i]);
 		s->rows[m + 8] = xstrdup("10");
 		s->rows[m + 9] = xstrdup("0");
@@ -12100,7 +12383,11 @@ nodata:
 		s->nrows = 1;
 		roffs = s->ncols;
 		s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
 		s->rows[roffs + 1] = xstrdup("");
+#endif
 		s->rows[roffs + 2] = xstrdup(tname);
 		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
 		s->rows[roffs + 5] = xstrdup("sqlite_autoindex_0");
@@ -14115,8 +14402,12 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+		s3stmt_addmeta(s3stmt, i, d, &dyncols[i]);
+#else
 		dyncols[i].autoinc = SQL_FALSE;
 		dyncols[i].notnull = SQL_NULLABLE;
+#endif
 		dyncols[i].typename = xstrdup(typename);
 	    }
 	    freedyncols(s);
@@ -14158,6 +14449,7 @@ noconn:
 	goto noconn;
     }
     s3stmt_end(s);
+    s3stmt_drop(s);
     sret = starttran(s);
     if (sret != SQL_SUCCESS) {
 	return sret;
@@ -14221,8 +14513,7 @@ noconn:
 	s->guessed_types = 0;
 	setupdyncols(s, s3stmt, &ncols);
 	s->ncols = ncols;
-	dbtraceapi(d, "sqlite3_finalize", 0);
-	sqlite3_finalize(s3stmt);
+	s->s3stmt = s3stmt;
     }
     mkbindcols(s, s->ncols);
     if (s->nparams) {
@@ -14318,8 +14609,8 @@ again:
 	    goto done2;
 	}
     }
-    rc = drvgettable(s, (char *) s->query, &s->rows, &s->nrows, &ncols,
-		     &errp, s->nparams, s->bindparms);
+    rc = drvgettable(s, s->s3stmt ? NULL : (char *) s->query, &s->rows,
+		     &s->nrows, &ncols, &errp, s->nparams, s->bindparms);
     dbtracerc(d, rc, errp);
     if (rc == SQLITE_BUSY) {
 	if (busy_handler((void *) d, ++busy_count)) {
@@ -14395,11 +14686,19 @@ done2:
 		    p->param = NULL;
 		}
 		freep(&p->parbuf);
-		if (p->lenp0 && p->inc > 0) {
+		if (p->lenp0 &&
+		    s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+		    p->lenp = (SQLLEN *) ((char *) p->lenp0 +
+			s->paramset_count * s->parm_bind_type);
+		} else if (p->lenp0 && p->inc > 0) {
 		    p->lenp = p->lenp0 + s->paramset_count;
 		}
 		if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
-		    if (p->param0 && p->inc > 0) {
+		    if (p->param0 &&
+			s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+			p->param = (char *) p->param0 + 
+			    s->paramset_count * s->parm_bind_type;
+		    } else if (p->param0 && p->inc > 0) {
 			p->param = (char *) p->param0 + 
 			    s->paramset_count * p->inc;
 		    }
