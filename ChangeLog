@@ -1,6 +1,16 @@
 SQLite ODBC Driver
 ------------------
 
+Mon May 11 2009 version 0.82 released
+
+	* update to SQLite 3.6.14
+	* in driver connect dialog, disable DSN input field
+	  when driver name property is set on begin of dialog
+	* initial Win64 NSIS installer of SQLite3 driver
+	* Win64 version of SQLite3 driver can now be made with
+	  MingW-64 cross compiler
+	* eliminated warnings for Win64 build
+
 Tue Apr 14 2009 version 0.81 released
 
 	* update to SQLite 3.6.13

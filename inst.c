@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.11 2008/12/06 10:53:19 chw Exp chw $
+ * $Id: inst.c,v 1.12 2009/05/03 04:22:18 chw Exp chw $
  *
  * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
  *
@@ -20,27 +20,46 @@
 #include <ctype.h>
 #include <stdio.h>
 
-static char *DriverName[3] = {
+#ifdef _WIN64
+#define NUMDRVS 1
+static char *DriverName[NUMDRVS] = {
+    "SQLite3 ODBC Driver"
+};
+static char *DSName[NUMDRVS] = {
+    "SQLite3 Datasource"
+};
+static char *DriverDLL[NUMDRVS] = {
+    "sqlite3odbc.dll"
+};
+#ifdef WITH_SQLITE_DLLS
+static char *EngineDLL[NUMDRVS] = {
+    "sqlite3.dll"
+};
+#endif
+#else
+#define NUMDRVS 3
+static char *DriverName[NUMDRVS] = {
     "SQLite ODBC Driver",
     "SQLite ODBC (UTF-8) Driver",
     "SQLite3 ODBC Driver"
 };
-static char *DSName[3] = {
+static char *DSName[NUMDRVS] = {
     "SQLite Datasource",
     "SQLite UTF-8 Datasource",
     "SQLite3 Datasource"
 };
-static char *DriverDLL[3] = {
+static char *DriverDLL[NUMDRVS] = {
     "sqliteodbc.dll",
     "sqliteodbcu.dll",
     "sqlite3odbc.dll"
 };
 #ifdef WITH_SQLITE_DLLS
-static char *EngineDLL[3] = {
+static char *EngineDLL[NUMDRVS] = {
     "sqlite.dll",
     "sqliteu.dll",
     "sqlite3.dll"
 };
+#endif
 #endif
 
 static int quiet = 0;
@@ -299,7 +318,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     remove = strstr(p, "uninst") != NULL;
     quiet = strstr(p, "instq") != NULL;
     nosys = strstr(p, "nosys") != NULL;
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < NUMDRVS; i++) {
 #ifdef WITH_SQLITE_DLLS
 	p = EngineDLL[i];
 #else
@@ -307,7 +326,10 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #endif
 	ret[i] = InUn(remove, DriverName[i], DriverDLL[i], p, DSName[i]);
     }
-    if (!remove && (ret[0] || ret[1] || ret[2])) {
+    for (i = 1; i < NUMDRVS; i++) {
+	ret[0] = ret[0] || ret[i];
+    }
+    if (!remove && ret[0]) {
 	if (!quiet) {
 	    MessageBox(NULL, "SQLite ODBC Driver(s) installed.", "Info",
 		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);

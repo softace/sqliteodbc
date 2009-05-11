@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.155 2009/03/22 11:57:57 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.158 2009/05/11 06:27:20 chw Exp chw $
  *
  * Copyright (c) 2001-2009 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -52,7 +52,11 @@
 #endif
 
 #ifndef COLATTRIBUTE_LAST_ARG_TYPE
+#ifdef _WIN64
+#define COLATTRIBUTE_LAST_ARG_TYPE SQLLEN *
+#else
 #define COLATTRIBUTE_LAST_ARG_TYPE SQLPOINTER
+#endif
 #endif
 
 #undef min
@@ -2569,8 +2573,8 @@ connfail:
 	    gmbfunc gmb;
 
 	    if (l) {
-		epm = GetProcAddress(l, "EnumProcessModules");
-		gmb = GetProcAddress(l, "GetModuleBaseNameA");
+		epm = (epmfunc) GetProcAddress(l, "EnumProcessModules");
+		gmb = (gmbfunc) GetProcAddress(l, "GetModuleBaseNameA");
 		if (epm && gmb && epm(h, &m, sizeof (m), &need)) {
 		    gmb(h, m, pname, sizeof (pname));
 		}
@@ -9265,7 +9269,11 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->bind_offs = NULL;
     s->paramset_size = 1;
     s->parm_bind_type = SQL_PARAM_BIND_BY_COLUMN;
+#ifdef _WIN64
+    sprintf((char *) s->cursorname, "CUR_%08lX", (SQLUBIGINT) *stmt);
+#else
     sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
+#endif
     sl = d->stmt;
     pl = NULL;
     while (sl) {
@@ -14466,7 +14474,7 @@ GetDBFile(HWND hdlg)
 {
 #if defined(_WIN32) || defined(_WIN64)
 #ifdef _WIN64
-    SETUPDLG *setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWLP_USER);
+    SETUPDLG *setupdlg = (SETUPDLG *) GetWindowLongPtr(hdlg, DWLP_USER);
 #else
     SETUPDLG *setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWL_USER);
 #endif
@@ -14476,7 +14484,7 @@ GetDBFile(HWND hdlg)
     ofn.lStructSize = sizeof (ofn);
     ofn.hwndOwner = hdlg;
 #ifdef _WIN64
-    ofn.hInstance = (HINSTANCE) GetWindowLong(hdlg, GWLP_HINSTANCE);
+    ofn.hInstance = (HINSTANCE) GetWindowLongPtr(hdlg, GWLP_HINSTANCE);
 #else
     ofn.hInstance = (HINSTANCE) GetWindowLong(hdlg, GWL_HINSTANCE);
 #endif
@@ -14534,6 +14542,14 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	SetDlgItemText(hdlg, IDC_DESC, setupdlg->attr[KEY_DESC].attr);
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	SetDlgItemText(hdlg, IDC_TONAME, setupdlg->attr[KEY_BUSY].attr);
+	SendDlgItemMessage(hdlg, IDC_DSNAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXDSNAME - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_DESC, EM_LIMITTEXT,
+			   (WPARAM) (MAXDESC - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_DBNAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXDBNAME - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_TONAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXTONAME - 1), (LPARAM) 0);
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -14549,15 +14565,6 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	if (setupdlg->defDSN) {
 	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAME), FALSE);
 	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAMETEXT), FALSE);
-	} else {
-	    SendDlgItemMessage(hdlg, IDC_DSNAME,
-			       EM_LIMITTEXT, (WPARAM) (MAXDSNAME - 1), 0L);
-	    SendDlgItemMessage(hdlg, IDC_DESC,
-			       EM_LIMITTEXT, (WPARAM) (MAXDESC - 1), 0L);
-	    SendDlgItemMessage(hdlg, IDC_DBNAME,
-			       EM_LIMITTEXT, (WPARAM) (MAXDBNAME - 1), 0L);
-	    SendDlgItemMessage(hdlg, IDC_TONAME,
-			       EM_LIMITTEXT, (WPARAM) (MAXTONAME - 1), 0L);
 	}
 	return TRUE;
     case WM_COMMAND:
@@ -14577,7 +14584,7 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    break;
 	case IDOK:
 #ifdef _WIN64
-	    setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWLP_USER);
+	    setupdlg = (SETUPDLG *) GetWindowLongPtr(hdlg, DWLP_USER);
 #else
 	    setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWL_USER);
 #endif
@@ -14643,6 +14650,14 @@ ConfigDlgProc(HWND hdlg, ULONG wmsg, MPARAM wparam, MPARAM lparam)
 	WinSetDlgItemText(hdlg, EF_DSNDESC, setupdlg->attr[KEY_DESC].attr);
 	WinSetDlgItemText(hdlg, EF_DATABASE, setupdlg->attr[KEY_DBNAME].attr);
 	WinSetDlgItemText(hdlg, EF_TIMEOUT, setupdlg->attr[KEY_BUSY].attr);
+	WinSendDlgItemMsg(hdlg, EF_DSNNAME, EM_SETTEXTLIMIT,
+			  MPFROMSHORT(MAXDSNAME - 1), 0L);
+	WinSendDlgItemMsg(hdlg, EF_DSNDESC, EM_SETTEXTLIMIT,
+			  MPFROMSHORT(MAXDESC - 1), 0L);
+	WinSendDlgItemMsg(hdlg, EF_DATABASE, EM_SETTEXTLIMIT,
+			  MPFROMSHORT(MAXDBNAME - 1), 0L);
+	WinSendDlgItemMsg(hdlg, EF_TIMEOUT, EM_SETTEXTLIMIT,
+			  MPFROMSHORT(MAXTONAME - 1), 0L);
 	WinCheckButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr));
 	WinCheckButton(hdlg, IDC_STEPAPI,
@@ -14653,15 +14668,6 @@ ConfigDlgProc(HWND hdlg, ULONG wmsg, MPARAM wparam, MPARAM lparam)
 		       getbool(setupdlg->attr[KEY_LONGNAM].attr));
 	if (setupdlg->defDSN) {
 	    WinEnableWindow(WinWindowFromID(hdlg, EF_DSNNAME), FALSE);
-	} else {
-	    WinSendDlgItemMsg(hdlg, EF_DSNNAME,
-			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDSNAME - 1), 0L);
-	    WinSendDlgItemMsg(hdlg, EF_DSNDESC,
-			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDESC - 1), 0L);
-	    WinSendDlgItemMsg(hdlg, EF_DATABASE,
-			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXDBNAME - 1), 0L);
-	    WinSendDlgItemMsg(hdlg, EF_TIMEOUT,
-			      EM_SETTEXTLIMIT, MPFROMSHORT(MAXTONAME - 1), 0L);
 	}
 	return 0;
     case WM_COMMAND:
@@ -14771,7 +14777,7 @@ ConfigDSN(HWND hwnd, WORD request, LPCSTR driver, LPCSTR attribs)
 #if defined(_WIN32) || defined(_WIN64)
 	    success = DialogBoxParam(hModule, MAKEINTRESOURCE(CONFIGDSN),
 				     hwnd, (DLGPROC) ConfigDlgProc,
-				     (LONG) setupdlg) == IDOK;
+				     (LPARAM) setupdlg) == IDOK;
 #endif
 #ifdef __OS2__
 	    HMODULE hDLL;
@@ -14819,14 +14825,14 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	SetDlgItemText(hdlg, IDC_DESC, setupdlg->attr[KEY_DESC].attr);
 	SetDlgItemText(hdlg, IDC_DBNAME, setupdlg->attr[KEY_DBNAME].attr);
 	SetDlgItemText(hdlg, IDC_TONAME, setupdlg->attr[KEY_BUSY].attr);
-	SendDlgItemMessage(hdlg, IDC_DSNAME,
-			   EM_LIMITTEXT, (WPARAM) (MAXDSNAME - 1), 0L);
-	SendDlgItemMessage(hdlg, IDC_DESC,
-			   EM_LIMITTEXT, (WPARAM) (MAXDESC - 1), 0L);
-	SendDlgItemMessage(hdlg, IDC_DBNAME,
-			   EM_LIMITTEXT, (WORD)(MAXDBNAME - 1), 0L);
-	SendDlgItemMessage(hdlg, IDC_TONAME,
-			   EM_LIMITTEXT, (WORD)(MAXTONAME - 1), 0L);
+	SendDlgItemMessage(hdlg, IDC_DSNAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXDSNAME - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_DESC, EM_LIMITTEXT,
+			   (WPARAM) (MAXDESC - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_DBNAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXDBNAME - 1), (LPARAM) 0);
+	SendDlgItemMessage(hdlg, IDC_TONAME, EM_LIMITTEXT,
+			   (WPARAM) (MAXTONAME - 1), (LPARAM) 0);
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
@@ -14839,6 +14845,10 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_LONGNAM,
 		       getbool(setupdlg->attr[KEY_LONGNAM].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	if (setupdlg->defDSN) {
+	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAME), FALSE);
+	    EnableWindow(GetDlgItem(hdlg, IDC_DSNAMETEXT), FALSE);
+	}
 	return TRUE;
     case WM_COMMAND:
 	switch (GET_WM_COMMAND_ID(wparam, lparam)) {
@@ -14847,7 +14857,7 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	    break;
 	case IDOK:
 #ifdef _WIN64
-	    setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWLP_USER);
+	    setupdlg = (SETUPDLG *) GetWindowLongPtr(hdlg, DWLP_USER);
 #else
 	    setupdlg = (SETUPDLG *) GetWindowLong(hdlg, DWL_USER);
 #endif
@@ -15008,7 +15018,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	(connInLen == SQL_NTS && !connIn[0])) {
 	prompt = TRUE;
     } else {
-	ParseAttributes(connIn, setupdlg);
+	ParseAttributes((LPCSTR) connIn, setupdlg);
 	if (!setupdlg->attr[KEY_DSN].attr[0] &&
 	    drvcompl == SQL_DRIVER_COMPLETE_REQUIRED) {
 	    strcpy(setupdlg->attr[KEY_DSN].attr, "DEFAULT");
@@ -15023,10 +15033,12 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 retry:
     if (prompt) {
 	short dlgret;
+
+	setupdlg->defDSN = setupdlg->attr[KEY_DRIVER].attr[0] != '\0';
 #if defined(_WIN32) || defined(_WIN64)
 	dlgret = DialogBoxParam(hModule, MAKEINTRESOURCE(DRIVERCONNECT),
 				hwnd, (DLGPROC) DriverConnectProc,
-				(LONG) setupdlg);
+				(LPARAM) setupdlg);
 #endif
 #ifdef __OS2__
 	HMODULE hDLL;
@@ -15068,7 +15080,7 @@ retry:
 	}
 	len = min(connOutMax - 1, strlen(buf));
 	if (connOut) {
-	    strncpy(connOut, buf, len);
+	    strncpy((char *) connOut, buf, len);
 	    connOut[len] = '\0';
 	}
 	if (connOutLen) {

@@ -15,7 +15,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.6.13, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.6.14, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -27,6 +27,9 @@ on as an absolute pathname including the drive letter, eg as
 "C:\TEMP\SQLite.DB". The busy (or lock) timeout for the database
 can be specified in the respective field. If empty a default value
 of 100000 milliseconds is used.
+
+The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.6.14,
+MingW cross compiler and only rudimentary tested on Windows Vista 64.
 
 Other tests were made on Linux with the "isql" command line tool
 and the "DataManager" GUI tool of unixODBC 2.1.0.
@@ -237,7 +240,7 @@ Win32 install/remove/shell by RUNDLL32
        "select * from table" <NUL: 2>NUL: >out.txt
 
 
-DNS-less connection to the driver
+DSN-less connection to the driver
 
   Using the SQLDriverConnect() API it should be possible to connect to
   a SQLite database with these strings (Win32 and UN*X)
@@ -287,7 +290,7 @@ TODO:
 - improve documentation
 
 
-2009-04-14
+2009-05-11
 Christian Werner
 mailto:chw@ch-werner.de
 
