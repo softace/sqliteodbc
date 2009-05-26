@@ -1,6 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
+Tue May 26 2009 version 0.83 released
+
+	* update to SQLite 3.6.14.2
+	* fixed UNICODE string length issues in SQLGetInfoW() et.al.
+
 Mon May 11 2009 version 0.82 released
 
 	* update to SQLite 3.6.14

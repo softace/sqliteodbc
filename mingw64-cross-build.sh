@@ -10,7 +10,7 @@
 
 set -e
 
-VER3=3.6.14
+VER3=3.6.14.2
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
@@ -273,7 +273,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.5 2009/05/11 06:28:00 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.6 2009/05/26 06:27:30 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -501,7 +501,7 @@ EOD
 # patch: FTS3 again, for SQLite3 >= 3.6.8
 test "$VER3" = "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" \
   -o "$VER3" = "3.6.11" -o "$VER3" = "3.6.12" -o "$VER3" = "3.6.13" \
-  -o "$VER3" = "3.6.14" && \
+  -o "$VER3" = "3.6.14" -o "$VER3" = "3.6.14.1" -o "$VER3" = "3.6.14.2" && \
   patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2009-01-01 15:06:13.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_expr.c	2009-01-14 09:55:13.000000000 +0100

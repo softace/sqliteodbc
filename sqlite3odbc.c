@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.98 2009/05/11 06:27:20 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.99 2009/05/17 09:47:47 chw Exp chw $
  *
  * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
  *
@@ -449,22 +449,26 @@ uc_strncpy(SQLWCHAR *dest, SQLWCHAR *src, int len)
 /**
  * Make UNICODE string from UTF8 string into buffer.
  * @param str UTF8 string to be converted
+ * @param len length of str or -1
  * @param uc destination area to receive UNICODE string
  * @param ucLen byte length of destination area
  */
 
 static void
-uc_from_utf_buf(unsigned char *str, SQLWCHAR *uc, int ucLen)
+uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 {
     ucLen = ucLen / sizeof (SQLWCHAR);
     if (!uc || ucLen < 0) {
 	return;
     }
+    if (len < 0) {
+	len = ucLen * 5;
+    }
     uc[0] = 0;
     if (str) {
 	int i = 0;
 
-	while (*str && i < ucLen) {
+	while (i < len && *str && i < ucLen) {
 	    unsigned char c = str[0];
 
 	    if (c < 0xc0) {
@@ -557,15 +561,16 @@ static SQLWCHAR *
 uc_from_utf(unsigned char *str, int len)
 {
     SQLWCHAR *uc = NULL;
+    int ucLen;
 
     if (str) {
 	if (len == SQL_NTS) {
 	    len = strlen((char *) str);
 	}
-	len = sizeof (SQLWCHAR) * (len + 1);
-	uc = xmalloc(len);
+	ucLen = sizeof (SQLWCHAR) * (len + 1);
+	uc = xmalloc(ucLen);
 	if (uc) {
-	    uc_from_utf_buf(str, uc, len);
+	    uc_from_utf_buf(str, len, uc, ucLen);
 	}
     }
     return uc;
@@ -6866,7 +6871,7 @@ SQLGetDiagRecW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 			nativeerr, (SQLCHAR *) msg, buflen, &len);
     if (ret == SQL_SUCCESS) {
 	if (sqlstate) {
-	    uc_from_utf_buf((unsigned char *) state, sqlstate,
+	    uc_from_utf_buf((SQLCHAR *) state, -1, sqlstate,
 			    6 * sizeof (SQLWCHAR));
 	}
 	if (msg) {
@@ -6876,7 +6881,9 @@ SQLGetDiagRecW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 		m = uc_from_utf((unsigned char *) msg, len);
 		if (m) {
 		    if (buflen) {
+			buflen /= sizeof (SQLWCHAR);
 			uc_strncpy(msg, m, buflen);
+			m[len] = 0;
 			len = min(buflen, uc_strlen(m));
 		    } else {
 			len = uc_strlen(m);
@@ -7118,6 +7125,7 @@ SQLGetDiagFieldW(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 			if (buflen) {
 			    buflen /= sizeof (SQLWCHAR);
 			    uc_strncpy(info, m, buflen);
+			    m[len] = 0;
 			    len = min(buflen, uc_strlen(m));
 			} else {
 			    len = uc_strlen(m);
@@ -8342,6 +8350,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 			int vmax = valMax / sizeof (SQLWCHAR);
 
 			uc_strncpy(val, v, vmax);
+			v[len] = 0;
 			len = min(vmax, uc_strlen(v));
 			uc_free(v);
 			len *= sizeof (SQLWCHAR);
@@ -10086,6 +10095,7 @@ SQLGetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT buflen,
 		ret = nomem((STMT *) stmt);
 		goto done;
 	    }
+	    c[len] = 0;
 	    len = uc_strlen(c);
 	    if (buflen > 0) {
 		uc_strncpy(cursor, c, buflen - 1);
@@ -13195,6 +13205,7 @@ SQLDescribeColW(SQLHSTMT stmt, SQLUSMALLINT col, SQLWCHAR *name,
 		n = uc_from_utf((SQLCHAR *) name, len);
 		if (n) {
 		    uc_strncpy(name, n, nameMax);
+		    n[len] = 0;
 		    len = min(nameMax, uc_strlen(n));
 		    uc_free(n);
 		} else {
@@ -14232,7 +14243,7 @@ SQLErrorW(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 		   (SQLCHAR *) errmsg, errmax, &len);
     if (ret == SQL_SUCCESS) {
 	if (sqlState) {
-	    uc_from_utf_buf((SQLCHAR *) state, sqlState,
+	    uc_from_utf_buf((SQLCHAR *) state, -1, sqlState,
 			    6 * sizeof (SQLWCHAR));
 	}
 	if (errmsg) {
@@ -14243,6 +14254,7 @@ SQLErrorW(SQLHENV env, SQLHDBC dbc, SQLHSTMT stmt,
 		if (e) {
 		    if (errmax > 0) {
 			uc_strncpy(errmsg, e, errmax);
+			e[len] = 0;
 			len = min(errmax, uc_strlen(e));
 		    } else {
 			len = uc_strlen(e);
@@ -15740,6 +15752,7 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 #endif
 		if (co) {
 		    uc_strncpy(connOut, co, connOutMax);
+		    co[len] = 0;
 		    len = min(connOutMax, uc_strlen(co));
 		    uc_free(co);
 		} else {
