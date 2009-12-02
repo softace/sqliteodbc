@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.160 2009/05/17 09:54:14 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.162 2009/12/02 10:04:24 chw Exp chw $
  *
  * Copyright (c) 2001-2009 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -57,6 +57,10 @@
 #else
 #define COLATTRIBUTE_LAST_ARG_TYPE SQLPOINTER
 #endif
+#endif
+
+#ifndef SETSTMTOPTION_LAST_ARG_TYPE
+#define SETSTMTOPTION_LAST_ARG_TYPE SQLROWCOUNT
 #endif
 
 #undef min
@@ -1634,6 +1638,7 @@ errout:
 	freep(&qz);
 	return NULL;
     }
+    memset(p, 0, 2 * size + size * sizeof (char *) / 2);
     out = p;
     npp = (char **) (out + size);
     ncp = (char *) npp + size * sizeof (char *) / 2;
@@ -4419,9 +4424,10 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, asize, ret, nrows, ncols, namec, uniquec, offs;
+    int i, asize, ret, nrows, ncols, nrows2, ncols2;
+    int namec = -1, uniquec = -1, namec2 = -1, uniquec2 = -1, offs, seq = 1;
     PTRDIFF_T size;
-    char **rowp = NULL, *errp = NULL, tname[512];
+    char **rowp = NULL, **rowp2 = NULL, *errp = NULL, tname[512];
 
     sret = mkresultset(stmt, pkeySpec2, array_size(pkeySpec2),
 		       pkeySpec3, array_size(pkeySpec3), &asize);
@@ -4462,65 +4468,27 @@ drvprimarykeys(SQLHSTMT stmt,
 	sqlite_freemem(errp);
 	errp = NULL;
     }
+    size = 0;
     if (ncols * nrows > 0) {
-	int seq = 1, typec, roffs;
+	int typec;
 
 	namec = findcol(rowp, ncols, "name");
 	uniquec = findcol(rowp, ncols, "pk");
 	typec = findcol(rowp, ncols, "type");
-	if (namec < 0 || uniquec < 0 || typec < 0) {
-	    goto nodata;
-	}
-	size = 0;
-	for (i = 1; i <= nrows; i++) {
-	    if (*rowp[i * ncols + uniquec] != '0') {
-		size++;
-	    }
-	}
-	if (size < 1) {
-	    goto nodata;
-	}
-	s->nrows = size;
-	size = (size + 1) * asize;
-	s->rows = xmalloc((size + 1) * sizeof (char *));
-	if (!s->rows) {
-	    s->nrows = 0;
-	    sqlite_free_table(rowp);
-	    return nomem(s);
-	}
-	s->rows[0] = (char *) size;
-	s->rows += 1;
-	memset(s->rows, 0, sizeof (char *) * size);
-	s->rowfree = freerows;
-	roffs = s->ncols;
-	for (i = 1; i <= nrows; i++) {
-	    if (*rowp[i * ncols + uniquec] != '0') {
-		char buf[32];
-
-		s->rows[roffs + 0] = xstrdup("");
-#if defined(_WIN32) || defined(_WIN64)
-		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
-#else
-		s->rows[roffs + 1] = xstrdup("");
-#endif
-		s->rows[roffs + 2] = xstrdup(tname);
-		s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
-		sprintf(buf, "%d", seq++);
-		s->rows[roffs + 4] = xstrdup(buf);
-		roffs += s->ncols;
+	if (namec >= 0 && uniquec >= 0 && typec >= 0) {
+	    for (i = 1; i <= nrows; i++) {
+		if (*rowp[i * ncols + uniquec] != '0') {
+		    size++;
+		}
 	    }
 	}
     }
-nodata:
-    sqlite_free_table(rowp);
-
-    /*
-     * Next round trying to find "(*autoindex*)" indices
-     */
     ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list('%q')", &rowp,
-				  &nrows, &ncols, &errp, tname);
+				  "PRAGMA index_list('%q')", &rowp2,
+				  &nrows2, &ncols2, &errp, tname);
     if (ret != SQLITE_OK) {
+	sqlite_free_table(rowp);
+	sqlite_free_table(rowp2);
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
@@ -4533,36 +4501,36 @@ nodata:
 	sqlite_freemem(errp);
 	errp = NULL;
     }
-    if (ncols * nrows <= 0) {
-	goto nodata2;
-    }
-    size = 0;
-    namec = findcol(rowp, ncols, "name");
-    uniquec = findcol(rowp, ncols, "unique");
-    if (namec < 0 || uniquec < 0) {
-	goto nodata2;
-    }
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols;
-	char **rowpp;
+    if (ncols2 * nrows2 > 0) {
+	namec2 = findcol(rowp2, ncols, "name");
+	uniquec2 = findcol(rowp2, ncols, "unique");
+	if (namec2 >= 0 && uniquec2 >= 0) {
+	    for (i = 1; i <= nrows2; i++) {
+		int nnrows, nncols;
+		char **rowpp;
 
-	if (*rowp[i * ncols + namec] != '(' ||
-	    !strstr(rowp[i * ncols + namec], " autoindex ")) {
-	    continue;
-	}
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
-	    if (ret == SQLITE_OK) {
-		size += nnrows;
-		sqlite_free_table(rowpp);
+		if (*rowp2[i * ncols2 + namec2] != '(' ||
+		    !strstr(rowp2[i * ncols2 + namec2], " autoindex ")) {
+		    continue;
+		}
+		if (*rowp2[i * ncols2 + uniquec2] != '0') {
+		    ret = sqlite_get_table_printf(d->sqlite,
+						  "PRAGMA index_info('%q')",
+						  &rowpp, &nnrows, &nncols,
+						  NULL,
+						  rowp2[i * ncols2 + namec2]);
+		    if (ret == SQLITE_OK) {
+			size += nnrows;
+			sqlite_free_table(rowpp);
+		    }
+		}
 	    }
 	}
     }
     if (size == 0) {
-	goto nodata2;
+	sqlite_free_table(rowp);
+	sqlite_free_table(rowp2);
+	return SQL_SUCCESS;
     }
     s->nrows = size;
     size = (size + 1) * asize;
@@ -4570,68 +4538,94 @@ nodata:
     if (!s->rows) {
 	s->nrows = 0;
 	sqlite_free_table(rowp);
+	sqlite_free_table(rowp2);
 	return nomem(s);
     }
     s->rows[0] = (char *) size;
     s->rows += 1;
     memset(s->rows, 0, sizeof (char *) * size);
     s->rowfree = freerows;
-    offs = 0;
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols;
-	char **rowpp;
+    offs = s->ncols;
+    if (rowp) {
+	for (i = 1; i <= nrows; i++) {
+	    if (*rowp[i * ncols + uniquec] != '0') {
+		char buf[32];
 
-	if (*rowp[i * ncols + namec] != '(' ||
-	    !strstr(rowp[i * ncols + namec], " autoindex ")) {
-	    continue;
-	}
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    int k;
-
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA index_info('%q')", &rowpp,
-					  &nnrows, &nncols, NULL,
-					  rowp[i * ncols + namec]);
-	    if (ret != SQLITE_OK) {
-		continue;
-	    }
-	    for (k = 0; nnrows && k < nncols; k++) {
-		if (strcmp(rowpp[k], "name") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-
-			s->rows[roffs + 0] = xstrdup("");
+		s->rows[offs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-			s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[offs + 1] = xstrdup(d->xcelqrx ? "main" : "");
 #else
-			s->rows[roffs + 1] = xstrdup("");
+		s->rows[offs + 1] = xstrdup("");
 #endif
-			s->rows[roffs + 2] = xstrdup(tname);
-			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
-			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
-		    }
-		} else if (strcmp(rowpp[k], "seqno") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-			int pos = m - 1;
-			char buf[32];
-
-			sscanf(rowpp[m * nncols + k], "%d", &pos);
-			sprintf(buf, "%d", pos + 1);
-			s->rows[roffs + 4] = xstrdup(buf);
-		    }
-		}
+		s->rows[offs + 2] = xstrdup(tname);
+		s->rows[offs + 3] = xstrdup(rowp[i * ncols + namec]);
+		sprintf(buf, "%d", seq++);
+		s->rows[offs + 4] = xstrdup(buf);
+		offs += s->ncols;
 	    }
-	    offs += nnrows;
-	    sqlite_free_table(rowpp);
 	}
     }
-nodata2:
+    if (rowp2) {
+	for (i = 1; i <= nrows2; i++) {
+	    int nnrows, nncols;
+	    char **rowpp;
+
+	    if (*rowp2[i * ncols2 + namec2] != '(' ||
+		!strstr(rowp2[i * ncols2 + namec2], " autoindex ")) {
+		continue;
+	    }
+	    if (*rowp2[i * ncols2 + uniquec2] != '0') {
+		int k;
+
+		ret = sqlite_get_table_printf(d->sqlite,
+					      "PRAGMA index_info('%q')",
+					      &rowpp,
+					      &nnrows, &nncols, NULL,
+					      rowp2[i * ncols2 + namec2]);
+		if (ret != SQLITE_OK) {
+		    continue;
+		}
+		for (k = 0; nnrows && k < nncols; k++) {
+		    if (strcmp(rowpp[k], "name") == 0) {
+			int m;
+
+			for (m = 1; m <= nnrows; m++) {
+			    int roffs = offs + (m - 1) * s->ncols;
+
+			    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+			    s->rows[roffs + 1] =
+				xstrdup(d->xcelqrx ? "main" : "");
+#else
+			    s->rows[roffs + 1] = xstrdup("");
+#endif
+			    s->rows[roffs + 2] = xstrdup(tname);
+			    s->rows[roffs + 3] =
+				xstrdup(rowpp[m * nncols + k]);
+			    s->rows[roffs + 5] =
+				xstrdup(rowp2[i * ncols2 + namec2]);
+			}
+		    } else if (strcmp(rowpp[k], "seqno") == 0) {
+			int m;
+
+			for (m = 1; m <= nnrows; m++) {
+			    int roffs = offs + (m - 1) * s->ncols;
+			    int pos = m - 1;
+			    char buf[32];
+
+			    sscanf(rowpp[m * nncols + k], "%d", &pos);
+			    sprintf(buf, "%d", pos + 1);
+			    s->rows[roffs + 4] = xstrdup(buf);
+			}
+		    }
+		}
+		offs += nnrows * s->ncols;
+		sqlite_free_table(rowpp);
+	    }
+	}
+    }
     sqlite_free_table(rowp);
+    sqlite_free_table(rowp2);
     return SQL_SUCCESS;
 }
 
@@ -7149,7 +7143,8 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
+SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt,
+		 SETSTMTOPTION_LAST_ARG_TYPE param)
 {
     SQLRETURN ret;
 
@@ -7169,7 +7164,8 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
+SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt,
+		  SETSTMTOPTION_LAST_ARG_TYPE param)
 {
     SQLRETURN ret;
 
@@ -11630,7 +11626,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     SQLRETURN sret;
     STMT *s;
     DBC *d;
-    int i, asize, ret, nrows, ncols, offs, namec, uniquec;
+    int i, asize, ret, nrows, ncols, offs, namec, uniquec, addipk = 0;
     PTRDIFF_T size;
     char **rowp, *errp = NULL, tname[512];
 
@@ -11657,6 +11653,40 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     if (sret != SQL_SUCCESS) {
 	return sret;
     }
+    /*
+     * Try integer primary key (autoincrement) first
+     */
+    if (itype == SQL_INDEX_UNIQUE || itype == SQL_INDEX_ALL) {
+	int colid, typec, npk = 0;
+
+	rowp = 0;
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "PRAGMA table_info('%q')", &rowp,
+				      &nrows, &ncols, NULL, tname);
+	if (ret != SQLITE_OK) {
+	    goto noipk;
+	}
+	namec = findcol(rowp, ncols, "name");
+	uniquec = findcol(rowp, ncols, "pk");
+	typec = findcol(rowp, ncols, "type");
+	colid = findcol(rowp, ncols, "cid");
+	if (namec < 0 || uniquec < 0 || typec < 0 || colid < 0) {
+	    goto noipk;
+	}
+	for (i = 1; i <= nrows; i++) {
+	    if (*rowp[i * ncols + uniquec] != '0' &&
+		strlen(rowp[i * ncols + typec]) == 7 &&
+		strncasecmp(rowp[i * ncols + typec], "integer", 7)
+		== 0) {
+		npk++;
+	    }
+	}
+	if (npk == 1) {
+	    addipk = 1;
+	}
+noipk:
+	sqlite_free_table(rowp);
+    }
     ret = sqlite_get_table_printf(d->sqlite,
 				  "PRAGMA index_list('%q')", &rowp,
 				  &nrows, &ncols, &errp, tname);
@@ -11672,66 +11702,6 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     if (errp) {
 	sqlite_freemem(errp);
 	errp = NULL;
-    }
-    if (ncols * nrows <= 0) {
-nodata:
-	sqlite_free_table(rowp);
-	/* try table_info for integer primary keys */
-	if (itype == SQL_INDEX_UNIQUE || itype == SQL_INDEX_ALL) {
-	    ret = sqlite_get_table_printf(d->sqlite,
-					  "PRAGMA table_info('%q')", &rowp,
-					  &nrows, &ncols, NULL, tname);
-	    if (ret == SQLITE_OK) {
-		int colid, typec, roffs;
-
-		namec = findcol(rowp, ncols, "name");
-		uniquec = findcol(rowp, ncols, "pk");
-		typec = findcol(rowp, ncols, "type");
-		colid = findcol(rowp, ncols, "cid");
-		if (namec < 0 || uniquec < 0 || typec < 0 || colid < 0) {
-		    goto nodata2;
-		}
-		for (i = 1; i <= nrows; i++) {
-		    if (*rowp[i * ncols + uniquec] != '0' &&
-			strlen(rowp[i * ncols + typec]) == 7 &&
-			strncasecmp(rowp[i * ncols + typec], "integer", 7)
-			== 0) {
-			break;
-		    }
-		}
-		if (i > nrows) {
-		    goto nodata2;
-		}
-		size = (1 + 1) * asize;
-		s->rows = xmalloc((size + 1) * sizeof (char *));
-		if (!s->rows) {
-		    s->nrows = 0;
-		    return nomem(s);
-		}
-		s->rows[0] = (char *) size;
-		s->rows += 1;
-		memset(s->rows, 0, sizeof (char *) * size);
-		s->rowfree = freerows;
-		s->nrows = 1;
-		roffs = s->ncols;
-		s->rows[roffs + 0] = xstrdup("");
-#if defined(_WIN32) || defined(_WIN64)
-		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
-#else
-		s->rows[roffs + 1] = xstrdup("");
-#endif
-		s->rows[roffs + 2] = xstrdup(tname);
-		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
-		s->rows[roffs + 5] = xstrdup("(autoindex 0)");
-		s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
-		s->rows[roffs + 7] = xstrdup("1");
-		s->rows[roffs + 8] = xstrdup(rowp[i * ncols + namec]);
-		s->rows[roffs + 9] = xstrdup("A");
-nodata2:
-		sqlite_free_table(rowp);
-	    }
-	}
-	return SQL_SUCCESS;
     }
     size = 0;
     namec = findcol(rowp, ncols, "name");
@@ -11756,8 +11726,13 @@ nodata2:
 	    }
 	}
     }
+nodata:
+    if (addipk) {
+	size++;
+    }
     if (size == 0) {
-	goto nodata;
+	sqlite_free_table(rowp);
+	return SQL_SUCCESS;
     }
     s->nrows = size;
     size = (size + 1) * asize;
@@ -11771,6 +11746,57 @@ nodata2:
     memset(s->rows, 0, sizeof (char *) * size);
     s->rowfree = freerows;
     offs = 0;
+    if (addipk) {
+	char **rowpp;
+	int ncols2, nrows2;
+
+	rowpp = 0;
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "PRAGMA table_info('%q')", &rowpp,
+				      &nrows2, &ncols2, NULL, tname);
+	if (ret == SQLITE_OK) {
+	    int namecc, uniquecc, colid, typec, roffs;
+
+	    namecc = findcol(rowpp, ncols2, "name");
+	    uniquecc = findcol(rowpp, ncols2, "pk");
+	    typec = findcol(rowpp, ncols2, "type");
+	    colid = findcol(rowpp, ncols2, "cid");
+	    if (namecc < 0 || uniquecc < 0 || typec < 0 || colid < 0) {
+		addipk = 0;
+		s->nrows--;
+		goto nodata2;
+	    }
+	    for (i = 1; i <= nrows2; i++) {
+		if (*rowpp[i * ncols2 + uniquecc] != '0' &&
+		    strlen(rowpp[i * ncols2 + typec]) == 7 &&
+		    strncasecmp(rowpp[i * ncols2 + typec], "integer", 7)
+		    == 0) {
+		    break;
+		}
+	    }
+	    if (i > nrows) {
+		addipk = 0;
+		s->nrows--;
+		goto nodata2;
+	    }
+	    roffs = s->ncols;
+	    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
+	    s->rows[roffs + 1] = xstrdup("");
+#endif
+	    s->rows[roffs + 2] = xstrdup(tname);
+	    s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
+	    s->rows[roffs + 5] = xstrdup("(autoindex 0)");
+	    s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
+	    s->rows[roffs + 7] = xstrdup("1");
+	    s->rows[roffs + 8] = xstrdup(rowpp[i * ncols2 + namecc]);
+	    s->rows[roffs + 9] = xstrdup("A");
+	}
+nodata2:
+	sqlite_free_table(rowpp);
+    }
     for (i = 1; i <= nrows; i++) {
 	int nnrows, nncols;
 	char **rowpp;
@@ -11790,7 +11816,7 @@ nodata2:
 		    int m;
 
 		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
+			int roffs = (offs + addipk + m) * s->ncols;
 			int isuniq;
 
 			isuniq = *rowp[i * ncols + uniquec] != '0';
@@ -11812,7 +11838,7 @@ nodata2:
 		    int m;
 
 		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
+			int roffs = (offs + addipk + m) * s->ncols;
 			int pos = m - 1;
 			char buf[32];
 

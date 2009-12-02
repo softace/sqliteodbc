@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.99 2009/05/17 09:47:47 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.102 2009/12/02 10:04:24 chw Exp chw $
  *
  * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
  *
@@ -38,6 +38,10 @@
 #else
 #define COLATTRIBUTE_LAST_ARG_TYPE SQLPOINTER
 #endif
+#endif
+
+#ifndef SETSTMTOPTION_LAST_ARG_TYPE
+#define SETSTMTOPTION_LAST_ARG_TYPE SQLROWCOUNT
 #endif
 
 #undef min
@@ -1173,6 +1177,10 @@ retrieve:
 	s3bind(d, tres.stmt, nparam, p);
 	ncol = sqlite3_column_count(tres.stmt);
 	while (1) {
+	    if (s->max_rows && tres.nrow >= s->max_rows) {
+		rc = SQLITE_OK;
+		break;
+	    }
 	    rc = sqlite3_step(tres.stmt);
 	    if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
 		if (drvgettable_row(&tres, ncol, rc)) {
@@ -2036,6 +2044,7 @@ errout:
 	freep(&qz);
 	return NULL;
     }
+    memset(p, 0, size);
     out = p;
     while (*q) {
 	switch (*q) {
@@ -3244,9 +3253,9 @@ s3stmt_step(STMT *s)
     }
     rc = sqlite3_step(s->s3stmt);
     if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
-	++d->s3stmt_rownum;
+	++s->s3stmt_rownum;
 	ncols = sqlite3_column_count(s->s3stmt);
-	if (d->s3stmt_needmeta && d->s3stmt_rownum == 0 && ncols > 0) {
+	if (d->s3stmt_needmeta && s->s3stmt_rownum == 0 && ncols > 0) {
 	    PTRDIFF_T size;
 	    char *p;
 	    COL *dyncols;
@@ -3470,6 +3479,7 @@ s3stmt_end(STMT *s)
 	dbtraceapi(d, "sqlite3_reset", 0);
 	sqlite3_reset(s->s3stmt);
 	s->s3stmt_noreset = 1;
+	s->s3stmt_rownum = -1;
     }
     if (d->cur_s3stmt == s) {
 	d->cur_s3stmt = NULL;
@@ -3510,6 +3520,7 @@ s3stmt_drop(STMT *s)
 	}
 	sqlite3_finalize(s->s3stmt);
 	s->s3stmt = NULL;
+	s->s3stmt_rownum = 0;
     }
 }
 
@@ -3572,7 +3583,7 @@ s3stmt_start(STMT *s)
 	d->s3stmt_needmeta = 1;
     }
     d->cur_s3stmt = s;
-    d->s3stmt_rownum = -1;
+    s->s3stmt_rownum = -1;
     s3bind(d, s->s3stmt, s->nparams, s->bindparms);
     return SQL_SUCCESS;
 }
@@ -4884,9 +4895,10 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, asize, ret, nrows, ncols, namec, uniquec, offs;
+    int i, asize, ret, nrows, ncols, nrows2, ncols2;
+    int namec = -1, uniquec = -1, namec2 = -1, uniquec2 = -1, offs, seq = 1;
     PTRDIFF_T size;
-    char **rowp = NULL, *errp = NULL, *sql, tname[512];
+    char **rowp = NULL, **rowp2 = NULL, *errp = NULL, *sql, tname[512];
 
     sret = mkresultset(stmt, pkeySpec2, array_size(pkeySpec2),
 		       pkeySpec3, array_size(pkeySpec3), &asize);
@@ -4932,69 +4944,32 @@ drvprimarykeys(SQLHSTMT stmt,
 	sqlite3_free(errp);
 	errp = NULL;
     }
+    size = 0;
     if (ncols * nrows > 0) {
-	int seq = 1, typec, roffs;
+	int typec;
 
 	namec = findcol(rowp, ncols, "name");
 	uniquec = findcol(rowp, ncols, "pk");
 	typec = findcol(rowp, ncols, "type");
-	if (namec < 0 || uniquec < 0 || typec < 0) {
-	    goto nodata;
-	}
-	size = 0;
-	for (i = 1; i <= nrows; i++) {
-	    if (*rowp[i * ncols + uniquec] != '0') {
-		size++;
-	    }
-	}
-	if (size < 1) {
-	    goto nodata;
-	}
-	s->nrows = size;
-	size = (size + 1) * asize;
-	s->rows = xmalloc((size + 1) * sizeof (char *));
-	if (!s->rows) {
-	    s->nrows = 0;
-	    sqlite3_free_table(rowp);
-	    return nomem(s);
-	}
-	s->rows[0] = (char *) size;
-	s->rows += 1;
-	memset(s->rows, 0, sizeof (char *) * size);
-	s->rowfree = freerows;
-	roffs = s->ncols;
-	for (i = 1; i <= nrows; i++) {
-	    if (*rowp[i * ncols + uniquec] != '0') {
-		char buf[32];
-
-		s->rows[roffs + 0] = xstrdup("");
-#if defined(_WIN32) || defined(_WIN64)
-		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
-#else
-		s->rows[roffs + 1] = xstrdup("");
-#endif
-		s->rows[roffs + 2] = xstrdup(tname);
-		s->rows[roffs + 3] = xstrdup(rowp[i * ncols + namec]);
-		sprintf(buf, "%d", seq++);
-		s->rows[roffs + 4] = xstrdup(buf);
-		roffs += s->ncols;
+	if (namec >= 0 && uniquec >= 0 && typec >= 0) {
+	    for (i = 1; i <= nrows; i++) {
+		if (*rowp[i * ncols + uniquec] != '0') {
+		    size++;
+		}
 	    }
 	}
     }
-nodata:
-    sqlite3_free_table(rowp);
-
-    /*
-     * Next round trying to find "sqlite_autoindex_*" indices
-     */
     sql = sqlite3_mprintf("PRAGMA index_list(%Q)", tname);
     if (!sql) {
+	sqlite3_free_table(rowp);
 	return nomem(s);
     }
     dbtraceapi(d, "sqlite3_get_table", sql);
-    ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
+    ret = sqlite3_get_table(d->sqlite, sql, &rowp2, &nrows2, &ncols2, &errp);
     sqlite3_free(sql);
     if (ret != SQLITE_OK) {
+	sqlite3_free_table(rowp);
+	sqlite3_free_table(rowp2);
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);
 	if (errp) {
@@ -5007,44 +4982,44 @@ nodata:
 	sqlite3_free(errp);
 	errp = NULL;
     }
-    if (ncols * nrows <= 0) {
-	goto nodata2;      
-    }
-    size = 0;
-    namec = findcol(rowp, ncols, "name");
-    uniquec = findcol(rowp, ncols, "unique");
-    if (namec < 0 || uniquec < 0) {
-	goto nodata2;
-    }
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols, nlen = 0;
-	char **rowpp;
+    if (ncols2 * nrows2 > 0) {
+	namec2 = findcol(rowp2, ncols2, "name");
+	uniquec2 = findcol(rowp2, ncols2, "unique");
+	if (namec2 >= 0 && uniquec2 >=  0) {
+	    for (i = 1; i <= nrows2; i++) {
+		int nnrows, nncols, nlen = 0;
+		char **rowpp;
 
-	if (rowp[i * ncols + namec]) {
-	    nlen = strlen(rowp[i * ncols + namec]);
-	}
-	if (nlen < 17 ||
-	    strncmp(rowp[i * ncols + namec], "sqlite_autoindex_", 17)) {
-	    continue;
-	}
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    ret = SQLITE_ERROR;
-	    sql = sqlite3_mprintf("PRAGMA index_info(%Q)",
-				  rowp[i * ncols + namec]);
-	    if (sql) {
-		dbtraceapi(d, "sqlite3_get_table", sql);
-		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
-					&nnrows, &nncols, NULL);
-		sqlite3_free(sql);
-	    }
-	    if (ret == SQLITE_OK) {
-		size += nnrows;
-		sqlite3_free_table(rowpp);
+		if (rowp2[i * ncols2 + namec2]) {
+		    nlen = strlen(rowp2[i * ncols2 + namec2]);
+		}
+		if (nlen < 17 ||
+		    strncmp(rowp2[i * ncols2 + namec2],
+			    "sqlite_autoindex_", 17)) {
+		    continue;
+		}
+		if (*rowp2[i * ncols2 + uniquec2] != '0') {
+		    ret = SQLITE_ERROR;
+		    sql = sqlite3_mprintf("PRAGMA index_info(%Q)",
+					  rowp2[i * ncols2 + namec2]);
+		    if (sql) {
+			dbtraceapi(d, "sqlite3_get_table", sql);
+			ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+						&nnrows, &nncols, NULL);
+			sqlite3_free(sql);
+		    }
+		    if (ret == SQLITE_OK) {
+			size += nnrows;
+			sqlite3_free_table(rowpp);
+		    }
+		}
 	    }
 	}
     }
     if (size == 0) {
-	goto nodata2;
+	sqlite3_free_table(rowp);
+	sqlite3_free_table(rowp2);
+	return SQL_SUCCESS;
     }
     s->nrows = size;
     size = (size + 1) * asize;
@@ -5052,76 +5027,101 @@ nodata:
     if (!s->rows) {
 	s->nrows = 0;
 	sqlite3_free_table(rowp);
+	sqlite3_free_table(rowp2);
 	return nomem(s);
     }
     s->rows[0] = (char *) size;
     s->rows += 1;
     memset(s->rows, 0, sizeof (char *) * size);
     s->rowfree = freerows;
-    offs = 0;
-    for (i = 1; i <= nrows; i++) {
-	int nnrows, nncols, nlen = 0;
-	char **rowpp;
+    offs = s->ncols;
+    if (rowp) {
+	for (i = 1; i <= nrows; i++) {
+	    if (*rowp[i * ncols + uniquec] != '0') {
+		char buf[32];
 
-	if (rowp[i * ncols + namec]) {
-	    nlen = strlen(rowp[i * ncols + namec]);
-	}
-	if (nlen < 17 ||
-	    strncmp(rowp[i * ncols + namec], "sqlite_autoindex_", 17)) {
-	    continue;
-	}
-	if (*rowp[i * ncols + uniquec] != '0') {
-	    int k;
-
-	    ret = SQLITE_ERROR;
-	    sql = sqlite3_mprintf("PRAGMA index_info(%Q)",
-				  rowp[i * ncols + namec]);
-	    if (sql) {
-		dbtraceapi(d, "sqlite3_get_table", sql);
-		ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
-					&nnrows, &nncols, NULL);
-		sqlite3_free(sql);
-	    }
-	    if (ret != SQLITE_OK) {
-		continue;
-	    }
-	    for (k = 0; nnrows && k < nncols; k++) {
-		if (strcmp(rowpp[k], "name") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-
-			s->rows[roffs + 0] = xstrdup("");
+		s->rows[offs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-			s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[offs + 1] = xstrdup(d->xcelqrx ? "main" : "");
 #else
-			s->rows[roffs + 1] = xstrdup("");
+		s->rows[offs + 1] = xstrdup("");
 #endif
-			s->rows[roffs + 2] = xstrdup(tname);
-			s->rows[roffs + 3] = xstrdup(rowpp[m * nncols + k]);
-			s->rows[roffs + 5] = xstrdup(rowp[i * ncols + namec]);
-		    }
-		} else if (strcmp(rowpp[k], "seqno") == 0) {
-		    int m;
-
-		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
-			int pos = m - 1;
-			char buf[32];
-
-			sscanf(rowpp[m * nncols + k], "%d", &pos);
-			sprintf(buf, "%d", pos + 1);
-			s->rows[roffs + 4] = xstrdup(buf);
-		    }
-		}
+		s->rows[offs + 2] = xstrdup(tname);
+		s->rows[offs + 3] = xstrdup(rowp[i * ncols + namec]);
+		sprintf(buf, "%d", seq++);
+		s->rows[offs + 4] = xstrdup(buf);
+		offs += s->ncols;
 	    }
-	    offs += nnrows;
-	    sqlite3_free_table(rowpp);
 	}
     }
-nodata2:
+    if (rowp2) {
+	for (i = 1; i <= nrows2; i++) {
+	    int nnrows, nncols, nlen = 0;
+	    char **rowpp;
+
+	    if (rowp2[i * ncols2 + namec2]) {
+		nlen = strlen(rowp2[i * ncols2 + namec2]);
+	    }
+	    if (nlen < 17 ||
+		strncmp(rowp2[i * ncols2 + namec2], "sqlite_autoindex_", 17)) {
+		continue;
+	    }
+	    if (*rowp2[i * ncols2 + uniquec2] != '0') {
+		int k;
+
+		ret = SQLITE_ERROR;
+		sql = sqlite3_mprintf("PRAGMA index_info(%Q)",
+				      rowp2[i * ncols2 + namec2]);
+		if (sql) {
+		    dbtraceapi(d, "sqlite3_get_table", sql);
+		    ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+					    &nnrows, &nncols, NULL);
+		    sqlite3_free(sql);
+		}
+		if (ret != SQLITE_OK) {
+		    continue;
+		}
+		for (k = 0; nnrows && k < nncols; k++) {
+		    if (strcmp(rowpp[k], "name") == 0) {
+			int m;
+
+			for (m = 1; m <= nnrows; m++) {
+			    int roffs = offs + (m - 1) * s->ncols;
+
+			    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+			    s->rows[roffs + 1] = 
+				xstrdup(d->xcelqrx ? "main" : "");
+#else
+			    s->rows[roffs + 1] = xstrdup("");
+#endif
+			    s->rows[roffs + 2] = xstrdup(tname);
+			    s->rows[roffs + 3] =
+				xstrdup(rowpp[m * nncols + k]);
+			    s->rows[roffs + 5] =
+				xstrdup(rowp2[i * ncols2 + namec2]);
+			}
+		    } else if (strcmp(rowpp[k], "seqno") == 0) {
+			int m;
+
+			for (m = 1; m <= nnrows; m++) {
+			    int roffs = offs + (m - 1) * s->ncols;
+			    int pos = m - 1;
+			    char buf[32];
+
+			    sscanf(rowpp[m * nncols + k], "%d", &pos);
+			    sprintf(buf, "%d", pos + 1);
+			    s->rows[roffs + 4] = xstrdup(buf);
+			}
+		    }
+		}
+		offs += nnrows * s->ncols;
+		sqlite3_free_table(rowpp);
+	    }
+	}
+    }
     sqlite3_free_table(rowp);
+    sqlite3_free_table(rowp2);
     return SQL_SUCCESS;
 }
 
@@ -7178,7 +7178,6 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
     STMT *s = (STMT *) stmt;
-    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *uval = (SQLUINTEGER *) val;
 
     switch (attr) {
@@ -7198,9 +7197,9 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
 #endif
     case SQL_ATTR_ROW_NUMBER:
-	if (s == d->cur_s3stmt) {
-	    *uval = (d->s3stmt_rownum < 0) ?
-		    SQL_ROW_NUMBER_UNKNOWN : (d->s3stmt_rownum + 1);
+	if (s->s3stmt) {
+	    *uval = (s->s3stmt_rownum < 0) ?
+		    SQL_ROW_NUMBER_UNKNOWN : (s->s3stmt_rownum + 1);
 	} else {
 	    *uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
@@ -7262,6 +7261,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUINTEGER **) val) = s->bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
+	*((SQLUINTEGER *) val) = s->max_rows;
     case SQL_ATTR_MAX_LENGTH:
 	*((SQLINTEGER *) val) = 1000000000;
 	return SQL_SUCCESS;
@@ -7442,6 +7442,8 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->bkmrk = val == (SQLPOINTER) SQL_UB_ON;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
+	s->max_rows = (PTRDIFF_T) val;
+	return SQL_SUCCESS;
     case SQL_ATTR_MAX_LENGTH:
 	if (val != (SQLPOINTER) 1000000000) {
 	    goto e01s02;
@@ -7509,7 +7511,6 @@ static SQLRETURN
 drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 {
     STMT *s = (STMT *) stmt;
-    DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *ret = (SQLUINTEGER *) param;
 
     switch (opt) {
@@ -7520,9 +7521,9 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	*ret = s->curtype;
 	return SQL_SUCCESS;
     case SQL_ROW_NUMBER:
-	if (s == d->cur_s3stmt) {
-	    *ret = (d->s3stmt_rownum < 0) ?
-		   SQL_ROW_NUMBER_UNKNOWN : (d->s3stmt_rownum + 1);
+	if (s->s3stmt) {
+	    *ret = (s->s3stmt_rownum < 0) ?
+		   SQL_ROW_NUMBER_UNKNOWN : (s->s3stmt_rownum + 1);
 	} else {
 	    *ret = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
@@ -7541,6 +7542,8 @@ drvgetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLPOINTER param)
 	*ret = s->rowset_size;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
+	*ret = s->max_rows;
+	return SQL_SUCCESS;
     case SQL_ATTR_MAX_LENGTH:
 	*ret = 1000000000;
 	return SQL_SUCCESS;
@@ -7655,6 +7658,8 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
+	s->max_rows = param;
+	return SQL_SUCCESS;
     case SQL_ATTR_MAX_LENGTH:
 	if (param != 1000000000) {
 	    goto e01s02;
@@ -7673,7 +7678,8 @@ drvsetstmtoption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLUINTEGER param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
+SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt,
+		 SETSTMTOPTION_LAST_ARG_TYPE param)
 {
     SQLRETURN ret;
 
@@ -7693,7 +7699,8 @@ SQLSetStmtOption(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
  */
 
 SQLRETURN SQL_API
-SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt, SQLROWCOUNT param)
+SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt,
+		  SETSTMTOPTION_LAST_ARG_TYPE param)
 {
     SQLRETURN ret;
 
@@ -8892,6 +8899,8 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_MAX_ROWS:
+	*((SQLINTEGER *) val) = 0;
+	*buflen = sizeof (SQLINTEGER);
     case SQL_ATTR_MAX_LENGTH:
 	*((SQLINTEGER *) val) = 1000000000;
 	*buflen = sizeof (SQLINTEGER);
@@ -9139,8 +9148,10 @@ drvgetconnectoption(SQLHDBC dbc, SQLUSMALLINT opt, SQLPOINTER param)
     case SQL_SIMULATE_CURSOR:
 	*((SQLINTEGER *) param) = SQL_SC_NON_UNIQUE;
 	break;
-    case SQL_ROWSET_SIZE:
     case SQL_MAX_ROWS:
+	*((SQLINTEGER *) param) = 0;
+	break;
+    case SQL_ROWSET_SIZE:
     case SQL_MAX_LENGTH:
 	*((SQLINTEGER *) param) = 1000000000;
 	break;
@@ -9875,6 +9886,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->rowset_size = 1;
     s->longnames = d->longnames;
     s->retr_data = SQL_RD_ON;
+    s->max_rows = 0;
     s->bind_type = SQL_BIND_BY_COLUMN;
     s->bind_offs = NULL;
     s->paramset_size = 1;
@@ -12305,7 +12317,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     SQLRETURN sret;
     STMT *s;
     DBC *d;
-    int i, asize, ret, nrows, ncols, offs, namec, uniquec;
+    int i, asize, ret, nrows, ncols, offs, namec, uniquec, addipk = 0;
     PTRDIFF_T size;
     char **rowp, *errp = NULL, *sql, tname[512];
 
@@ -12328,14 +12340,51 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     strncpy(tname, (char *) table, size);
     tname[size] = '\0';
     unescpat(tname);
+    sret = starttran(s);
+    if (sret != SQL_SUCCESS) {
+	return sret;
+    }
+    /*
+     * Try integer primary key (autoincrement) first
+     */
+    if (itype == SQL_INDEX_UNIQUE || itype == SQL_INDEX_ALL) {
+	rowp = 0;
+	ret = SQLITE_ERROR;
+	sql = sqlite3_mprintf("PRAGMA table_info(%Q)", tname);
+	if (sql) {
+	    dbtraceapi(d, "sqlite3_get_table", sql);
+	    ret = sqlite3_get_table(d->sqlite, sql, &rowp,
+				    &nrows, &ncols, NULL);
+	    sqlite3_free(sql);
+	}
+	if (ret == SQLITE_OK) {
+	    int colid, typec, npk = 0;
+
+	    namec = findcol(rowp, ncols, "name");
+	    uniquec = findcol(rowp, ncols, "pk");
+	    typec = findcol(rowp, ncols, "type");
+	    colid = findcol(rowp, ncols, "cid");
+	    if (namec < 0 || uniquec < 0 || typec < 0 || colid < 0) {
+		goto noipk;
+	    }
+	    for (i = 1; i <= nrows; i++) {
+		if (*rowp[i * ncols + uniquec] != '0' &&
+		    strlen(rowp[i * ncols + typec]) == 7 &&
+		    strncasecmp(rowp[i * ncols + typec], "integer", 7)
+		    == 0) {
+		    npk++;
+		}
+	    }
+	    if (npk == 1) {
+		addipk = 1;
+	    }
+	}
+noipk:
+	sqlite3_free_table(rowp);
+    }
     sql = sqlite3_mprintf("PRAGMA index_list(%Q)", tname);
     if (!sql) {
 	return nomem(s);
-    }
-    sret = starttran(s);
-    if (sret != SQL_SUCCESS) {
-	sqlite3_free(sql);
-	return sret;
     }
     dbtraceapi(d, "sqlite3_get_table", sql);
     ret = sqlite3_get_table(d->sqlite, sql, &rowp, &nrows, &ncols, &errp);
@@ -12352,72 +12401,6 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
     if (errp) {
 	sqlite3_free(errp);
 	errp = NULL;
-    }
-    if (ncols * nrows <= 0) {
-nodata:
-	sqlite3_free_table(rowp);
-	/* try table_info for integer primary keys */
-	if (itype == SQL_INDEX_UNIQUE || itype == SQL_INDEX_ALL) {
-	    ret = SQLITE_ERROR;
-
-	    sql = sqlite3_mprintf("PRAGMA table_info(%Q)", tname);
-	    if (sql) {
-		dbtraceapi(d, "sqlite3_get_table", sql);
-		ret = sqlite3_get_table(d->sqlite, sql, &rowp,
-					&nrows, &ncols, NULL);
-		sqlite3_free(sql);
-	    }
-	    if (ret == SQLITE_OK) {
-		int colid, typec, roffs;
-
-		namec = findcol(rowp, ncols, "name");
-		uniquec = findcol(rowp, ncols, "pk");
-		typec = findcol(rowp, ncols, "type");
-		colid = findcol(rowp, ncols, "cid");
-		if (namec < 0 || uniquec < 0 || typec < 0 || colid < 0) {
-		    goto nodata2;
-		}
-		for (i = 1; i <= nrows; i++) {
-		    if (*rowp[i * ncols + uniquec] != '0' &&
-			strlen(rowp[i * ncols + typec]) == 7 &&
-			strncasecmp(rowp[i * ncols + typec], "integer", 7)
-			== 0) {
-			break;
-		    }
-		}
-		if (i > nrows) {
-		    goto nodata2;
-		}
-		size = (1 + 1) * asize;
-		s->rows = xmalloc((size + 1) * sizeof (char *));
-		if (!s->rows) {
-		    s->nrows = 0;
-		    return nomem(s);
-		}
-		s->rows[0] = (char *) size;
-		s->rows += 1;
-		memset(s->rows, 0, sizeof (char *) * size);
-		s->rowfree = freerows;
-		s->nrows = 1;
-		roffs = s->ncols;
-		s->rows[roffs + 0] = xstrdup("");
-#if defined(_WIN32) || defined(_WIN64)
-		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
-#else
-		s->rows[roffs + 1] = xstrdup("");
-#endif
-		s->rows[roffs + 2] = xstrdup(tname);
-		s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
-		s->rows[roffs + 5] = xstrdup("sqlite_autoindex_0");
-		s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
-		s->rows[roffs + 7] = xstrdup("1");
-		s->rows[roffs + 8] = xstrdup(rowp[i * ncols + namec]);
-		s->rows[roffs + 9] = xstrdup("A");
-nodata2:
-		sqlite3_free_table(rowp);
-	    }
-	}
-	return SQL_SUCCESS;
     }
     size = 0;
     namec = findcol(rowp, ncols, "name");
@@ -12447,8 +12430,13 @@ nodata2:
 	    }
 	}
     }
+nodata:
+    if (addipk) {
+	size++;
+    }
     if (size == 0) {
-	goto nodata;
+	sqlite3_free_table(rowp);
+	return SQL_SUCCESS;
     }
     s->nrows = size;
     size = (size + 1) * asize;
@@ -12462,9 +12450,63 @@ nodata2:
     memset(s->rows, 0, sizeof (char *) * size);
     s->rowfree = freerows;
     offs = 0;
+    if (addipk) {
+	char **rowpp = 0;
+	int nrows2, ncols2;
+
+	sql = sqlite3_mprintf("PRAGMA table_info(%Q)", tname);
+	if (sql) {
+	    dbtraceapi(d, "sqlite3_get_table", sql);
+	    ret = sqlite3_get_table(d->sqlite, sql, &rowpp,
+				    &nrows2, &ncols2, NULL);
+	    sqlite3_free(sql);
+	}
+	if (ret == SQLITE_OK) {
+	    int colid, typec, roffs, namecc, uniquecc;
+
+	    namecc = findcol(rowpp, ncols2, "name");
+	    uniquecc = findcol(rowpp, ncols2, "pk");
+	    typec = findcol(rowpp, ncols2, "type");
+	    colid = findcol(rowpp, ncols2, "cid");
+	    if (namecc < 0 || uniquecc < 0 || typec < 0 || colid < 0) {
+		addipk = 0;
+		s->nrows--;
+		goto nodata2;
+	    }
+	    for (i = 1; i <= nrows2; i++) {
+		if (*rowpp[i * ncols2 + uniquecc] != '0' &&
+		    strlen(rowpp[i * ncols2 + typec]) == 7 &&
+		    strncasecmp(rowpp[i * ncols2 + typec], "integer", 7)
+		    == 0) {
+		    break;
+		}
+	    }
+	    if (i > nrows2) {
+		addipk = 0;
+		s->nrows--;
+		goto nodata2;
+	    }
+	    roffs = s->ncols;
+	    s->rows[roffs + 0] = xstrdup("");
+#if defined(_WIN32) || defined(_WIN64)
+	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+#else
+	    s->rows[roffs + 1] = xstrdup("");
+#endif
+	    s->rows[roffs + 2] = xstrdup(tname);
+	    s->rows[roffs + 3] = xstrdup(stringify(SQL_FALSE));
+	    s->rows[roffs + 5] = xstrdup("sqlite_autoindex_0");
+	    s->rows[roffs + 6] = xstrdup(stringify(SQL_INDEX_OTHER));
+	    s->rows[roffs + 7] = xstrdup("1");
+	    s->rows[roffs + 8] = xstrdup(rowpp[i * ncols2 + namecc]);
+	    s->rows[roffs + 9] = xstrdup("A");
+	}
+nodata2:
+	sqlite3_free_table(rowpp);
+    }
     for (i = 1; i <= nrows; i++) {
 	int nnrows, nncols;
-	char **rowpp;
+	char **rowpp = 0;
 
 	if (*rowp[i * ncols + uniquec] != '0' || itype == SQL_INDEX_ALL) {
 	    int k;
@@ -12486,7 +12528,7 @@ nodata2:
 		    int m;
 
 		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
+			int roffs = (offs + addipk + m) * s->ncols;
 			int isuniq;
 
 			isuniq = *rowp[i * ncols + uniquec] != '0';
@@ -12508,7 +12550,7 @@ nodata2:
 		    int m;
 
 		    for (m = 1; m <= nnrows; m++) {
-			int roffs = (offs + m) * s->ncols;
+			int roffs = (offs + addipk + m) * s->ncols;
 			int pos = m - 1;
 			char buf[32];
 
@@ -12798,6 +12840,10 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
     if (((DBC *) (s->dbc))->cur_s3stmt == s && s->s3stmt) {
 	s->rowp = 0;
 	for (; i < s->rowset_size; i++) {
+	    if (s->max_rows && s->s3stmt_rownum + 1 >= s->max_rows) {
+		ret = (i == 0) ? SQL_NO_DATA : SQL_SUCCESS;
+		break;
+	    }
 	    ret = s3stmt_step(s);
 	    if (ret != SQL_SUCCESS) {
 		s->row_status0[i] = SQL_ROW_ERROR;

@@ -10,7 +10,7 @@
 
 set -e
 
-VER3=3.6.14.2
+VER3=3.6.20
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
@@ -209,7 +209,9 @@ test "$VER3" = "3.5.6" && test -r sqlite3/tool/mksqlite3c.tcl && patch -d sqlite
 EOD
 
 # patch: parse foreign key constraints on virtual tables
-patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
+    -a "$VER3" != "3.6.18" -a "$VER3" != "3.6.19" -a "$VER3" != "3.6.20" \
+    && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
 +++ sqlite3/src/build.c	2007-01-30 08:14:41.000000000 +0100
@@ -273,7 +275,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.6 2009/05/26 06:27:30 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.8 2009/11/10 14:38:16 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -501,7 +503,9 @@ EOD
 # patch: FTS3 again, for SQLite3 >= 3.6.8
 test "$VER3" = "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" \
   -o "$VER3" = "3.6.11" -o "$VER3" = "3.6.12" -o "$VER3" = "3.6.13" \
-  -o "$VER3" = "3.6.14" -o "$VER3" = "3.6.14.1" -o "$VER3" = "3.6.14.2" && \
+  -o "$VER3" = "3.6.14" -o "$VER3" = "3.6.14.1" -o "$VER3" = "3.6.14.2" \
+  -o "$VER3" = "3.6.15" -o "$VER3" = "3.6.16" -o "$VER3" = "3.6.17" \
+  -o "$VER3" = "3.6.18" -o "$VER3" = "3.6.19" -o "$VER3" = "3.6.20" && \
   patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2009-01-01 15:06:13.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_expr.c	2009-01-14 09:55:13.000000000 +0100
@@ -518,6 +522,20 @@ test "$VER3" = "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" \
  #include "sqlite3.h"
  #include <ctype.h>
  #include <string.h>
+EOD
+test "$VER3" = "3.6.17" -o "$VER3" = "3.6.18" -o "$VER3" = "3.6.19" \
+  -o "$VER3" = "3.6.20" && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3_expr.c   2009-01-01 15:06:13.000000000 +0100
++++ sqlite3/ext/fts3/fts3_expr.c        2009-01-14 09:55:13.000000000 +0100
+@@ -428,7 +428,7 @@
+     const char *zStr = pParse->azCol[ii];
+     int nStr = strlen(zStr);
+     if( nInput>nStr && zInput[nStr]==':' 
+-     && sqlite3_strnicmp(zStr, zInput, nStr)==0 
++     && memcmp(zStr, zInput, nStr)==0 
+     ){
+       iCol = ii;
+       iColLen = ((zInput - z) + nStr + 1);
 EOD
 # patch: compile fix for rtree as extension module
 patch -d sqlite3 -p1 <<'EOD'

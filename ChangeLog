@@ -1,6 +1,15 @@
 SQLite ODBC Driver
 ------------------
 
+Wed Dec 02 2009 version 0.84 released
+
+	* update to SQLite 3.6.20
+	* SQLStatistics() now reports INTEGER PRIMARY KEY as first index
+	* SQL_ATTR_MAX_ROWS for SQLite3 driver
+	* fixed memory leaks in SQLPrimaryKeys()
+	* try to detect last argument of SQLSetStmtOption()
+	  needed for newer unixODBC versions
+
 Tue May 26 2009 version 0.83 released
 
 	* update to SQLite 3.6.14.2

@@ -432,6 +432,24 @@ AC_MSG_RESULT(yes)
 ODBC_FLAGS="$ODBC_FLAGS -DCOLATTRIBUTE_LAST_ARG_TYPE=SQLLEN_PTR"
 ],[AC_MSG_RESULT(no)])
 
+AC_MSG_CHECKING([for SQLSetStmtOption signature has SQLULEN])
+AC_TRY_COMPILE([
+#include <stdio.h>
+#define ODBCVER 0x0300
+#include <sql.h>
+#include <sqlext.h>
+#include <sqltypes.h>
+],[
+SQLHSTMT stmt = SQL_NULL_HSTMT;
+extern SQLRETURN SQLSetStmtOption(SQLHSTMT hstmt,
+                                  SQLUSMALLINT option,
+                                  SQLULEN value);
+SQLSetStmtOption(stmt, 1, 2);
+],[
+AC_MSG_RESULT(yes)
+ODBC_FLAGS="$ODBC_FLAGS -DSETSTMTOPTION_LAST_ARG_TYPE=SQLULEN"
+],[AC_MSG_RESULT(no)])
+
 AC_MSG_CHECKING([for SQLBIGINT availability])
 AC_TRY_COMPILE([
 #include <sql.h>
