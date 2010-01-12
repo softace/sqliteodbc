@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.102 2009/12/02 10:04:24 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.105 2010/01/05 15:03:11 chw Exp chw $
  *
- * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -2908,13 +2908,14 @@ dbtracerc(DBC *d, int rc, char *err)
  * @param sflag STEPAPI flag
  * @param spflag SyncPragma string
  * @param ntflag NoTransaction string
+ * @param jmode JournalMode string
  * @param busy busy/lock timeout
  * @result ODBC error code
  */
 
 static SQLRETURN
 dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
-       char *spflag, char *ntflag, char *busy)
+       char *spflag, char *ntflag, char *jmode, char *busy)
 {
     char *endp = NULL;
     int rc, tmp, busyto = 100000;
@@ -3037,6 +3038,12 @@ connfail:
 
 	sprintf(syncp, "PRAGMA synchronous = %8.8s;", spflag);
 	sqlite3_exec(d->sqlite, syncp, NULL, NULL, NULL);
+    }
+    if (jmode[0] != '\0') {
+	char jourp[128];
+
+	sprintf(jourp, "PRAGMA journal_mode = %16.16s;", jmode);
+	sqlite3_exec(d->sqlite, jourp, NULL, NULL, NULL);
     }
     freep(&d->dbname);
     d->dbname = xstrdup(name);
@@ -4895,7 +4902,7 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, asize, ret, nrows, ncols, nrows2, ncols2;
+    int i, asize, ret, nrows, ncols, nrows2 = 0, ncols2 = 0;
     int namec = -1, uniquec = -1, namec2 = -1, uniquec2 = -1, offs, seq = 1;
     PTRDIFF_T size;
     char **rowp = NULL, **rowp2 = NULL, *errp = NULL, *sql, tname[512];
@@ -4959,28 +4966,31 @@ drvprimarykeys(SQLHSTMT stmt,
 	    }
 	}
     }
-    sql = sqlite3_mprintf("PRAGMA index_list(%Q)", tname);
-    if (!sql) {
-	sqlite3_free_table(rowp);
-	return nomem(s);
-    }
-    dbtraceapi(d, "sqlite3_get_table", sql);
-    ret = sqlite3_get_table(d->sqlite, sql, &rowp2, &nrows2, &ncols2, &errp);
-    sqlite3_free(sql);
-    if (ret != SQLITE_OK) {
-	sqlite3_free_table(rowp);
-	sqlite3_free_table(rowp2);
-	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		errp ? errp : "unknown error", ret);
+    if (size == 0) {
+	sql = sqlite3_mprintf("PRAGMA index_list(%Q)", tname);
+	if (!sql) {
+	    sqlite3_free_table(rowp);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite3_get_table", sql);
+	ret = sqlite3_get_table(d->sqlite, sql, &rowp2, &nrows2, &ncols2,
+				&errp);
+	sqlite3_free(sql);
+	if (ret != SQLITE_OK) {
+	    sqlite3_free_table(rowp);
+	    sqlite3_free_table(rowp2);
+	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite3_free(errp);
+		errp = NULL;
+	    }
+	    return SQL_ERROR;
+	}
 	if (errp) {
 	    sqlite3_free(errp);
 	    errp = NULL;
 	}
-	return SQL_ERROR;
-    }
-    if (errp) {
-	sqlite3_free(errp);
-	errp = NULL;
     }
     if (ncols2 * nrows2 > 0) {
 	namec2 = findcol(rowp2, ncols2, "name");
@@ -9003,7 +9013,7 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     d = (DBC *) dbc;
     switch (attr) {
     case SQL_AUTOCOMMIT:
-	if (len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
+	if (len == 0 || len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
 	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
 	    goto doit;
 	}
@@ -9361,7 +9371,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
     char loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], nwflag[32];
-    char snflag[32], lnflag[32], ncflag[32];
+    char snflag[32], lnflag[32], ncflag[32], jmode[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -9429,6 +9439,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     getdsnattr(buf, "nocreat", ncflag, sizeof (ncflag));
     loadext[0] = '\0';
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
+    jmode[0] = '\0';
+    getdsnattr(buf, "journalmode", jmode, sizeof (jmode));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "100000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -9454,6 +9466,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 			       ncflag, sizeof (ncflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "loadext", "",
 			       loadext, sizeof (loadext), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "journalmode", "",
+			       jmode, sizeof (jmode), ODBC_INI);
 #endif
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
@@ -9469,7 +9483,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     d->shortnames = getbool(snflag);
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
-    ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag, busy);
+    ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag,
+		  jmode, busy);
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, loadext);
     }
@@ -9627,7 +9642,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
-    char ncflag[32], nwflag[32];
+    char ncflag[32], nwflag[32], jmode[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -9747,6 +9762,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   loadext, sizeof (loadext), ODBC_INI);
     }
 #endif
+    jmode[0] = '\0';
+    getdsnattr(buf, "journalmode", jmode, sizeof (jmode));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !jmode[0]) {
+	SQLGetPrivateProfileString(dsn, "journalmode", "",
+				   jmode, sizeof (jmode), ODBC_INI);
+    }
+#endif
 
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
@@ -9769,9 +9792,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;Tracefile=%s;"
-			 "LoadExt=%s",
+			 "JournalMode=%s;LoadExt=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
-			 snflag, lnflag, ncflag, nwflag, tracef, loadext);
+			 snflag, lnflag, ncflag, nwflag, tracef, jmode,
+			 loadext);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -9791,7 +9815,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
     d->nowchar = getbool(nwflag);
-    ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, busy);
+    ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, jmode, busy);
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, loadext);
     }
@@ -14948,7 +14972,8 @@ done:
 #define KEY_NOCREAT	       10
 #define KEY_NOWCHAR	       11
 #define KEY_LOADEXT	       12
-#define NUMOFKEYS	       13
+#define KEY_JMODE              13
+#define NUMOFKEYS	       14
 
 typedef struct {
     BOOL supplied;
@@ -14982,6 +15007,7 @@ static struct {
     { "NoCreat", KEY_NOCREAT },
     { "NoWCHAR", KEY_NOWCHAR },
     { "LoadExt", KEY_LOADEXT },
+    { "JournalMode", KEY_JMODE },
     { NULL, 0 }
 };
 
@@ -15195,6 +15221,12 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "LoadExt", "",
 				   setupdlg->attr[KEY_LOADEXT].attr,
 				   sizeof (setupdlg->attr[KEY_LOADEXT].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_JMODE].supplied) {
+	SQLGetPrivateProfileString(dsn, "JournalMode", "",
+				   setupdlg->attr[KEY_JMODE].attr,
+				   sizeof (setupdlg->attr[KEY_JMODE].attr),
 				   ODBC_INI);
     }
 }
@@ -15647,7 +15679,7 @@ retry:
 			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;"
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
-			 "LoadExt=%s;",
+			 "JournalMode=%s;LoadExt=%s;",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -15663,6 +15695,7 @@ retry:
 			 setupdlg->attr[KEY_LONGNAM].attr,
 			 setupdlg->attr[KEY_NOCREAT].attr,
 			 setupdlg->attr[KEY_NOWCHAR].attr,
+			 setupdlg->attr[KEY_JMODE].attr,
 			 setupdlg->attr[KEY_LOADEXT].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
@@ -15696,6 +15729,7 @@ retry:
 		 setupdlg->attr[KEY_STEPAPI].attr,
 		 setupdlg->attr[KEY_SYNCP].attr,
 		 setupdlg->attr[KEY_NOTXN].attr,
+		 setupdlg->attr[KEY_JMODE].attr,
 		 setupdlg->attr[KEY_BUSY].attr);
     if (ret != SQL_SUCCESS) {
 	if (maybeprompt && !prompt) {

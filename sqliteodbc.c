@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.162 2009/12/02 10:04:24 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.165 2010/01/05 15:03:02 chw Exp chw $
  *
- * Copyright (c) 2001-2009 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2010 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -4424,7 +4424,7 @@ drvprimarykeys(SQLHSTMT stmt,
     STMT *s;
     DBC *d;
     SQLRETURN sret;
-    int i, asize, ret, nrows, ncols, nrows2, ncols2;
+    int i, asize, ret, nrows, ncols, nrows2 = 0, ncols2 = 0;
     int namec = -1, uniquec = -1, namec2 = -1, uniquec2 = -1, offs, seq = 1;
     PTRDIFF_T size;
     char **rowp = NULL, **rowp2 = NULL, *errp = NULL, tname[512];
@@ -4483,23 +4483,25 @@ drvprimarykeys(SQLHSTMT stmt,
 	    }
 	}
     }
-    ret = sqlite_get_table_printf(d->sqlite,
-				  "PRAGMA index_list('%q')", &rowp2,
-				  &nrows2, &ncols2, &errp, tname);
-    if (ret != SQLITE_OK) {
-	sqlite_free_table(rowp);
-	sqlite_free_table(rowp2);
-	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
-		errp ? errp : "unknown error", ret);
+    if (size == 0) {
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "PRAGMA index_list('%q')", &rowp2,
+				      &nrows2, &ncols2, &errp, tname);
+	if (ret != SQLITE_OK) {
+	    sqlite_free_table(rowp);
+	    sqlite_free_table(rowp2);
+	    setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    errp ? errp : "unknown error", ret);
+	    if (errp) {
+		sqlite_freemem(errp);
+		errp = NULL;
+	    }
+	    return SQL_ERROR;
+	}
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
 	}
-	return SQL_ERROR;
-    }
-    if (errp) {
-	sqlite_freemem(errp);
-	errp = NULL;
     }
     if (ncols2 * nrows2 > 0) {
 	namec2 = findcol(rowp2, ncols, "name");
@@ -8477,7 +8479,7 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     d = (DBC *) dbc;
     switch (attr) {
     case SQL_AUTOCOMMIT:
-	if (len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
+	if (len == 0 || len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
 	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
 	    goto doit;
 	}

@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Tue Jan 12 2009 version 0.85 released
+
+	* update to SQLite 3.6.22
+	* added JournalMode DSN option
+	* again fixes in SQLPrimaryKeys()
+	* allow zero length parameter in SQLSetConnectAttr(..SQL_AUTO_COMMIT..)
+
 Wed Dec 02 2009 version 0.84 released
 
 	* update to SQLite 3.6.20
