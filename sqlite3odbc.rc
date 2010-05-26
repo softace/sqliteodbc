@@ -39,6 +39,8 @@ BEGIN
                     BS_AUTOCHECKBOX | WS_TABSTOP,170,95,95,15
     CONTROL         "No WCHAR",IDC_NOWCHAR,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,170,110,52,15
+    CONTROL         "Foreign Keys",IDC_FKSUPPORT,"Button",BS_AUTOCHECKBOX |
+                    WS_TABSTOP,85,85,75,15
     RTEXT           "Load Extensions:",IDC_LOADEXTTEXT,6,132,73,9,NOT WS_GROUP
     EDITTEXT        IDC_LOADEXT,82,130,185,12,ES_AUTOHSCROLL | WS_GROUP
 END
@@ -74,6 +76,8 @@ BEGIN
                     BS_AUTOCHECKBOX | WS_TABSTOP,170,95,95,15
     CONTROL         "No WCHAR",IDC_NOWCHAR,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,170,110,52,15
+    CONTROL         "Foreign Keys",IDC_FKSUPPORT,"Button",BS_AUTOCHECKBOX |
+                    WS_TABSTOP,85,85,75,15
     RTEXT           "Load Extensions:",IDC_LOADEXTTEXT,6,132,73,9,NOT WS_GROUP
     EDITTEXT        IDC_LOADEXT,82,130,185,12,ES_AUTOHSCROLL | WS_GROUP
 END

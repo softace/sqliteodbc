@@ -15,9 +15,9 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.31 2009/11/10 14:38:38 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.32 2010/05/18 11:15:59 chw Exp chw $
  *
- * Copyright (c) 2004-2009 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -131,6 +131,7 @@ typedef struct dbc {
     int shortnames;		/**< Always use short column names */
     int longnames;		/**< Don't shorten column names */
     int nocreat;		/**< Don't auto create database file */
+    int fksupport;		/**< Foreign keys on or off */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
     int trans_disable;		/**< True for no transaction support */

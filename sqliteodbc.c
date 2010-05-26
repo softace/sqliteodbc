@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.165 2010/01/05 15:03:02 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.170 2010/05/25 14:19:04 chw Exp chw $
  *
  * Copyright (c) 2001-2010 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -492,8 +492,11 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 	while (i < len && *str && i < ucLen) {
 	    unsigned char c = str[0];
 
-	    if (c < 0xc0) {
+	    if (c < 0x80) {
 		uc[i++] = c;
+		++str;
+	    } else if (c <= 0xc1 || c >= 0xf5) {
+		/* illegal, ignored */
 		++str;
 	    } else if (c < 0xe0) {
 		if ((str[1] & 0xc0) == 0x80) {
@@ -629,7 +632,7 @@ uc_to_utf(SQLWCHAR *str, int len)
 	if (sizeof (SQLWCHAR) == 2 * sizeof (char)) {
 	    c &= 0xffff;
 	}
-	if (c < 0xc0) {
+	if (c < 0x80) {
 	    *cp++ = c;
 	} else if (c < 0x800) {
 	    *cp++ = 0xc0 | ((c >> 6) & 0x1f);
@@ -2433,7 +2436,11 @@ done:
 	tss->day = tm.tm_mday;
 #endif
     }
-    /* final check for overflow */
+    /* Normalize fraction */
+    if (tss->fraction < 0) {
+	tss->fraction = 0;
+    }
+    /* Final check for overflow */
     if (err ||
 	tss->month < 1 || tss->month > 12 ||
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
@@ -3484,7 +3491,7 @@ static SQLRETURN
 substparam(STMT *s, int pnum, char **outp)
 {
     char *outdata = NULL;
-    int type, isnull = 0, needalloc = 0;
+    int type, len, isnull = 0, needalloc = 0;
     BINDPARM *p;
     double dval;
 #if HAVE_ENCDEC
@@ -3580,14 +3587,20 @@ substparam(STMT *s, int pnum, char **outp)
     case SQL_C_TYPE_TIMESTAMP:
 #endif
     case SQL_C_TIMESTAMP:
-	sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%d",
+	len = (int) ((TIMESTAMP_STRUCT *) p->param)->fraction;
+	len /= 1000000;
+	len = len % 1000;
+	if (len < 0) {
+	    len = 0;
+	}	    
+	sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
 		((TIMESTAMP_STRUCT *) p->param)->year,
 		((TIMESTAMP_STRUCT *) p->param)->month,
 		((TIMESTAMP_STRUCT *) p->param)->day,
 		((TIMESTAMP_STRUCT *) p->param)->hour,
 		((TIMESTAMP_STRUCT *) p->param)->minute,
 		((TIMESTAMP_STRUCT *) p->param)->second,
-		(int) ((TIMESTAMP_STRUCT *) p->param)->fraction);
+		len);
     bind:
 	if (outp) {
 	    *outp = isnull ? NULL : p->strbuf;
@@ -5320,13 +5333,9 @@ nodata:
 	}
 	size = 0;
 	for (i = 1; i <= nrows; i++) {
-	    int k, len;
+	    int k;
 
 	    if (!rowp[i]) {
-		continue;
-	    }
-	    len = strlen(rowp[i]);
-	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
 	    ret = sqlite_get_table_printf(d->sqlite,
@@ -5349,7 +5358,8 @@ nodata:
 		char *ptab = unquote(rowpp[k * nncols + namec]);
 
 		if (plen && ptab) {
-		    len = strlen(ptab);
+		    int len = strlen(ptab);
+
 		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
 			continue;
 		    }
@@ -5374,13 +5384,9 @@ nodata:
 	s->rowfree = freerows;
 	offs = 0;
 	for (i = 1; i <= nrows; i++) {
-	    int k, len;
+	    int k;
 
 	    if (!rowp[i]) {
-		continue;
-	    }
-	    len = strlen(rowp[i]);
-	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
 	    ret = sqlite_get_table_printf(d->sqlite,
@@ -5405,7 +5411,8 @@ nodata:
 		char buf[32];
 
 		if (plen && ptab) {
-		    len = strlen(ptab);
+		    int len = strlen(ptab);
+
 		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
 			continue;
 		    }
@@ -8479,31 +8486,13 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     d = (DBC *) dbc;
     switch (attr) {
     case SQL_AUTOCOMMIT:
-	if (len == 0 || len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
-	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
-	    goto doit;
+	d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
+	if (d->autocommit && d->intrans) {
+	    return endtran(d, SQL_COMMIT, 1);
+	} else if (!d->autocommit) {
+	    vm_end(d->vm_stmt);
 	}
-	if (len == SQL_IS_POINTER) {
-	    if (val == (SQLPOINTER) SQL_AUTOCOMMIT_ON ||
-		val == (SQLPOINTER) SQL_AUTOCOMMIT_OFF) {
-		d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
-		goto doit;
-	    }
-	    goto getit;
-	}
-	if (val && len >= sizeof (SQLINTEGER)) {
-getit:
-	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
-doit:
-	    if (d->autocommit && d->intrans) {
-		return endtran(d, SQL_COMMIT, 1);
-	    } else if (!d->autocommit) {
-		vm_end(d->vm_stmt);
-	    }
-	    return SQL_SUCCESS;
-	}
-	setstatd(d, -1, "invalid length or pointer", "HY009");
-	return SQL_ERROR;
+	return SQL_SUCCESS;
     default:
 	setstatd(d, -1, "option value changed", "01S02");
 	return SQL_SUCCESS_WITH_INFO;
@@ -10040,6 +10029,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    }
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
+		    *lenp = dlen;
 		    s->bindcols[col].offs += len;
 		    setstat(s, -1, "data right truncated", "01004");
 		    if (s->bindcols[col].lenp) {
@@ -10049,7 +10039,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		}
 		s->bindcols[col].offs += *lenp;
 	    }
-	    if (!partial && *lenp == SQL_NO_TOTAL) {
+	    if (*lenp == SQL_NO_TOTAL) {
 		*lenp = dlen;
 		setstat(s, -1, "data right truncated", "01004");
 		return SQL_SUCCESS_WITH_INFO;
@@ -10169,6 +10159,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 #endif
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
+		    *lenp = dlen;
 		    s->bindcols[col].offs += len - doz;
 		    setstat(s, -1, "data right truncated", "01004");
 		    if (s->bindcols[col].lenp) {
@@ -10178,7 +10169,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		}
 		s->bindcols[col].offs += *lenp;
 	    }
-	    if (!partial && *lenp == SQL_NO_TOTAL) {
+	    if (*lenp == SQL_NO_TOTAL) {
 		*lenp = dlen;
 		setstat(s, -1, "data right truncated", "01004");
 		return SQL_SUCCESS_WITH_INFO;
@@ -11288,8 +11279,24 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
     s->rows[offs + 10] = stringify(SQL_FALSE);
     s->rows[offs + 11] = stringify(SQL_FALSE);
     s->rows[offs + 12] = typename;
-    s->rows[offs + 13] = NULL;
-    s->rows[offs + 14] = NULL;
+    switch (type) {
+    case SQL_DATE:
+    case SQL_TIME:
+	s->rows[offs + 13] = "0";
+	s->rows[offs + 14] = "0";
+	break;
+#ifdef SQL_TYPE_TIMESTAMP
+    case SQL_TYPE_TIMESTAMP:
+#endif
+    case SQL_TIMESTAMP:
+	s->rows[offs + 13] = "0";
+	s->rows[offs + 14] = "3";
+	break;
+    default:
+	s->rows[offs + 13] = NULL;
+	s->rows[offs + 14] = NULL;
+	break;
+    }
 }
 
 /**
@@ -12711,7 +12718,19 @@ checkLen:
 	return SQL_SUCCESS;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	if (val2) {
+	if (c->type == SQL_TIMESTAMP) {
+	    if (val2) {
+		*val2 = 3;
+	    }
+	}
+#ifdef SQL_TYPE_TIMESTAMP
+	else if (c->type == SQL_TYPE_TIMESTAMP) {
+	    if (val2) {
+		*val2 = 3;
+	    }
+	}
+#endif
+	else if (val2) {
 	    *val2 = c->scale;
 	}
 	*valLen = sizeof (int);
@@ -12737,6 +12756,9 @@ checkLen:
 	    case SQL_TIME:
 		*val2 = 8;
 		break;
+#ifdef SQL_TYPE_TIMESTAMP
+	    case SQL_TYPE_TIMESTAMP:
+#endif
 	    case SQL_TIMESTAMP:
 		*val2 = 23;
 		break;
@@ -13243,7 +13265,17 @@ checkLen:
 	break;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	v = c->scale;
+	if (c->type == SQL_TIMESTAMP) {
+	    v = 3;
+	}
+#ifdef SQL_TYPE_TIMESTAMP
+	else if (c->type == SQL_TYPE_TIMESTAMP) {
+	    v = 3;
+	}
+#endif
+	else {
+	    v = c->scale;
+	}
 	break;
     case SQL_COLUMN_PRECISION:
     case SQL_DESC_PRECISION:
@@ -13265,6 +13297,9 @@ checkLen:
 	case SQL_TIME:
 	    v = 8;
 	    break;
+#ifdef SQL_TYPE_TIMESTAMP
+	case SQL_TYPE_TIMESTAMP:
+#endif
 	case SQL_TIMESTAMP:
 	    v = 23;
 	    break;

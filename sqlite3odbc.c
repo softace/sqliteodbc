@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.105 2010/01/05 15:03:11 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.110 2010/05/25 14:19:04 chw Exp chw $
  *
  * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
  *
@@ -475,9 +475,12 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 	while (i < len && *str && i < ucLen) {
 	    unsigned char c = str[0];
 
-	    if (c < 0xc0) {
+	    if (c < 0x80) {
 		uc[i++] = c;
 		++str;
+	    } else if (c <= 0xc1 || c >= 0xf5) {
+		/* illegal, ignored */
+		++str; 
 	    } else if (c < 0xe0) {
 		if ((str[1] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x1f) << 6) | (str[1] & 0x3f);
@@ -612,7 +615,7 @@ uc_to_utf(SQLWCHAR *str, int len)
 	if (sizeof (SQLWCHAR) == 2 * sizeof (char)) {
 	    c &= 0xffff;
 	}
-	if (c < 0xc0) {
+	if (c < 0x80) {
 	    *cp++ = c;
 	} else if (c < 0x800) {
 	    *cp++ = 0xc0 | ((c >> 6) & 0x1f);
@@ -1680,6 +1683,12 @@ setsqliteopts(sqlite3 *x, DBC *d)
 	if (step < 1) {
 	    rc = sqlite3_exec(x, "PRAGMA empty_result_callbacks = on;",
 			      NULL, NULL, NULL);
+	    if (rc == SQLITE_OK) {
+		rc = sqlite3_exec(x, d->fksupport ?
+				  "PRAGMA foreign_keys = on;" :
+				  "PRAGMA foreign_keys = off;",
+				  NULL, NULL, NULL);
+	    }
 	} else if (step < 2) {
 	    rc = sqlite3_exec(x, d->shortnames ?
 			      "PRAGMA full_column_names = off;" :
@@ -2206,9 +2215,9 @@ findcol(char **cols, int ncols, char *name)
 static void
 fixupdyncols(STMT *s, DBC *d)
 {
-    int i, k;
+    int i;
 #if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !HAVE_SQLITE3TABLECOLUMNMETADATA
-    int pk, nn, t, r, nrows, ncols;
+    int k, pk, nn, t, r, nrows, ncols;
     char **rowp, *flagp, flags[128];
 #endif
 
@@ -2811,7 +2820,11 @@ done:
 	tss->day = tm.tm_mday;
 #endif
     }
-    /* final check for overflow */
+    /* Normalize fraction */
+    if (tss->fraction < 0) {
+	tss->fraction = 0;
+    }
+    /* Final check for overflow */
     if (err ||
 	tss->month < 1 || tss->month > 12 ||
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
@@ -4163,14 +4176,20 @@ setupparam(STMT *s, char *sql, int pnum)
     case SQL_C_TYPE_TIMESTAMP:
 #endif
     case SQL_C_TIMESTAMP:
-	sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%d",
+	len = (int) ((TIMESTAMP_STRUCT *) p->param)->fraction;
+	len /= 1000000;
+	len = len % 1000;
+	if (len < 0) {
+	    len = 0;
+	}
+	sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
 		((TIMESTAMP_STRUCT *) p->param)->year,
 		((TIMESTAMP_STRUCT *) p->param)->month,
 		((TIMESTAMP_STRUCT *) p->param)->day,
 		((TIMESTAMP_STRUCT *) p->param)->hour,
 		((TIMESTAMP_STRUCT *) p->param)->minute,
 		((TIMESTAMP_STRUCT *) p->param)->second,
-		(int) ((TIMESTAMP_STRUCT *) p->param)->fraction);
+		len);
 	p->s3type = SQLITE_TEXT;
 	p->s3size = -1;
 	p->s3val = p->strbuf;
@@ -5684,6 +5703,7 @@ drvforeignkeys(SQLHSTMT stmt,
     DBC *d;
     SQLRETURN sret;
     int i, asize, ret, nrows, ncols, offs, namec, seqc, fromc, toc;
+    int onu, ond;
     PTRDIFF_T size;
     char **rowp, *errp = NULL, *sql, pname[512], fname[512];
 
@@ -5758,6 +5778,8 @@ nodata:
 	seqc = findcol(rowp, ncols, "seq");
 	fromc = findcol(rowp, ncols, "from");
 	toc = findcol(rowp, ncols, "to");
+	onu = findcol(rowp, ncols, "on_update");
+	ond = findcol(rowp, ncols, "on_delete");
 	if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
 	    goto nodata;
 	}
@@ -5816,8 +5838,36 @@ nodata:
 	    sscanf(rowp[i * ncols + seqc], "%d", &pos);
 	    sprintf(buf, "%d", pos + 1);
 	    s->rows[roffs + 8] = xstrdup(buf);
-	    s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
-	    s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+	    if (onu < 0) {
+		s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
+	    } else {
+		if (strcmp(rowp[i * ncols + onu], "SET NULL") == 0) {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_SET_NULL));
+		} else if (strcmp(rowp[i * ncols + onu], "SET DEFAULT") == 0) {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_SET_DEFAULT));
+		} else if (strcmp(rowp[i * ncols + onu], "CASCADE") == 0) {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_CASCADE));
+		} else if (strcmp(rowp[i * ncols + onu], "RESTRICT") == 0) {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_RESTRICT));
+		} else {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
+		}
+	    }
+	    if (ond < 0) {
+		s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+	    } else {
+		if (strcmp(rowp[i * ncols + ond], "SET NULL") == 0) {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_SET_NULL));
+		} else if (strcmp(rowp[i * ncols + ond], "SET DEFAULT") == 0) {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_SET_DEFAULT));
+		} else if (strcmp(rowp[i * ncols + ond], "CASCADE") == 0) {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_CASCADE));
+		} else if (strcmp(rowp[i * ncols + ond], "RESTRICT") == 0) {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_RESTRICT));
+		} else {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+		}
+	    }
 	    s->rows[roffs + 11] = NULL;
 	    s->rows[roffs + 12] = NULL;
 	    s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
@@ -5849,13 +5899,9 @@ nodata:
 	}
 	size = 0;
 	for (i = 1; i <= nrows; i++) {
-	    int k, len;
+	    int k;
 
 	    if (!rowp[i]) {
-		continue;
-	    }
-	    len = strlen(rowp[i]);
-	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
 	    rowpp = NULL;
@@ -5883,7 +5929,8 @@ nodata:
 		char *ptab = unquote(rowpp[k * nncols + namec]);
 
 		if (plen && ptab) {
-		    len = strlen(ptab);
+		    int len = strlen(ptab);
+
 		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
 			continue;
 		    }
@@ -5908,13 +5955,9 @@ nodata:
 	s->rowfree = freerows;
 	offs = 0;
 	for (i = 1; i <= nrows; i++) {
-	    int k, len;
+	    int k;
 
 	    if (!rowp[i]) {
-		continue;
-	    }
-	    len = strlen(rowp[i]);
-	    if (len == plen && strncasecmp(pname, rowp[i], plen) == 0) {
 		continue;
 	    }
 	    rowpp = NULL;
@@ -5934,6 +5977,8 @@ nodata:
 	    seqc = findcol(rowpp, nncols, "seq");
 	    fromc = findcol(rowpp, nncols, "from");
 	    toc = findcol(rowpp, nncols, "to");
+	    onu = findcol(rowpp, nncols, "on_update");
+	    ond = findcol(rowpp, nncols, "on_delete");
 	    if (namec < 0 || seqc < 0 || fromc < 0 || toc < 0) {
 		sqlite3_free_table(rowpp);
 		continue;
@@ -5944,7 +5989,8 @@ nodata:
 		char buf[32];
 
 		if (plen && ptab) {
-		    len = strlen(ptab);
+		    int len = strlen(ptab);
+
 		    if (len != plen || strncasecmp(pname, ptab, plen) != 0) {
 			continue;
 		    }
@@ -5964,8 +6010,46 @@ nodata:
 		sscanf(rowpp[k * nncols + seqc], "%d", &pos);
 		sprintf(buf, "%d", pos + 1);
 		s->rows[roffs + 8] = xstrdup(buf);
-		s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
-		s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+		if (onu < 0) {
+		    s->rows[roffs + 9] = xstrdup(stringify(SQL_NO_ACTION));
+		} else {
+		    if (strcmp(rowpp[k * nncols + onu], "SET NULL") == 0) {
+			s->rows[roffs + 9] = xstrdup(stringify(SQL_SET_NULL));
+		    } else if (strcmp(rowpp[k * nncols + onu], "SET DEFAULT")
+			       == 0) {
+			s->rows[roffs + 9] =
+			    xstrdup(stringify(SQL_SET_DEFAULT));
+		    } else if (strcmp(rowpp[k * nncols + onu], "CASCADE")
+			       == 0) {
+			s->rows[roffs + 9] = xstrdup(stringify(SQL_CASCADE));
+		    } else if (strcmp(rowpp[k * nncols + onu], "RESTRICT")
+			       == 0) {
+			s->rows[roffs + 9] = xstrdup(stringify(SQL_RESTRICT));
+		    } else {
+			s->rows[roffs + 9] =
+			    xstrdup(stringify(SQL_NO_ACTION));
+		    }
+		}
+		if (ond < 0) {
+		    s->rows[roffs + 10] = xstrdup(stringify(SQL_NO_ACTION));
+		} else {
+		    if (strcmp(rowpp[k * nncols + ond], "SET NULL") == 0) {
+			s->rows[roffs + 10] = xstrdup(stringify(SQL_SET_NULL));
+		    } else if (strcmp(rowpp[k * nncols + ond], "SET DEFAULT")
+			       == 0) {
+			s->rows[roffs + 10] =
+			    xstrdup(stringify(SQL_SET_DEFAULT));
+		    } else if (strcmp(rowpp[k * nncols + ond], "CASCADE")
+			       == 0) {
+			s->rows[roffs + 10] = xstrdup(stringify(SQL_CASCADE));
+		    } else if (strcmp(rowpp[k * nncols + ond], "RESTRICT")
+			       == 0) {
+			s->rows[roffs + 10] = xstrdup(stringify(SQL_RESTRICT));
+		    } else {
+			s->rows[roffs + 10] =
+			    xstrdup(stringify(SQL_NO_ACTION));
+		    }
+		}
 		s->rows[roffs + 11] = NULL;
 		s->rows[roffs + 12] = NULL;
 		s->rows[roffs + 13] = xstrdup(stringify(SQL_NOT_DEFERRABLE));
@@ -9013,31 +9097,13 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
     d = (DBC *) dbc;
     switch (attr) {
     case SQL_AUTOCOMMIT:
-	if (len == 0 || len == SQL_IS_INTEGER || len == SQL_IS_UINTEGER) {
-	    d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
-	    goto doit;
+	d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
+	if (d->autocommit && d->intrans) {
+	    return endtran(d, SQL_COMMIT, 1);
+	} else if (!d->autocommit) {
+	    s3stmt_end(d->cur_s3stmt);
 	}
-	if (len == SQL_IS_POINTER) {
-	    if (val == (SQLPOINTER) SQL_AUTOCOMMIT_ON ||
-		val == (SQLPOINTER) SQL_AUTOCOMMIT_OFF) {
-		d->autocommit = val == (SQLPOINTER) SQL_AUTOCOMMIT_ON;
-		goto doit;
-	    }
-	    goto getit;
-	}
-	if (val && len >= sizeof (SQLINTEGER)) {
-getit:
-	    d->autocommit = *((SQLINTEGER *) val) == SQL_AUTOCOMMIT_ON;
-doit:
-	    if (d->autocommit && d->intrans) {
-		return endtran(d, SQL_COMMIT, 1);
-	    } else if (!d->autocommit) {
-		s3stmt_end(d->cur_s3stmt);
-	    }
-	    return SQL_SUCCESS;
-	}
-	setstatd(d, -1, "invalid length or pointer", "HY009");
-	return SQL_ERROR;
+	return SQL_SUCCESS;
     default:
 	setstatd(d, -1, "option value changed", "01S02");
 	return SQL_SUCCESS_WITH_INFO;
@@ -9371,7 +9437,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
     char loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], nwflag[32];
-    char snflag[32], lnflag[32], ncflag[32], jmode[32];
+    char snflag[32], lnflag[32], ncflag[32], fkflag[32], jmode[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -9437,6 +9503,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     getdsnattr(buf, "longnames", lnflag, sizeof (lnflag));
     ncflag[0] = '\0';
     getdsnattr(buf, "nocreat", ncflag, sizeof (ncflag));
+    fkflag[0] = '\0';
+    getdsnattr(buf, "fksupport", fkflag, sizeof (fkflag));
     loadext[0] = '\0';
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
     jmode[0] = '\0';
@@ -9464,6 +9532,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 			       lnflag, sizeof (lnflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "nocreat", "",
 			       ncflag, sizeof (ncflag), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "fksupport", "",
+			       fkflag, sizeof (fkflag), ODBC_INI);
     SQLGetPrivateProfileString(buf, "loadext", "",
 			       loadext, sizeof (loadext), ODBC_INI);
     SQLGetPrivateProfileString(buf, "journalmode", "",
@@ -9483,6 +9553,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     d->shortnames = getbool(snflag);
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
+    d->fksupport = getbool(fkflag);
     ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag,
 		  jmode, busy);
     if (ret == SQL_SUCCESS) {
@@ -9642,7 +9713,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
-    char ncflag[32], nwflag[32], jmode[32];
+    char ncflag[32], nwflag[32], fkflag[32], jmode[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -9754,6 +9825,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   nwflag, sizeof (nwflag), ODBC_INI);
     }
 #endif
+    fkflag[0] = '\0';
+    getdsnattr(buf, "fksupport", fkflag, sizeof (fkflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !fkflag[0]) {
+	SQLGetPrivateProfileString(dsn, "fksupport", "",
+				   fkflag, sizeof (fkflag), ODBC_INI);
+    }
+#endif
     loadext[0] = '\0';
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
 #ifndef WITHOUT_DRIVERMGR
@@ -9791,11 +9870,11 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	count = snprintf(buf, sizeof (buf),
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
-			 "NoCreat=%s;NoWCHAR=%s;Tracefile=%s;"
+			 "NoCreat=%s;NoWCHAR=%s;FKSupport=%s;Tracefile=%s;"
 			 "JournalMode=%s;LoadExt=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
-			 snflag, lnflag, ncflag, nwflag, tracef, jmode,
-			 loadext);
+			 snflag, lnflag, ncflag, nwflag, fkflag, tracef,
+			 jmode, loadext);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -9815,6 +9894,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
     d->nowchar = getbool(nwflag);
+    d->fksupport = getbool(fkflag);
     ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, jmode, busy);
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, loadext);
@@ -10736,6 +10816,7 @@ converr:
 	    }
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
+		    *lenp = dlen;
 		    s->bindcols[col].offs += len;
 		    setstat(s, -1, "data right truncated", "01004");
 		    if (s->bindcols[col].lenp) {
@@ -10745,7 +10826,7 @@ converr:
 		}
 		s->bindcols[col].offs += *lenp;
 	    }
-	    if (!partial && *lenp == SQL_NO_TOTAL) {
+	    if (*lenp == SQL_NO_TOTAL) {
 		*lenp = dlen;
 		setstat(s, -1, "data right truncated", "01004");
 		return SQL_SUCCESS_WITH_INFO;
@@ -10865,6 +10946,7 @@ converr:
 #endif
 	    if (partial && len && s->bindcols) {
 		if (*lenp == SQL_NO_TOTAL) {
+		    *lenp = dlen;
 		    s->bindcols[col].offs += len - doz;
 		    setstat(s, -1, "data right truncated", "01004");
 		    if (s->bindcols[col].lenp) {
@@ -10874,7 +10956,7 @@ converr:
 		}
 		s->bindcols[col].offs += *lenp;
 	    }
-	    if (!partial && *lenp == SQL_NO_TOTAL) {
+	    if (*lenp == SQL_NO_TOTAL) {
 		*lenp = dlen;
 		setstat(s, -1, "data right truncated", "01004");
 		return SQL_SUCCESS_WITH_INFO;
@@ -12018,8 +12100,24 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
     s->rows[offs + 10] = stringify(SQL_FALSE);
     s->rows[offs + 11] = stringify(SQL_FALSE);
     s->rows[offs + 12] = typename;
-    s->rows[offs + 13] = NULL;
-    s->rows[offs + 14] = NULL;
+    switch (type) {
+    case SQL_DATE:
+    case SQL_TIME:
+	s->rows[offs + 13] = "0";
+	s->rows[offs + 14] = "0";
+	break;
+#ifdef SQL_TYPE_TIMESTAMP
+    case SQL_TYPE_TIMESTAMP:
+#endif
+    case SQL_TIMESTAMP:
+	s->rows[offs + 13] = "0";
+	s->rows[offs + 14] = "3";
+	break;
+    default:
+	s->rows[offs + 13] = NULL;
+	s->rows[offs + 14] = NULL;
+	break;
+    }
 }
 
 /**
@@ -13448,7 +13546,19 @@ checkLen:
 	return SQL_SUCCESS;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	if (val2) {
+	if (c->type == SQL_TIMESTAMP) {
+	    if (val2) {
+		*val2 = 3;
+	    }
+	}
+#ifdef SQL_TYPE_TIMESTAMP
+	else if (c->type == SQL_TYPE_TIMESTAMP) {
+	    if (val2) {
+		*val2 = 3;
+	    }
+	}
+#endif
+	else if (val2) {
 	    *val2 = c->scale;
 	}
 	*valLen = sizeof (int);
@@ -13474,6 +13584,9 @@ checkLen:
 	    case SQL_TIME:
 		*val2 = 8;
 		break;
+#ifdef SQL_TYPE_TIMESTAMP
+	    case SQL_TYPE_TIMESTAMP:
+#endif
 	    case SQL_TIMESTAMP:
 		*val2 = 23;
 		break;
@@ -13985,7 +14098,17 @@ checkLen:
 	break;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	v = c->scale;
+	if (c->type == SQL_TIMESTAMP) {
+	    v = 3;
+	}
+#ifdef SQL_TYPE_TIMESTAMP
+	else if (c->type == SQL_TYPE_TIMESTAMP) {
+	    v = 3;
+	}
+#endif
+	else {
+	    v = c->scale;
+	}
 	break;
     case SQL_COLUMN_PRECISION:
     case SQL_DESC_PRECISION:
@@ -14007,6 +14130,9 @@ checkLen:
 	case SQL_TIME:
 	    v = 8;
 	    break;
+#ifdef SQL_TYPE_TIMESTAMP
+	case SQL_TYPE_TIMESTAMP:
+#endif
 	case SQL_TIMESTAMP:
 	    v = 23;
 	    break;
@@ -14973,7 +15099,8 @@ done:
 #define KEY_NOWCHAR	       11
 #define KEY_LOADEXT	       12
 #define KEY_JMODE              13
-#define NUMOFKEYS	       14
+#define KEY_FKSUPPORT          14
+#define NUMOFKEYS	       15
 
 typedef struct {
     BOOL supplied;
@@ -15008,6 +15135,7 @@ static struct {
     { "NoWCHAR", KEY_NOWCHAR },
     { "LoadExt", KEY_LOADEXT },
     { "JournalMode", KEY_JMODE },
+    { "FKSupport", KEY_FKSUPPORT },
     { NULL, 0 }
 };
 
@@ -15135,6 +15263,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_NOWCHAR].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_FKSUPPORT].supplied) {
+	SQLWritePrivateProfileString(dsn, "FKSupport",
+				     setupdlg->attr[KEY_FKSUPPORT].attr,
+				     ODBC_INI);
+    }
     if (parent || setupdlg->attr[KEY_LOADEXT].supplied) {
 	SQLWritePrivateProfileString(dsn, "LoadExt",
 				     setupdlg->attr[KEY_LOADEXT].attr,
@@ -15215,6 +15348,12 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "NoWCHAR", "",
 				   setupdlg->attr[KEY_NOWCHAR].attr,
 				   sizeof (setupdlg->attr[KEY_NOWCHAR].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_FKSUPPORT].supplied) {
+	SQLGetPrivateProfileString(dsn, "FKSupport", "",
+				   setupdlg->attr[KEY_FKSUPPORT].attr,
+				   sizeof (setupdlg->attr[KEY_FKSUPPORT].attr),
 				   ODBC_INI);
     }
     if (!setupdlg->attr[KEY_LOADEXT].supplied) {
@@ -15321,6 +15460,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_FKSUPPORT,
+		       getbool(setupdlg->attr[KEY_FKSUPPORT].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -15399,6 +15541,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_FKSUPPORT].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_FKSUPPORT) == BST_CHECKED) ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -15521,6 +15666,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_NOWCHAR,
 		       getbool(setupdlg->attr[KEY_NOWCHAR].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_FKSUPPORT,
+		       getbool(setupdlg->attr[KEY_FKSUPPORT].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -15584,6 +15732,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_NOWCHAR].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_NOWCHAR) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_FKSUPPORT].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_FKSUPPORT) == BST_CHECKED) ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -15679,7 +15830,7 @@ retry:
 			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;"
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
-			 "JournalMode=%s;LoadExt=%s;",
+			 "FKSupport=%s;JournalMode=%s;LoadExt=%s;",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -15695,6 +15846,7 @@ retry:
 			 setupdlg->attr[KEY_LONGNAM].attr,
 			 setupdlg->attr[KEY_NOCREAT].attr,
 			 setupdlg->attr[KEY_NOWCHAR].attr,
+			 setupdlg->attr[KEY_FKSUPPORT].attr,
 			 setupdlg->attr[KEY_JMODE].attr,
 			 setupdlg->attr[KEY_LOADEXT].attr);
 	if (count < 0) {
@@ -15724,6 +15876,7 @@ retry:
     d->shortnames = getbool(setupdlg->attr[KEY_SHORTNAM].attr);
     d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
     d->nocreat = getbool(setupdlg->attr[KEY_NOCREAT].attr);
+    d->fksupport = getbool(setupdlg->attr[KEY_FKSUPPORT].attr);
     ret = dbopen(d, dbname ? dbname : "", 0,
 		 dsn ? dsn : "",
 		 setupdlg->attr[KEY_STEPAPI].attr,
@@ -16330,6 +16483,13 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     strncpy(prop->szName, "NoWCHAR", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
 #endif
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc(sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "FKSupport", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
     prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
     prop = prop->pNext;
     memset(prop, 0, sizeof (ODBCINSTPROPERTY));

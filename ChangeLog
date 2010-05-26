@@ -1,7 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
-Tue Jan 12 2009 version 0.85 released
+Wed May 26 2010 version 0.86 released
+
+	* update to SQLite 3.6.23.1
+	* fixes in handling SQL_TIMESTAMP data regarding fractional part
+	* fixes in SQLForeignKeys() and SQLGetTypeInfo() as suggested
+	  by Farid Zidan
+	* SQLGetData() now returns real length instead of SQL_NO_TOTAL
+	  when the buffer was too small
+	* added sqlite3_mod_extfunc.dll from www.sqlite.org/contrib
+	* fixed UTF8/UNICODE en/decoding of character range 0x80..0xff
+	* fixed SQLSetConnectAttr(..SQL_AUTOCOMMIT..) handling
+	  as suggested by Simon Schubert
+
+Tue Jan 12 2010 version 0.85 released
 
 	* update to SQLite 3.6.22
 	* added JournalMode DSN option

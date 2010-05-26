@@ -11,7 +11,7 @@
 set -e
 
 VER2=2.8.17
-VER3=3.6.22
+VER3=3.6.23.1
 TCCVER=0.9.24
 
 if test -n "$SQLITE_DLLS" ; then
@@ -215,6 +215,14 @@ echo "====================="
 test -r sqlite-${VER3}.tar.gz || \
     wget -c http://www.sqlite.org/sqlite-${VER3}.tar.gz
 test -r sqlite-${VER3}.tar.gz || exit 1
+test -r extension-functions.c ||
+    wget -O extension-functions.c -c \
+      'http://www.sqlite.org/contrib/download/extension-functions.c?get=25'
+if test -r extension-functions.c ; then
+  cp extension-functions.c extfunc.c
+  patch < extfunc.patch
+fi
+test -r extfunc.c || exit 1
 
 rm -f sqlite3
 tar xzf sqlite-${VER3}.tar.gz
@@ -399,7 +407,8 @@ EOD
 # patch: parse foreign key constraints on virtual tables
 test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.6.18" -a "$VER3" != "3.6.19" -a "$VER3" != "3.6.20" \
-  -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" \
+  -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
+  -a "$VER3" != "3.6.23.1" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -464,7 +473,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.48 2010/01/12 05:45:00 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.49 2010/04/09 14:09:24 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -611,7 +620,9 @@ patch -d sqlite3 -p1 <<'EOD'
 EOD
 
 # patch: compile fix for FTS3 as extension module
-test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
+  -a "$VER3" != "3.6.23.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
 @@ -274,10 +274,6 @@
@@ -635,7 +646,9 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
    sqlite3 *db, 
    char **pzErrMsg,
 EOD
-test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
+  -o "$VER3" = "3.6.23.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
 @@ -274,10 +274,6 @@
@@ -717,7 +730,8 @@ test "$VER3" = "3.6.21" && patch -d sqlite3 -p1 <<'EOD'
  #include <assert.h>
  #include <stdlib.h>
 EOD
-test "$VER3" = "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_write.c   2010-01-05 09:42:19.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_write.c        2010-01-05 09:55:25.000000000 +0100
 @@ -20,6 +20,10 @@
@@ -754,7 +768,9 @@ test "$VER3" = "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
      rc = SQLITE_OK;
  #endif
 EOD
-test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" && patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
+  -o "$VER3" = "3.6.23.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
 @@ -14,6 +14,10 @@
@@ -885,6 +901,7 @@ make -C sqlite -f ../mf-sqlite.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean
+make -f mf-sqlite3extfunc.mingw-cross clean
 
 echo "============================="
 echo "Building SQLite 2 ... ISO8859"
@@ -946,6 +963,11 @@ echo "====================================="
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean all
 mv sqlite3/sqlite3_mod_rtree.dll .
 
+echo "========================================"
+echo "Building SQLite3 extension functions ..."
+echo "========================================"
+make -f mf-sqlite3extfunc.mingw-cross clean all
+
 echo "============================"
 echo "Building DLL import defs ..."
 echo "============================"
@@ -978,6 +1000,7 @@ rm -f sqlite3/sqlite3.exe
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean
 mv sqlite3/sqlite3.amalg sqlite3/sqlite3.c
+make -f mf-sqlite3extfunc.mingw-cross semiclean
 
 echo "==========================="
 echo "Creating NSIS installer ..."
