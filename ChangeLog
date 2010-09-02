@@ -1,6 +1,17 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Sep 02 2010 version 0.87 released
+
+	* update to SQLite 3.7.2
+	* various fixes in parameter set handling
+	* again fixes in SQL_TIMESTAMP handling
+	* fixes in buffer length handling in SQLBindParameter()
+	* basic support for SQLTablePrivileges()
+	* support SQL_C_WCHAR for non-wide drivers (POSIX platforms)
+	* use sqlite3_profile() for tracing if available
+	* more fixes when calling internal variadic functions
+
 Wed May 26 2010 version 0.86 released
 
 	* update to SQLite 3.6.23.1

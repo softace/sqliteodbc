@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.170 2010/05/25 14:19:04 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.175 2010/09/02 13:58:38 chw Exp chw $
  *
  * Copyright (c) 2001-2010 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -14,14 +14,22 @@
 
 #include "sqliteodbc.h"
 
-#undef  WINTERFACE
 #ifdef  SQLITE_UTF8
 #ifndef WITHOUT_WINTERFACE
 #define WINTERFACE
+#define WCHARSUPPORT
 #endif
 #endif
 
-#ifdef WINTERFACE
+#ifdef SQLITE_UTF8
+#if !defined(_WIN32) && !defined(_WIN64)
+#if !defined(WCHARSUPPORT) && defined(HAVE_SQLWCHAR) && HAVE_SQLWCHAR
+#define WCHARSUPPORT
+#endif
+#endif
+#endif
+
+#if defined(WINTERFACE)
 #include <sqlucode.h>
 #endif
 
@@ -37,6 +45,10 @@
 #else
 #define ODBC_INI ".odbc.ini"
 #endif
+#endif
+
+#if __GNUC__ > 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ > 3))
+#define	CANT_PASS_VALIST_AS_CHARPTR 1
 #endif
 
 #ifdef _WIN64
@@ -420,7 +432,7 @@ strdup_(const char *str)
 }
 #endif
 
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 /**
  * Return length of UNICODE string.
  * @param str UNICODE string
@@ -679,6 +691,10 @@ uc_to_utf(SQLWCHAR *str, int len)
     return ret;
 }
 
+#endif
+
+#ifdef WINTERFACE
+
 /**
  * Make UTF8 string from UNICODE string.
  * @param str UNICODE string to be converted
@@ -695,6 +711,10 @@ uc_to_utf_c(SQLWCHAR *str, int len)
     return uc_to_utf(str, len);
 }
 
+#endif
+
+#if defined(WINTERFACE) || defined(WCHARSUPPORT)
+
 /**
  * Free converted UTF8 or UNICODE string.
  */
@@ -706,6 +726,7 @@ uc_free(void *str)
 	xfree(str);
     }
 }
+
 #endif
 
 #ifdef USE_DLOPEN_FOR_GPPS
@@ -1480,7 +1501,7 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 #ifdef SQL_TYPE_TIMESTAMP
     case SQL_TYPE_TIMESTAMP:
 #endif
-    case SQL_TIMESTAMP:    m = 32; d = 0; break;
+    case SQL_TIMESTAMP:    m = 32; d = 3; break;
 #ifdef SQL_LONGVARCHAR
     case SQL_LONGVARCHAR : m = 65536; d = 0; break;
 #endif
@@ -1501,7 +1522,17 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 	int mm, dd;
 
 	if (sscanf(typename, "%*[^(](%d)", &mm) == 1) {
-	    m = d = mm;
+	    if (sqltype == SQL_TIMESTAMP) {
+		d = mm;
+	    }
+#ifdef SQL_TYPE_TIMESTAMP
+	    if (sqltype == SQL_TYPE_TIMESTAMP) {
+		d = mm;
+	    }
+#endif
+	    else {
+		m = d = mm;
+	    }
 	} else if (sscanf(typename, "%*[^(](%d,%d)", &mm, &dd) == 2) {
 	    m = mm;
 	    d = dd;
@@ -1874,7 +1905,8 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    s->dyncols[i].type =
 		mapsqltype(types[i], &s->dyncols[i].nosign, *s->ov3,
 			   s->nowchar[0] || s->nowchar[1]);
-	    getmd(types[i], s->dyncols[i].type, &s->dyncols[i].size, NULL);
+	    getmd(types[i], s->dyncols[i].type, &s->dyncols[i].size,
+		  &s->dyncols[i].prec);
 #ifdef SQL_LONGVARCHAR
 	    if (s->dyncols[i].type == SQL_VARCHAR &&
 		s->dyncols[i].size > 255) {
@@ -1949,7 +1981,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 			mapsqltype(typename, &s->dyncols[m].nosign, *s->ov3,
 				   s->nowchar[0] || s->nowchar[1]);
 		    getmd(typename, s->dyncols[m].type, &s->dyncols[m].size,
-			  NULL);
+			  &s->dyncols[m].prec);
 #ifdef SQL_LONGVARCHAR
 		    if (s->dyncols[m].type == SQL_VARCHAR &&
 			s->dyncols[m].size > 255) {
@@ -2536,8 +2568,8 @@ dbopen(DBC *d, char *name, char *dsn, char *sflag, char *ntflag, char *busy)
     d->sqlite = sqlite_open(name, 0, &errp);
     if (d->sqlite == NULL) {
 connfail:
-	setstatd(d, -1, errp ? errp : "connect failed",
-		 (*d->ov3) ? "HY000" : "S1000");
+	setstatd(d, -1, "%s", (*d->ov3) ? "HY000" : "S1000",
+		 errp ? errp : "connect failed");
 	if (errp) {
 	    sqlite_freemem(errp);
 	    errp = NULL;
@@ -3247,7 +3279,7 @@ seqerr:
 		p->len = SQL_NULL_DATA;
 		p->need = -1;
 	    } else if (type != SQL_C_CHAR
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		       && type != SQL_C_WCHAR
 #endif
 #if HAVE_ENCDEC
@@ -3311,13 +3343,13 @@ seqerr:
 		p->need = -1;
 	    } else if (len == SQL_NTS && (
 		       type == SQL_C_CHAR
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		       || type == SQL_C_WCHAR
 #endif
 		       )) {
 		char *dp = data;
 
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		if (type == SQL_C_WCHAR) {
 		    dp = uc_to_utf(data, len);
 		    if (!dp) {
@@ -3329,7 +3361,7 @@ seqerr:
 		freep(&p->parbuf);
 		p->parbuf = xmalloc(dlen + 1);
 		if (!p->parbuf) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		    if (dp != data) {
 			uc_free(dp);
 		    }
@@ -3338,7 +3370,7 @@ seqerr:
 		}
 		p->param = p->parbuf;
 		strcpy(p->param, dp);
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		if (dp != data) {
 		    uc_free(dp);
 		}
@@ -3357,7 +3389,7 @@ seqerr:
 		memcpy((char *) p->param + p->offs, data, dlen);
 		p->offs += dlen;
 		if (p->offs >= p->len) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		    if (type == SQL_C_WCHAR) {
 			char *dp = uc_to_utf(p->param, p->len);
 			char *np;
@@ -3398,7 +3430,7 @@ seqerr:
 		    if ((p->stype == SQL_BINARY ||
 			 p->stype == SQL_VARBINARY ||
 			 p->stype == SQL_LONGVARBINARY) &&
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 			(type == SQL_C_CHAR || type == SQL_C_WCHAR)
 #else
 			type == SQL_C_CHAR
@@ -3513,7 +3545,7 @@ substparam(STMT *s, int pnum, char **outp)
     }
     switch (type) {
     case SQL_C_CHAR:
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
     case SQL_C_WCHAR:
 #endif
 #if HAVE_ENCDEC
@@ -3592,15 +3624,32 @@ substparam(STMT *s, int pnum, char **outp)
 	len = len % 1000;
 	if (len < 0) {
 	    len = 0;
-	}	    
-	sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
-		((TIMESTAMP_STRUCT *) p->param)->year,
-		((TIMESTAMP_STRUCT *) p->param)->month,
-		((TIMESTAMP_STRUCT *) p->param)->day,
-		((TIMESTAMP_STRUCT *) p->param)->hour,
-		((TIMESTAMP_STRUCT *) p->param)->minute,
-		((TIMESTAMP_STRUCT *) p->param)->second,
-		len);
+	}
+	if (p->coldef && p->coldef <= 16) {
+	    sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:00.000",
+		    ((TIMESTAMP_STRUCT *) p->param)->year,
+		    ((TIMESTAMP_STRUCT *) p->param)->month,
+		    ((TIMESTAMP_STRUCT *) p->param)->day,
+		    ((TIMESTAMP_STRUCT *) p->param)->hour,
+		    ((TIMESTAMP_STRUCT *) p->param)->minute);
+	} else if (p->coldef && p->coldef <= 19) {
+	    sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.000",
+		    ((TIMESTAMP_STRUCT *) p->param)->year,
+		    ((TIMESTAMP_STRUCT *) p->param)->month,
+		    ((TIMESTAMP_STRUCT *) p->param)->day,
+		    ((TIMESTAMP_STRUCT *) p->param)->hour,
+		    ((TIMESTAMP_STRUCT *) p->param)->minute,
+		    ((TIMESTAMP_STRUCT *) p->param)->second);
+	} else {
+	    sprintf(p->strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+		    ((TIMESTAMP_STRUCT *) p->param)->year,
+		    ((TIMESTAMP_STRUCT *) p->param)->month,
+		    ((TIMESTAMP_STRUCT *) p->param)->day,
+		    ((TIMESTAMP_STRUCT *) p->param)->hour,
+		    ((TIMESTAMP_STRUCT *) p->param)->minute,
+		    ((TIMESTAMP_STRUCT *) p->param)->second,
+		    len);
+	}
     bind:
 	if (outp) {
 	    *outp = isnull ? NULL : p->strbuf;
@@ -3613,7 +3662,7 @@ substparam(STMT *s, int pnum, char **outp)
 	return SQL_ERROR;
     }
     if (!p->parbuf && p->lenp) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	if (type == SQL_C_WCHAR) {
 	    if (*p->lenp == SQL_NTS) {
 		p->max = uc_strlen(p->param) * sizeof (SQLWCHAR);
@@ -3640,7 +3689,7 @@ substparam(STMT *s, int pnum, char **outp)
 	outdata = p->param;
 	goto putp;
     }
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
     if (type == SQL_C_WCHAR) {
 	char *dp = uc_to_utf(p->param, p->max);
 
@@ -3751,14 +3800,8 @@ drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	setstat(s, -1, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
-    if (!data && (!len || (*len != SQL_NULL_DATA &&
-			   *len > SQL_LEN_DATA_AT_EXEC_OFFSET))) {
+    if (!data) {
 	setstat(s, -1, "invalid buffer", "HY003");
-	return SQL_ERROR;
-    }
-    if (len && *len < 0 && *len > SQL_LEN_DATA_AT_EXEC_OFFSET &&
-	*len != SQL_NTS && *len != SQL_NULL_DATA) {
-	setstat(s, -1, "invalid length reference", "HY009");
 	return SQL_ERROR;
     }
     --pnum;
@@ -3787,6 +3830,65 @@ outofmem:
 	memset(s->bindparms, 0, npar * sizeof (BINDPARM));
 	s->nbindparms = npar;
     }
+    switch (buftype) {
+    case SQL_C_STINYINT:
+    case SQL_C_UTINYINT:
+    case SQL_C_TINYINT:
+#ifdef SQL_C_BIT
+    case SQL_C_BIT:
+#endif
+	buflen = sizeof (char);
+	break;
+    case SQL_C_SHORT:
+    case SQL_C_USHORT:
+    case SQL_C_SSHORT:
+	buflen = sizeof (short);
+	break;
+    case SQL_C_SLONG:
+    case SQL_C_ULONG:
+    case SQL_C_LONG:
+	buflen = sizeof (long);
+	break;
+    case SQL_C_FLOAT:
+	buflen = sizeof (float);
+	break;
+    case SQL_C_DOUBLE:
+	buflen = sizeof (double);
+	break;
+    case SQL_C_TIMESTAMP:
+#ifdef SQL_C_TYPE_TIMESTAMP
+    case SQL_C_TYPE_TIMESTAMP:
+#endif
+	buflen = sizeof (TIMESTAMP_STRUCT);
+	break;
+    case SQL_C_TIME:
+#ifdef SQL_C_TYPE_TIME
+    case SQL_C_TYPE_TIME:
+#endif
+	buflen = sizeof (TIME_STRUCT);
+	break;
+    case SQL_C_DATE:
+#ifdef SQL_C_TYPE_DATE
+    case SQL_C_TYPE_DATE:
+#endif
+	buflen = sizeof (DATE_STRUCT);
+	break;
+#ifdef SQL_C_UBIGINT
+    case SQL_C_UBIGINT:
+	buflen = sizeof (SQLBIGINT);
+	break;
+#endif
+#ifdef SQL_C_SBIGINT
+    case SQL_C_SBIGINT:
+	buflen = sizeof (SQLBIGINT);
+	break;
+#endif
+#ifdef SQL_C_BIGINT
+    case SQL_C_BIGINT:
+	buflen = sizeof (SQLBIGINT);
+	break;
+#endif
+    }
     p = &s->bindparms[pnum];
     p->type = buftype;
     p->stype = ptype;
@@ -3802,9 +3904,6 @@ outofmem:
     p->param = p->param0;
     p->bound = 1;
     p->need = 0;
-    if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
-	p->need = 1;
-    }
     return SQL_SUCCESS;
 }
 
@@ -3838,6 +3937,7 @@ SQLBindParameter(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
     return ret;
 }
 
+#ifndef HAVE_IODBC
 /**
  * Bind parameter on HSTMT.
  * @param stmt statement handle
@@ -3865,6 +3965,7 @@ SQLBindParam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT vtype,
     HSTMT_UNLOCK(stmt);
     return ret;
 }
+#endif
 
 /**
  * Return number of parameters.
@@ -4244,6 +4345,223 @@ static COL tablePrivSpec3[] = {
     { "SYSTEM", "TABLEPRIV", "IS_GRANTABLE", SCOL_VARCHAR, 50 }
 };
 
+/**
+ * Retrieve privileges on tables and/or views.
+ * @param stmt statement handle
+ * @param cat catalog name/pattern or NULL
+ * @param catLen length of catalog name/pattern or SQL_NTS
+ * @param schema schema name/pattern or NULL
+ * @param schemaLen length of schema name/pattern or SQL_NTS
+ * @param table table name/pattern or NULL
+ * @param tableLen length of table name/pattern or SQL_NTS
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+drvtableprivileges(SQLHSTMT stmt,
+		   SQLCHAR *cat, SQLSMALLINT catLen,
+		   SQLCHAR *schema, SQLSMALLINT schemaLen,
+		   SQLCHAR *table, SQLSMALLINT tableLen)
+{
+    SQLRETURN ret;
+    STMT *s;
+    DBC *d;
+    int ncols, rc, size, npatt;
+    char *errp = NULL, tname[512];
+
+    ret = mkresultset(stmt, tablePrivSpec2, array_size(tablePrivSpec2),
+		      tablePrivSpec3, array_size(tablePrivSpec3), NULL);
+    if (ret != SQL_SUCCESS) {
+	return ret;
+    }
+    s = (STMT *) stmt;
+    d = (DBC *) s->dbc;
+    if (cat && (catLen > 0 || catLen == SQL_NTS) && cat[0] == '%') {
+	table = NULL;
+	goto doit;
+    }
+    if (schema && (schemaLen > 0 || schemaLen == SQL_NTS) &&
+	schema[0] == '%') {
+	if ((!cat || catLen == 0 || !cat[0]) &&
+	    (!table || tableLen == 0 || !table[0])) {
+	    table = NULL;
+	    goto doit;
+	}
+    }
+doit:
+    if (!table) {
+	size = 1;
+	tname[0] = '%';
+    } else {
+	if (tableLen == SQL_NTS) {
+	    size = sizeof (tname) - 1;
+	} else {
+	    size = min(sizeof (tname) - 1, tableLen);
+	}
+	strncpy(tname, (char *) table, size);
+    }
+    tname[size] = '\0';
+    npatt = unescpat(tname);
+    ret = starttran(s);
+    if (ret != SQL_SUCCESS) {
+	return ret;
+    }
+#if defined(_WIN32) || defined(_WIN64)
+    rc = sqlite_get_table_printf(d->sqlite,
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'SELECT' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'UPDATE' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'DELETE' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'INSERT' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select %s as 'TABLE_QUALIFIER', "
+				 "%s as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'REFERENCES' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q'",
+				 &s->rows, &s->nrows, &ncols, &errp,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 npatt ? "like" : "=", tname,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 npatt ? "like" : "=", tname,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 npatt ? "like" : "=", tname,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 npatt ? "like" : "=", tname,
+				 d->xcelqrx ? "''" : "NULL",
+				 d->xcelqrx ? "'main'" : "NULL",
+				 npatt ? "like" : "=", tname);
+#else
+    rc = sqlite_get_table_printf(d->sqlite,
+				 "select NULL as 'TABLE_QUALIFIER', "
+				 "NULL as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'SELECT' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select NULL as 'TABLE_QUALIFIER', "
+				 "NULL as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'UPDATE' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select NULL as 'TABLE_QUALIFIER', "
+				 "NULL as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'DELETE' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select NULL as 'TABLE_QUALIFIER', "
+				 "NULL as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'INSERT' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q' "
+				 "UNION "
+				 "select NULL as 'TABLE_QUALIFIER', "
+				 "NULL as 'TABLE_OWNER', "
+				 "tbl_name as 'TABLE_NAME', "
+				 "'' as 'GRANTOR', "
+				 "'' as 'GRANTEE', "
+				 "'REFERENCES' AS 'PRIVILEGE', "
+				 "NULL as 'IS_GRANTABLE' "
+				 "from sqlite_master where "
+				 "(type = 'table' or type = 'view') "
+				 "and tbl_name %s '%q'",
+				 &s->rows, &s->nrows, &ncols, &errp,
+				 npatt ? "like" : "=", tname,
+				 npatt ? "like" : "=", tname,
+				 npatt ? "like" : "=", tname,
+				 npatt ? "like" : "=", tname,
+				 npatt ? "like" : "=", tname);
+#endif
+    if (rc == SQLITE_OK) {
+	if (ncols != s->ncols) {
+	    freeresult(s, 0);
+	    s->nrows = 0;
+	} else {
+	    s->rowfree = sqlite_free_table;
+	}
+    } else {
+	s->nrows = 0;
+	s->rows = NULL;
+	s->rowfree = NULL;
+    }
+    if (errp) {
+	sqlite_freemem(errp);
+	errp = NULL;
+    }
+    s->rowp = -1;
+    return SQL_SUCCESS;
+}
+
+
 #if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
 /**
  * Retrieve privileges on tables and/or views.
@@ -4266,8 +4584,8 @@ SQLTablePrivileges(SQLHSTMT stmt,
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
-    ret = mkresultset(stmt, tablePrivSpec2, array_size(tablePrivSpec2),
-		      tablePrivSpec3, array_size(tablePrivSpec3), NULL);
+    ret = drvtableprivileges(stmt, catalog, catalogLen, schema, schemaLen,
+			     table, tableLen);
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -4293,12 +4611,39 @@ SQLTablePrivilegesW(SQLHSTMT stmt,
 		    SQLWCHAR *schema, SQLSMALLINT schemaLen,
 		    SQLWCHAR *table, SQLSMALLINT tableLen)
 {
+    char *c = NULL, *s = NULL, *t = NULL;
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
-    ret = mkresultset(stmt, tablePrivSpec2, array_size(tablePrivSpec2),
-		      tablePrivSpec3, array_size(tablePrivSpec3), NULL);
+    if (catalog) {
+	c = uc_to_utf_c(catalog, catalogLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = uc_to_utf_c(schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = uc_to_utf_c(table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvtableprivileges(stmt, (SQLCHAR *) c, SQL_NTS,
+			     (SQLCHAR *) s, SQL_NTS,
+			     (SQLCHAR *) t, SQL_NTS);
+done:
     HSTMT_UNLOCK(stmt);
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
     return ret;
 }
 #endif
@@ -7940,7 +8285,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     exists[SQL_API_SQLFOREIGNKEYS] = SQL_TRUE;
     exists[SQL_API_SQLSETSCROLLOPTIONS] = SQL_TRUE;
     exists[SQL_API_SQLMORERESULTS] = SQL_TRUE;
-    exists[SQL_API_SQLTABLEPRIVILEGES] = SQL_FALSE;
+    exists[SQL_API_SQLTABLEPRIVILEGES] = SQL_TRUE;
     exists[SQL_API_SQLNATIVESQL] = SQL_TRUE;
     if (func == SQL_API_ALL_FUNCTIONS) {
 	memcpy(flags, exists, sizeof (exists));
@@ -9839,7 +10184,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    type = SQL_C_BINARY;
 	    break;
 	}
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
     } else if (type == SQL_C_WCHAR) {
 	switch (s->cols[col].type) {
 	case SQL_BINARY:
@@ -9885,7 +10230,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    break;
 	case SQL_C_BINARY:
 	case SQL_C_CHAR:
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	case SQL_C_WCHAR:
 	    if (type == SQL_C_WCHAR) {
 		*((SQLWCHAR *) val) = '\0';
@@ -10047,14 +10392,14 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    break;
 	}
 #endif
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	case SQL_C_WCHAR:
 #endif
 	case SQL_C_CHAR: {
 	    int doz, zlen = len - 1;
 	    int dlen = strlen(*data);
 	    int offs = 0;
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	    SQLWCHAR *ucdata = NULL;
 #endif
 
@@ -10072,7 +10417,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    }
 #endif
 
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	    switch (type) {
 	    case SQL_C_CHAR:
 		doz = 1;
@@ -10096,12 +10441,12 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 #endif
 	    if (partial && len && s->bindcols) {
 		if (s->bindcols[col].offs >= dlen) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		    uc_free(ucdata);
 #endif
 		    *lenp = 0;
 		    if (doz && val) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 			if (type == SQL_C_WCHAR) {
 			    ((SQLWCHAR *) val)[0] = 0;
 			} else {
@@ -10122,7 +10467,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		dlen -= offs;
 	    }
 	    if (val && !valnull && len) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		if (type == SQL_C_WCHAR) {
 		    uc_strncpy(val, ucdata + offs / sizeof (SQLWCHAR),
 			       (len - doz) / sizeof (SQLWCHAR));
@@ -10144,7 +10489,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		}
 	    }
 	    if (len && !valnull && doz) {
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 		if (type == SQL_C_WCHAR) {
 		    ((SQLWCHAR *) val)[zlen / sizeof (SQLWCHAR)] = 0;
 		} else {
@@ -10154,7 +10499,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		((char *) val)[zlen] = '\0';
 #endif
 	    }
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
 	    uc_free(ucdata);
 #endif
 	    if (partial && len && s->bindcols) {
@@ -10204,6 +10549,19 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		*lenp = SQL_NULL_DATA;
 	    } else {
 		*lenp = sizeof (TIMESTAMP_STRUCT);
+	    }
+	    switch (s->cols[col].prec) {
+	    case 0:
+		((TIMESTAMP_STRUCT *) val)->fraction = 0;
+		break;
+	    case 1:
+		((TIMESTAMP_STRUCT *) val)->fraction /= 100000000;
+		((TIMESTAMP_STRUCT *) val)->fraction *= 100000000;
+		break;
+	    case 2:
+		((TIMESTAMP_STRUCT *) val)->fraction /= 10000000;
+		((TIMESTAMP_STRUCT *) val)->fraction *= 10000000;
+		break;
 	    }
 	    break;
 	default:
@@ -12718,19 +13076,7 @@ checkLen:
 	return SQL_SUCCESS;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	if (c->type == SQL_TIMESTAMP) {
-	    if (val2) {
-		*val2 = 3;
-	    }
-	}
-#ifdef SQL_TYPE_TIMESTAMP
-	else if (c->type == SQL_TYPE_TIMESTAMP) {
-	    if (val2) {
-		*val2 = 3;
-	    }
-	}
-#endif
-	else if (val2) {
+	if (val2) {
 	    *val2 = c->scale;
 	}
 	*valLen = sizeof (int);
@@ -12751,16 +13097,16 @@ checkLen:
 		*val2 = 15;
 		break;
 	    case SQL_DATE:
-		*val2 = 10;
+		*val2 = 0;
 		break;
 	    case SQL_TIME:
-		*val2 = 8;
+		*val2 = 0;
 		break;
 #ifdef SQL_TYPE_TIMESTAMP
 	    case SQL_TYPE_TIMESTAMP:
 #endif
 	    case SQL_TIMESTAMP:
-		*val2 = 23;
+		*val2 = (c->prec >= 0 && c->prec <= 3) ? c->prec : 3;
 		break;
 	    default:
 		*val2 = c->prec;
@@ -13265,17 +13611,7 @@ checkLen:
 	break;
     case SQL_COLUMN_SCALE:
     case SQL_DESC_SCALE:
-	if (c->type == SQL_TIMESTAMP) {
-	    v = 3;
-	}
-#ifdef SQL_TYPE_TIMESTAMP
-	else if (c->type == SQL_TYPE_TIMESTAMP) {
-	    v = 3;
-	}
-#endif
-	else {
-	    v = c->scale;
-	}
+	v = c->scale;
 	break;
     case SQL_COLUMN_PRECISION:
     case SQL_DESC_PRECISION:
@@ -13292,16 +13628,16 @@ checkLen:
 	    v = 15;
 	    break;
 	case SQL_DATE:
-	    v = 10;
+	    v = 0;
 	    break;
 	case SQL_TIME:
-	    v = 8;
+	    v = 0;
 	    break;
 #ifdef SQL_TYPE_TIMESTAMP
 	case SQL_TYPE_TIMESTAMP:
 #endif
 	case SQL_TIMESTAMP:
-	    v = 23;
+	    v = (c->prec >= 0 && c->prec <= 3) ? c->prec : 3;
 	    break;
 	default:
 	    v = c->prec;
@@ -13791,7 +14127,7 @@ noconn:
 				    d->version, &s->parmnames);
     if (!s->query) {
 	if (errp) {
-	    setstat(s, -1, errp, (*s->ov3) ? "HY000" : "S1000");
+	    setstat(s, -1, "%s", (*s->ov3) ? "HY000" : "S1000", errp);
 	    return SQL_ERROR;
 	}
 	return nomem(s);
@@ -13872,9 +14208,7 @@ noconn:
 	}
     }
     mkbindcols(s, s->ncols);
-    if (s->nparams) {
-	s->paramset_count = 0;
-    }
+    s->paramset_count = 0;
     return SQL_SUCCESS;
 }
 
@@ -13921,6 +14255,20 @@ unbound:
 
 	if (!p->bound) {
 	    goto unbound;
+	}
+	if (initial) {
+	    SQLLEN *lenp = p->lenp;
+
+	    if (lenp && *lenp < 0 && *lenp > SQL_LEN_DATA_AT_EXEC_OFFSET &&
+		*lenp != SQL_NTS && *lenp != SQL_NULL_DATA) {
+		setstat(s, -1, "invalid length reference", "HY009");
+		return SQL_ERROR;
+	    }
+	    if (lenp && *lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		p->need = 1;
+		p->offs = 0;
+		p->len = 0;
+	    }
 	}
     }
     ret = starttran(s);
@@ -14107,40 +14455,42 @@ done:
 done2:
     ret = SQL_SUCCESS;
     s->rowp = -1;
-    if (s->nparams) {
-	s->paramset_count++;
-	s->paramset_nrows += s->nrows;
-	if (s->paramset_count < s->paramset_size) {
-	    for (i = 0; i < s->nparams; i++) {
-		BINDPARM *p = &s->bindparms[i];
+    s->paramset_count++;
+    s->paramset_nrows += s->nrows;
+    if (s->paramset_count < s->paramset_size) {
+	for (i = 0; i < s->nparams; i++) {
+	    BINDPARM *p = &s->bindparms[i];
 
-		if (p->param == p->parbuf) {
-		    p->param = NULL;
-		}
-		freep(&p->parbuf);
-		if (p->lenp0 &&
-		    s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
-		    p->lenp = (SQLLEN *) ((char *) p->lenp0 +
-			s->paramset_count * s->parm_bind_type);
-		} else if (p->lenp0 && p->inc > 0) {
-		    p->lenp = p->lenp0 + s->paramset_count;
-		}
-		if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
-		    if (p->param0 &&
-			s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
-			p->param = (char *) p->param0 +
-			    s->paramset_count * s->parm_bind_type;
-		    } else if (p->param0 && p->inc > 0) {
-			p->param = (char *) p->param0 +
-			    s->paramset_count * p->inc;
-		    }
-		}
+	    if (p->param == p->parbuf) {
+		p->param = NULL;
 	    }
-	    goto again;
+	    freep(&p->parbuf);
+	    if (p->lenp0 &&
+		s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+		p->lenp = (SQLLEN *) ((char *) p->lenp0 +
+				      s->paramset_count * s->parm_bind_type);
+	    } else if (p->lenp0 && p->inc > 0) {
+		p->lenp = p->lenp0 + s->paramset_count;
+	    }
+	    if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		if (p->param0 &&
+		    s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
+		    p->param = (char *) p->param0 +
+			s->paramset_count * s->parm_bind_type;
+		} else if (p->param0 && p->inc > 0) {
+		    p->param = (char *) p->param0 +
+			s->paramset_count * p->inc;
+		}
+	    } else if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		p->need = 1;
+		p->offs = 0;
+		p->len = 0;
+	    }
 	}
+	goto again;
     }
 cleanup:
-    if (ret != SQL_NEED_DATA && s->nparams) {
+    if (ret != SQL_NEED_DATA) {
 	for (i = 0; i < s->nparams; i++) {
 	    BINDPARM *p = &s->bindparms[i];
 

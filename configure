@@ -5771,6 +5771,47 @@ else
 SQLITE3_TABLECOLUMNMETADATA=0
 fi
 
+   echo $ac_n "checking for sqlite3_profile in -lsqlite3""... $ac_c" 1>&6
+echo "configure:5776: checking for sqlite3_profile in -lsqlite3" >&5
+ac_lib_var=`echo sqlite3'_'sqlite3_profile | sed 'y%./+-%__p_%'`
+if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
+  echo $ac_n "(cached) $ac_c" 1>&6
+else
+  ac_save_LIBS="$LIBS"
+LIBS="-lsqlite3  $LIBS"
+cat > conftest.$ac_ext <<EOF
+#line 5784 "configure"
+#include "confdefs.h"
+/* Override any gcc2 internal prototype to avoid an error.  */
+/* We use char because int might match the return type of a gcc2
+    builtin and then its argument prototype would still apply.  */
+char sqlite3_profile();
+
+int main() {
+sqlite3_profile()
+; return 0; }
+EOF
+if { (eval echo configure:5795: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=yes"
+else
+  echo "configure: failed program was:" >&5
+  cat conftest.$ac_ext >&5
+  rm -rf conftest*
+  eval "ac_cv_lib_$ac_lib_var=no"
+fi
+rm -f conftest*
+LIBS="$ac_save_LIBS"
+
+fi
+if eval "test \"`echo '$ac_cv_lib_'$ac_lib_var`\" = yes"; then
+  echo "$ac_t""yes" 1>&6
+  SQLITE3_PROFILE=1
+else
+  echo "$ac_t""no" 1>&6
+SQLITE3_PROFILE=0
+fi
+
    LIBS=$saved_LIBS
    CFLAGS=$saved_CFLAGS
 fi
@@ -5783,6 +5824,7 @@ else
    EXT_BLOBTOXY=""
    EXT_IMPEXP=""
 fi
+
 
 
 
@@ -5846,7 +5888,7 @@ if test -z "$ODBC_DIR" ; then
 fi
 
 echo $ac_n "checking for ODBC headers and libraries""... $ac_c" 1>&6
-echo "configure:5850: checking for ODBC headers and libraries" >&5
+echo "configure:5892: checking for ODBC headers and libraries" >&5
 for i in $ODBC_DIR ; do
    if test -r "$i/include/iodbc/sql.h" -o -r "$i/include/sql.h" ; then
       if test -r "$i/include/iodbc/iodbcinst.h" ; then
@@ -5899,9 +5941,9 @@ SAVED_CFLAGS="$CFLAGS"
 CFLAGS="$CFLAGS $ODBC_FLAGS"
 
 echo $ac_n "checking for SQLLEN availability""... $ac_c" 1>&6
-echo "configure:5903: checking for SQLLEN availability" >&5
+echo "configure:5945: checking for SQLLEN availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 5905 "configure"
+#line 5947 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -5911,7 +5953,7 @@ int main() {
 SQLLEN len = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:5915: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:5957: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -5926,9 +5968,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLULEN availability""... $ac_c" 1>&6
-echo "configure:5930: checking for SQLULEN availability" >&5
+echo "configure:5972: checking for SQLULEN availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 5932 "configure"
+#line 5974 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -5938,7 +5980,7 @@ int main() {
 SQLULEN len = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:5942: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:5984: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -5953,9 +5995,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLROWCOUNT availability""... $ac_c" 1>&6
-echo "configure:5957: checking for SQLROWCOUNT availability" >&5
+echo "configure:5999: checking for SQLROWCOUNT availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 5959 "configure"
+#line 6001 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -5965,7 +6007,7 @@ int main() {
 SQLROWCOUNT rc = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:5969: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6011: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -5980,9 +6022,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLSETPOSIROW availability""... $ac_c" 1>&6
-echo "configure:5984: checking for SQLSETPOSIROW availability" >&5
+echo "configure:6026: checking for SQLSETPOSIROW availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 5986 "configure"
+#line 6028 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -5992,7 +6034,7 @@ int main() {
 SQLSETPOSIROW rc = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:5996: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6038: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6007,9 +6049,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLROWOFFSET availability""... $ac_c" 1>&6
-echo "configure:6011: checking for SQLROWOFFSET availability" >&5
+echo "configure:6053: checking for SQLROWOFFSET availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6013 "configure"
+#line 6055 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -6019,7 +6061,7 @@ int main() {
 SQLROWOFFSET rc = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:6023: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6065: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6034,9 +6076,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLROWSETSIZE availability""... $ac_c" 1>&6
-echo "configure:6038: checking for SQLROWSETSIZE availability" >&5
+echo "configure:6080: checking for SQLROWSETSIZE availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6040 "configure"
+#line 6082 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -6046,7 +6088,7 @@ int main() {
 SQLROWSETSIZE rc = 1;
 ; return 0; }
 EOF
-if { (eval echo configure:6050: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6092: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6061,9 +6103,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLColAttribute signature has SQLLEN""... $ac_c" 1>&6
-echo "configure:6065: checking for SQLColAttribute signature has SQLLEN" >&5
+echo "configure:6107: checking for SQLColAttribute signature has SQLLEN" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6067 "configure"
+#line 6109 "configure"
 #include "confdefs.h"
 
 #include <stdio.h>
@@ -6088,7 +6130,7 @@ SQLColAttribute(stmt, 1, 0, NULL, 0, &valLen, &val2);
 
 ; return 0; }
 EOF
-if { (eval echo configure:6092: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6134: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6103,9 +6145,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for SQLSetStmtOption signature has SQLULEN""... $ac_c" 1>&6
-echo "configure:6107: checking for SQLSetStmtOption signature has SQLULEN" >&5
+echo "configure:6149: checking for SQLSetStmtOption signature has SQLULEN" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6109 "configure"
+#line 6151 "configure"
 #include "confdefs.h"
 
 #include <stdio.h>
@@ -6124,7 +6166,7 @@ SQLSetStmtOption(stmt, 1, 2);
 
 ; return 0; }
 EOF
-if { (eval echo configure:6128: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6170: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6138,10 +6180,37 @@ else
 fi
 rm -f conftest*
 
-echo $ac_n "checking for SQLBIGINT availability""... $ac_c" 1>&6
-echo "configure:6143: checking for SQLBIGINT availability" >&5
+echo $ac_n "checking for SQLWCHAR availability""... $ac_c" 1>&6
+echo "configure:6185: checking for SQLWCHAR availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6145 "configure"
+#line 6187 "configure"
+#include "confdefs.h"
+
+#include <sql.h>
+#include <sqltypes.h>
+
+int main() {
+SQLWCHAR thisiswchar;
+; return 0; }
+EOF
+if { (eval echo configure:6197: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+  rm -rf conftest*
+  
+echo "$ac_t""yes" 1>&6
+ODBC_FLAGS="$ODBC_FLAGS -DHAVE_SQLWCHAR=1"
+
+else
+  echo "configure: failed program was:" >&5
+  cat conftest.$ac_ext >&5
+  rm -rf conftest*
+  echo "$ac_t""no" 1>&6
+fi
+rm -f conftest*
+
+echo $ac_n "checking for SQLBIGINT availability""... $ac_c" 1>&6
+echo "configure:6212: checking for SQLBIGINT availability" >&5
+cat > conftest.$ac_ext <<EOF
+#line 6214 "configure"
 #include "confdefs.h"
 
 #include <sql.h>
@@ -6151,7 +6220,7 @@ int main() {
 SQLBIGINT thisisbig;
 ; return 0; }
 EOF
-if { (eval echo configure:6155: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6224: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6166,9 +6235,9 @@ fi
 rm -f conftest*
 
 echo $ac_n "checking for ptrdiff_t availability""... $ac_c" 1>&6
-echo "configure:6170: checking for ptrdiff_t availability" >&5
+echo "configure:6239: checking for ptrdiff_t availability" >&5
 cat > conftest.$ac_ext <<EOF
-#line 6172 "configure"
+#line 6241 "configure"
 #include "confdefs.h"
 
 #include <stddef.h>
@@ -6178,7 +6247,7 @@ int main() {
 ptrdiff_t apdt = 0;
 ; return 0; }
 EOF
-if { (eval echo configure:6182: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
+if { (eval echo configure:6251: \"$ac_compile\") 1>&5; (eval $ac_compile) 2>&5; }; then
   rm -rf conftest*
   
 echo "$ac_t""yes" 1>&6
@@ -6201,7 +6270,7 @@ CFLAGS="$SAVED_CFLAGS"
 # Experimental: dlopen for resolving SQLGetPrivateProfileString dynamically
 #
 echo $ac_n "checking for dlopen in -ldl""... $ac_c" 1>&6
-echo "configure:6205: checking for dlopen in -ldl" >&5
+echo "configure:6274: checking for dlopen in -ldl" >&5
 ac_lib_var=`echo dl'_'dlopen | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -6209,7 +6278,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-ldl  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 6213 "configure"
+#line 6282 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -6220,7 +6289,7 @@ int main() {
 dlopen()
 ; return 0; }
 EOF
-if { (eval echo configure:6224: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:6293: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -6243,14 +6312,14 @@ fi
 
 if test "$DLOPENFORGPPS" = "1" ; then
    echo $ac_n "checking for SQLGetPrivateProfileString via dlopen""... $ac_c" 1>&6
-echo "configure:6247: checking for SQLGetPrivateProfileString via dlopen" >&5
+echo "configure:6316: checking for SQLGetPrivateProfileString via dlopen" >&5
    saved_LIBS=$LIBS
    LIBS="$LIBS -ldl"
    if test "$cross_compiling" = yes; then
   echo "$ac_t""no" 1>&6
 else
   cat > conftest.$ac_ext <<EOF
-#line 6254 "configure"
+#line 6323 "configure"
 #include "confdefs.h"
 
 #include <dlfcn.h>
@@ -6273,7 +6342,7 @@ main(int argc, char **argv)
 }
 
 EOF
-if { (eval echo configure:6277: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext} && (./conftest; exit) 2>/dev/null
+if { (eval echo configure:6346: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext} && (./conftest; exit) 2>/dev/null
 then
   
    ODBC_FLAGS="$ODBC_FLAGS -DUSE_DLOPEN_FOR_GPPS"
@@ -6302,12 +6371,12 @@ fi
 # sqlite_vmprintf())
 #
 echo $ac_n "checking va_list usage""... $ac_c" 1>&6
-echo "configure:6306: checking va_list usage" >&5
+echo "configure:6375: checking va_list usage" >&5
 if test "$cross_compiling" = yes; then
   USE_VFUNCS=0
 else
   cat > conftest.$ac_ext <<EOF
-#line 6311 "configure"
+#line 6380 "configure"
 #include "confdefs.h"
 
 #include <stdarg.h>
@@ -6335,7 +6404,7 @@ main(int argc, char **argv)
 }
 
 EOF
-if { (eval echo configure:6339: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext} && (./conftest; exit) 2>/dev/null
+if { (eval echo configure:6408: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext} && (./conftest; exit) 2>/dev/null
 then
   USE_VFUNCS=1
 else
@@ -6359,12 +6428,12 @@ fi
 # Check for usleep()
 #
 echo $ac_n "checking for usleep""... $ac_c" 1>&6
-echo "configure:6363: checking for usleep" >&5
+echo "configure:6432: checking for usleep" >&5
 if eval "test \"`echo '$''{'ac_cv_func_usleep'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
   cat > conftest.$ac_ext <<EOF
-#line 6368 "configure"
+#line 6437 "configure"
 #include "confdefs.h"
 /* System header to define __stub macros and hopefully few prototypes,
     which can conflict with char usleep(); below.  */
@@ -6387,7 +6456,7 @@ usleep();
 
 ; return 0; }
 EOF
-if { (eval echo configure:6391: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:6460: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_func_usleep=yes"
 else
@@ -6411,12 +6480,12 @@ fi
 # Check for localeconv()
 #
 echo $ac_n "checking for localeconv""... $ac_c" 1>&6
-echo "configure:6415: checking for localeconv" >&5
+echo "configure:6484: checking for localeconv" >&5
 if eval "test \"`echo '$''{'ac_cv_func_localeconv'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
   cat > conftest.$ac_ext <<EOF
-#line 6420 "configure"
+#line 6489 "configure"
 #include "confdefs.h"
 /* System header to define __stub macros and hopefully few prototypes,
     which can conflict with char localeconv(); below.  */
@@ -6439,7 +6508,7 @@ localeconv();
 
 ; return 0; }
 EOF
-if { (eval echo configure:6443: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:6512: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_func_localeconv=yes"
 else
@@ -6463,12 +6532,12 @@ fi
 # Check for localtime_r()
 #
 echo $ac_n "checking for localtime_r""... $ac_c" 1>&6
-echo "configure:6467: checking for localtime_r" >&5
+echo "configure:6536: checking for localtime_r" >&5
 if eval "test \"`echo '$''{'ac_cv_func_localtime_r'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
   cat > conftest.$ac_ext <<EOF
-#line 6472 "configure"
+#line 6541 "configure"
 #include "confdefs.h"
 /* System header to define __stub macros and hopefully few prototypes,
     which can conflict with char localtime_r(); below.  */
@@ -6491,7 +6560,7 @@ localtime_r();
 
 ; return 0; }
 EOF
-if { (eval echo configure:6495: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:6564: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_func_localtime_r=yes"
 else
@@ -6515,12 +6584,12 @@ fi
 # Check for gmtime_r()
 #
 echo $ac_n "checking for gmtime_r""... $ac_c" 1>&6
-echo "configure:6519: checking for gmtime_r" >&5
+echo "configure:6588: checking for gmtime_r" >&5
 if eval "test \"`echo '$''{'ac_cv_func_gmtime_r'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
   cat > conftest.$ac_ext <<EOF
-#line 6524 "configure"
+#line 6593 "configure"
 #include "confdefs.h"
 /* System header to define __stub macros and hopefully few prototypes,
     which can conflict with char gmtime_r(); below.  */
@@ -6543,7 +6612,7 @@ gmtime_r();
 
 ; return 0; }
 EOF
-if { (eval echo configure:6547: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:6616: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_func_gmtime_r=yes"
 else
@@ -6768,6 +6837,7 @@ s%@SQLITE3_CREATEMODULE_V2@%$SQLITE3_CREATEMODULE_V2%g
 s%@SQLITE3_LOADEXTENSION@%$SQLITE3_LOADEXTENSION%g
 s%@SQLITE3_TABLECOLUMNMETADATA@%$SQLITE3_TABLECOLUMNMETADATA%g
 s%@SQLITE3_VFS@%$SQLITE3_VFS%g
+s%@SQLITE3_PROFILE@%$SQLITE3_PROFILE%g
 s%@EXT_BLOBTOXY@%$EXT_BLOBTOXY%g
 s%@EXT_IMPEXP@%$EXT_IMPEXP%g
 s%@LIB_TARGETS@%$LIB_TARGETS%g
