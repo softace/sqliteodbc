@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.175 2010/09/02 13:58:38 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.178 2010/12/30 10:48:11 chw Exp chw $
  *
  * Copyright (c) 2001-2010 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1816,8 +1816,34 @@ errout:
 	if (isddl > 0) {
 	    *isselect = 0;
 	} else {
+	    int incom = 0;
+
 	    p = out;
-	    while (*p && ISSPACE(*p)) {
+	    while (*p) {
+		switch (*p) {
+		case '-':
+		    if (!incom && p[1] == '-') {
+			incom = -1;
+		    }
+		    break;
+		case '\n':
+		    if (incom < 0) {
+			incom = 0;
+		    }
+		    break;
+		case '/':
+		    if (incom > 0 && p[-1] == '*') {
+			incom = 0;
+			p++;
+			continue;
+		    } else if (!incom && p[1] == '*') {
+			incom = 1;
+		    }
+		    break;
+		}
+		if (!incom && !ISSPACE(*p)) {
+		    break;
+		}
 		++p;
 	    }
 	    size = strlen(p);
@@ -2063,14 +2089,15 @@ getmdays(int year, int month)
  * @result 0 on success, -1 on error
  *
  * Strings of the format 'YYYYMMDD' or 'YYYY-MM-DD' or
- * 'YYYY/MM/DD' are converted to a DATE_STRUCT.
+ * 'YYYY/MM/DD' or 'MM/DD/YYYY' are converted to a
+ * DATE_STRUCT.
  */
 
 static int
 str2date(char *str, DATE_STRUCT *ds)
 {
     int i, err = 0;
-    char *p, *q;
+    char *p, *q, sepc = '\0';
 
     ds->year = ds->month = ds->day = 0;
     p = str;
@@ -2108,6 +2135,9 @@ str2date(char *str, DATE_STRUCT *ds)
 		goto done;
 	    }
 	}
+	if (!sepc) {
+	    sepc = *q;
+	}
 	if (*q == '-' || *q == '/' || *q == '\0' || i == 2) {
 	    switch (i) {
 	    case 0: ds->year = n; break;
@@ -2131,6 +2161,21 @@ done:
     if (err ||
 	ds->month < 1 || ds->month > 12 ||
 	ds->day < 1 || ds->day > getmdays(ds->year, ds->month)) {
+	if (sepc == '/') {
+	    /* Try MM/DD/YYYY format */
+	    int t[3];
+
+	    t[0] = ds->year;
+	    t[1] = ds->month;
+	    t[2] = ds->day;
+	    ds->year = t[2];
+	    ds->day = t[1];
+	    ds->month = t[0];
+	    if (ds->month >= 1 && ds->month <= 12 &&
+		ds->day >= 1 && ds->day <= getmdays(ds->year, ds->month)) {
+		return 0;
+	    }
+	}
 	return -1;
     }
     return 0;
@@ -2149,7 +2194,7 @@ done:
 static int
 str2time(char *str, TIME_STRUCT *ts)
 {
-    int i, err = 0;
+    int i, err = 0, ampm = -1;
     char *p, *q;
 
     ts->hour = ts->minute = ts->second = 0;
@@ -2206,6 +2251,27 @@ str2time(char *str, TIME_STRUCT *ts)
 	}
 	p = q;
     }
+    if (!err) {
+	while (*p) {
+	    if ((p[0] == 'p' || p[0] == 'P') &&
+		(p[1] == 'm' || p[1] == 'M')) {
+		ampm = 1;
+	    } else if ((p[0] == 'a' || p[0] == 'A') &&
+		       (p[1] == 'm' || p[1] == 'M')) {
+		ampm = 0;
+	    }
+	    ++p;
+	}
+	if (ampm > 0) {
+	    if (ts->hour < 12) {
+		ts->hour += 12;
+	    }
+	} else if(ampm == 0) {
+	    if (ts->hour == 12) {
+		ts->hour = 0;
+	    }
+	}
+    }
 done:
     /* final check for overflow */
     if (err || ts->hour > 23 || ts->minute > 59 || ts->second > 59) {
@@ -2232,8 +2298,8 @@ done:
 static int
 str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 {
-    int i, m, n, err = 0;
-    char *p, *q, in = '\0';
+    int i, m, n, err = 0, ampm = -1;
+    char *p, *q, in = '\0', sepc = '\0';
 
     tss->year = tss->month = tss->day = 0;
     tss->hour = tss->minute = tss->second = 0;
@@ -2315,6 +2381,9 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	switch (in) {
 	case '-':
 	case '/':
+	    if (!sepc) {
+		sepc = in;
+	    }
 	    switch (i) {
 	    case 0: tss->year = n; break;
 	    case 1: tss->month = n; break;
@@ -2382,6 +2451,15 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	    in = '\0';
 	skip2:
 	    while (*q && !ISDIGIT(*q)) {
+		if ((q[0] == 'a' || q[0] == 'A') &&
+		    (q[1] == 'm' || q[1] == 'M')) {
+		    ampm = 0;
+		    ++q;
+		} else if ((q[0] == 'p' || q[0] == 'P') &&
+			   (q[1] == 'm' || q[1] == 'M')) {
+		    ampm = 1;
+		    ++q;
+		}
 		++q;
 	    }
 	}
@@ -2448,6 +2526,21 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	}
     }
 done:
+    if ((m & 1) &&
+	(tss->month < 1 || tss->month > 12 ||
+	 tss->day < 1 || tss->day > getmdays(tss->year, tss->month))) {
+	if (sepc == '/') {
+	    /* Try MM/DD/YYYY format */
+	    int t[3];
+
+	    t[0] = tss->year;
+	    t[1] = tss->month;
+	    t[2] = tss->day;
+	    tss->year = t[2];
+	    tss->day = t[1];
+	    tss->month = t[0];
+	}
+    }
     /* Replace missing year/month/day with current date */
     if (!err && (m & 1) == 0) {
 #ifdef _WIN32
@@ -2478,6 +2571,17 @@ done:
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
 	tss->hour > 23 || tss->minute > 59 || tss->second > 59) {
 	return -1;
+    }
+    if ((m & 7) > 1) {
+	if (ampm > 0) {
+	    if (tss->hour < 12) {
+		tss->hour += 12;
+	    }
+	} else if (ampm == 0) {
+	    if (tss->hour == 12) {
+		tss->hour = 0;
+	    }
+	}
     }
     return ((m & 7) < 1) ? -1 : 0;
 }
@@ -3800,7 +3904,7 @@ drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	setstat(s, -1, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
-    if (!data) {
+    if (!data && !len) {
 	setstat(s, -1, "invalid buffer", "HY003");
 	return SQL_ERROR;
     }
@@ -14504,6 +14608,9 @@ cleanup:
 	    p->lenp = p->lenp0;
 	}
 	s->nrows = s->paramset_nrows;
+	if (s->parm_proc) {
+	    *s->parm_proc = s->paramset_count;
+	}
 	s->paramset_count = 0;
 	s->paramset_nrows = 0;
     }

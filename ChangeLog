@@ -1,6 +1,16 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Dec 30 2010 version 0.88 released
+
+	* update to SQLite 3.7.4
+	* added logic to parse date/timestamps in MM/DD/YYYY format
+	* included Matthew Kirkwood's patch for handling
+	  SQL_ATTR_PARAMS_PROCESSED_PTR
+	* on Windows use CP_OEMCP transcoding for SQL_C_CHAR data
+	  (DSN option, default is on)
+	* further fixes in parameter binding (NULL pointer handling)
+
 Thu Sep 02 2010 version 0.87 released
 
 	* update to SQLite 3.7.2

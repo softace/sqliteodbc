@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.115 2010/09/02 13:58:38 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.119 2010/12/30 10:48:11 chw Exp chw $
  *
  * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
  *
@@ -31,6 +31,9 @@
 #if defined(_WIN32) || defined(_WIN64)
 #include "resource3.h"
 #define ODBC_INI "ODBC.INI"
+#ifndef DRIVER_VER_INFO
+#define DRIVER_VER_INFO VERSION
+#endif
 #else
 #define ODBC_INI ".odbc.ini"
 #endif
@@ -749,6 +752,26 @@ wmb_to_utf(char *str, int len)
     xfree(wstr);
     return str;
 }
+
+#ifndef WINTERFACE
+
+/**
+ * Convert multibyte, current code page string to UTF8 string,
+ * @param str multibyte string to be converted
+ * @param len length of multibyte string
+ * @return alloc'ed UTF8 string to be free'd by uc_free()
+ */
+
+static char *
+wmb_to_utf_c(char *str, int len)
+{
+    if (len == SQL_NTS) {
+	len = strlen(str);
+    }
+    return wmb_to_utf(str, len);
+}
+
+#endif
 
 /**
  * Convert UTF8 string to multibyte, current code page string,
@@ -2183,9 +2206,35 @@ errout:
 	if (isddl > 0) {
 	    *isselect = 0;
 	} else {
+	    int incom = 0;
+
 	    p = out;
-	    while (*p && ISSPACE(*p)) {
-		++p;
+	    while (*p) {
+		switch (*p) {
+		case '-':
+		    if (!incom && p[1] == '-') {
+			incom = -1;
+		    }
+		    break;
+		case '\n':
+		    if (incom < 0) {
+			incom = 0;
+		    }
+		    break;
+		case '/':
+		    if (incom > 0 && p[-1] == '*') {
+			incom = 0;
+			p++;
+			continue;
+		    } else if (!incom && p[1] == '*') {
+			incom = 1;
+		    }
+		    break;
+		}
+		if (!incom && !ISSPACE(*p)) {
+		    break;
+		}
+		p++;
 	    }
 	    size = strlen(p);
 	    *isselect = (size >= 6) && (strncasecmp(p, "select", 6) == 0);
@@ -2436,14 +2485,15 @@ getmdays(int year, int month)
  * @result 0 on success, -1 on error
  *
  * Strings of the format 'YYYYMMDD' or 'YYYY-MM-DD' or
- * 'YYYY/MM/DD' are converted to a DATE_STRUCT.
+ * 'YYYY/MM/DD' or 'MM/DD/YYYY' are converted to a
+ * DATE_STRUCT.
  */
 
 static int
 str2date(char *str, DATE_STRUCT *ds)
 {
     int i, err = 0;
-    char *p, *q;
+    char *p, *q, sepc = '\0';
 
     ds->year = ds->month = ds->day = 0;
     p = str;
@@ -2481,6 +2531,9 @@ str2date(char *str, DATE_STRUCT *ds)
 		goto done;
 	    }
 	}
+	if (!sepc) {
+	    sepc = *q;
+	}
 	if (*q == '-' || *q == '/' || *q == '\0' || i == 2) {
 	    switch (i) {
 	    case 0: ds->year = n; break;
@@ -2504,6 +2557,21 @@ done:
     if (err ||
 	ds->month < 1 || ds->month > 12 ||
 	ds->day < 1 || ds->day > getmdays(ds->year, ds->month)) {
+	if (sepc == '/') {
+	    /* Try MM/DD/YYYY format */
+	    int t[3];
+
+	    t[0] = ds->year;
+	    t[1] = ds->month;
+	    t[2] = ds->day;
+	    ds->year = t[2];
+	    ds->day = t[1];
+	    ds->month = t[0];
+	    if (ds->month >= 1 && ds->month <= 12 &&
+		(ds->day >= 1 || ds->day <= getmdays(ds->year, ds->month))) {
+		return 0;
+	    }
+	}
 	return -1;
     }
     return 0;
@@ -2522,7 +2590,7 @@ done:
 static int
 str2time(char *str, TIME_STRUCT *ts)
 {
-    int i, err = 0;
+    int i, err = 0, ampm = -1;
     char *p, *q;
 
     ts->hour = ts->minute = ts->second = 0;
@@ -2579,6 +2647,27 @@ str2time(char *str, TIME_STRUCT *ts)
 	}
 	p = q;
     }
+    if (!err) {
+	while (*p) {
+	    if ((p[0] == 'p' || p[0] == 'P') &&
+		(p[1] == 'm' || p[1] == 'M')) {
+		ampm = 1;
+	    } else if ((p[0] == 'a' || p[0] == 'A') &&
+		(p[1] == 'm' || p[1] == 'M')) {
+		ampm = 0;
+	    }
+	    ++p;
+	}
+	if (ampm > 0) {
+	    if (ts->hour < 12) {
+		ts->hour += 12;
+	    }
+	} else if (ampm == 0) {
+	    if (ts->hour == 12) {
+		ts->hour = 0;
+	    }
+	}
+    }
 done:
     /* final check for overflow */
     if (err || ts->hour > 23 || ts->minute > 59 || ts->second > 59) {
@@ -2605,8 +2694,8 @@ done:
 static int
 str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 {
-    int i, m, n, err = 0;
-    char *p, *q, in = '\0';
+    int i, m, n, err = 0, ampm = -1;
+    char *p, *q, in = '\0', sepc = '\0';
 
     tss->year = tss->month = tss->day = 0;
     tss->hour = tss->minute = tss->second = 0;
@@ -2688,6 +2777,9 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	switch (in) {
 	case '-':
 	case '/':
+	    if (!sepc) {
+		sepc = in;
+	    }
 	    switch (i) {
 	    case 0: tss->year = n; break;
 	    case 1: tss->month = n; break;
@@ -2755,6 +2847,15 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	    in = '\0';
 	skip2:
 	    while (*q && !ISDIGIT(*q)) {
+		if ((q[0] == 'a' || q[0] == 'A') &&
+		    (q[1] == 'm' || q[1] == 'M')) {
+		    ampm = 0;
+		    ++q;
+		} else if ((q[0] == 'p' || q[0] == 'P') &&
+			   (q[1] == 'm' || q[1] == 'M')) {
+		    ampm = 1;
+		    ++q;
+		}
 		++q;
 	    }
 	}
@@ -2821,6 +2922,21 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	}
     }
 done:
+    if ((m & 1) &&
+	(tss->month < 1 || tss->month > 12 ||
+	 tss->day < 1 || tss->day > getmdays(tss->year, tss->month))) {
+	if (sepc == '/') {
+	    /* Try MM/DD/YYYY format */
+	    int t[3];
+
+	    t[0] = tss->year;
+	    t[1] = tss->month;
+	    t[2] = tss->day;
+	    tss->year = t[2];
+	    tss->day = t[1];
+	    tss->month = t[0];
+	}
+    }
     /* Replace missing year/month/day with current date */
     if (!err && (m & 1) == 0) {
 #ifdef _WIN32
@@ -2851,6 +2967,17 @@ done:
 	tss->day < 1 || tss->day > getmdays(tss->year, tss->month) ||
 	tss->hour > 23 || tss->minute > 59 || tss->second > 59) {
 	return -1;
+    }
+    if ((m & 7) > 1) {
+	if (ampm > 0) {
+	    if (tss->hour < 12) {
+		tss->hour += 12;
+	    }
+	} else if (ampm == 0) {
+	    if (tss->hour == 12) {
+		tss->hour = 0;
+	    }
+	}
     }
     return ((m & 7) < 1) ? -1 : 0;
 }
@@ -4081,6 +4208,9 @@ setupparam(STMT *s, char *sql, int pnum)
 	    if (type == SQL_C_CHAR) {
 		if (*p->lenp == SQL_NTS) {
 		    p->len = p->max = strlen(p->param);
+#if defined(_WIN32) || defined(_WIN64)
+		    needalloc = 1;
+#endif
 		} else if (*p->lenp >= 0) {
 		    p->len = p->max = *p->lenp;
 		    needalloc = 1;
@@ -4112,12 +4242,29 @@ setupparam(STMT *s, char *sql, int pnum)
 		char *dp;
 
 		freep(&p->parbuf);
+#if defined(_WIN32) || defined(_WIN64)
+		if (*s->oemcp) {
+		    dp = wmb_to_utf(p->param, p->len);
+		} else {
+		    dp = xmalloc(p->len + 1);
+		}
+#else
 		dp = xmalloc(p->len + 1);
+#endif
 		if (!dp) {
 		    return nomem(s);
 		}
+#if defined(_WIN32) || defined(_WIN64)
+		if (*s->oemcp) {
+		    p->len = strlen(dp);
+		} else {
+		    memcpy(dp, p->param, p->len);
+		    dp[p->len] = '\0';
+		}
+#else
 		memcpy(dp, p->param, p->len);
 		dp[p->len] = '\0';
+#endif
 		p->parbuf = p->param = dp;
 		p->s3val = p->param;
 		p->s3size = p->len;
@@ -4290,7 +4437,7 @@ drvbindparam(SQLHSTMT stmt, SQLUSMALLINT pnum, SQLSMALLINT iotype,
 	setstat(s, -1, "invalid parameter", (*s->ov3) ? "07009" : "S1093");
 	return SQL_ERROR;
     }
-    if (!data) {
+    if (!data && !len) {
 	setstat(s, -1, "invalid buffer", "HY003");
 	return SQL_ERROR;
     }
@@ -5074,11 +5221,54 @@ SQLTablePrivileges(SQLHSTMT stmt,
 		   SQLCHAR *schema, SQLSMALLINT schemaLen,
 		   SQLCHAR *table, SQLSMALLINT tableLen)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvtableprivileges(stmt, catalog, catalogLen, schema, schemaLen,
+				 table, tableLen);
+	goto done2;
+    }
+    if (catalog) {
+	c = wmb_to_utf_c((char *) catalog, catalogLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvtableprivileges(stmt, (SQLCHAR *) c, SQL_NTS,
+			     (SQLCHAR *) s, SQL_NTS,
+			     (SQLCHAR *) t, SQL_NTS);
+#else
     ret = drvtableprivileges(stmt, catalog, catalogLen, schema, schemaLen,
 			     table, tableLen);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -5133,10 +5323,10 @@ SQLTablePrivilegesW(SQLHSTMT stmt,
 			     (SQLCHAR *) s, SQL_NTS,
 			     (SQLCHAR *) t, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -5527,11 +5717,53 @@ SQLPrimaryKeys(SQLHSTMT stmt,
 	       SQLCHAR *schema, SQLSMALLINT schemaLen,
 	       SQLCHAR *table, SQLSMALLINT tableLen)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvprimarykeys(stmt, cat, catLen, schema, schemaLen,
+			     table, tableLen);
+	goto done2;
+    }
+    if (cat) {
+	c = wmb_to_utf_c((char *) cat, catLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvprimarykeys(stmt, (SQLCHAR *) c, SQL_NTS,
+			 (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS);
+#else
     ret = drvprimarykeys(stmt, cat, catLen, schema, schemaLen,
 			 table, tableLen);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -5584,10 +5816,10 @@ SQLPrimaryKeysW(SQLHSTMT stmt,
     ret = drvprimarykeys(stmt, (SQLCHAR *) c, SQL_NTS,
 			 (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -5918,11 +6150,54 @@ SQLSpecialColumns(SQLHSTMT stmt, SQLUSMALLINT id,
 		  SQLCHAR *table, SQLSMALLINT tableLen,
 		  SQLUSMALLINT scope, SQLUSMALLINT nullable)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvspecialcolumns(stmt, id, cat, catLen, schema, schemaLen,
+				table, tableLen, scope, nullable);
+	goto done2;
+    }
+    if (cat) {
+	c = wmb_to_utf_c((char *) cat, catLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvspecialcolumns(stmt, id, (SQLCHAR *) c, SQL_NTS,
+			    (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS,
+			    scope, nullable);
+#else
     ret = drvspecialcolumns(stmt, id, cat, catLen, schema, schemaLen,
 			    table, tableLen, scope, nullable);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -5980,10 +6255,10 @@ SQLSpecialColumnsW(SQLHSTMT stmt, SQLUSMALLINT id,
 			    (SQLCHAR *) s, SQL_NTS, (SQLCHAR *) t, SQL_NTS,
 			    scope, nullable);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -6444,15 +6719,88 @@ SQLForeignKeys(SQLHSTMT stmt,
 	       SQLCHAR *FKschema, SQLSMALLINT FKschemaLen,
 	       SQLCHAR *FKtable, SQLSMALLINT FKtableLen)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *pc = NULL, *ps = NULL, *pt = NULL;
+    char *fc = NULL, *fs = NULL, *ft = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvforeignkeys(stmt,
+			     PKcatalog, PKcatalogLen,
+			     PKschema, PKschemaLen, PKtable, PKtableLen,
+			     FKcatalog, FKcatalogLen,
+			     FKschema, FKschemaLen,
+			     FKtable, FKtableLen);
+	goto done2;
+    }
+    if (PKcatalog) {
+	pc = wmb_to_utf_c((char *) PKcatalog, PKcatalogLen);
+	if (!pc) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (PKschema) {
+	ps = wmb_to_utf_c((char *) PKschema, PKschemaLen);
+	if (!ps) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (PKtable) {
+	pt = wmb_to_utf_c((char *) PKtable, PKtableLen);
+	if (!pt) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKcatalog) {
+	fc = wmb_to_utf_c((char *) FKcatalog, FKcatalogLen);
+	if (!fc) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKschema) {
+	fs = wmb_to_utf_c((char *) FKschema, FKschemaLen);
+	if (!fs) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (FKtable) {
+	ft = wmb_to_utf_c((char *) FKtable, FKtableLen);
+	if (!ft) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvforeignkeys(stmt, (SQLCHAR *) pc, SQL_NTS,
+			 (SQLCHAR *) ps, SQL_NTS, (SQLCHAR *) pt, SQL_NTS,
+			 (SQLCHAR *) fc, SQL_NTS, (SQLCHAR *) fs, SQL_NTS,
+			 (SQLCHAR *) ft, SQL_NTS);
+#else
     ret = drvforeignkeys(stmt,
 			 PKcatalog, PKcatalogLen,
 			 PKschema, PKschemaLen, PKtable, PKtableLen,
 			 FKcatalog, FKcatalogLen,
 			 FKschema, FKschemaLen,
 			 FKtable, FKtableLen);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(ft);
+    uc_free(fs);
+    uc_free(fc);
+    uc_free(pt);
+    uc_free(ps);
+    uc_free(pc);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -6538,13 +6886,13 @@ SQLForeignKeysW(SQLHSTMT stmt,
 			 (SQLCHAR *) fc, SQL_NTS, (SQLCHAR *) fs, SQL_NTS,
 			 (SQLCHAR *) ft, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(ft);
     uc_free(fs);
     uc_free(fc);
     uc_free(pt);
     uc_free(ps);
     uc_free(pc);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -9139,6 +9487,7 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
 	e->owner = 0;
 	LeaveCriticalSection(&e->cs);
     }
+    d->oemcp = 1;
 #endif
     d->autocommit = 1;
     d->magic = DBC_MAGIC;
@@ -9792,6 +10141,9 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     char loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], nwflag[32];
     char snflag[32], lnflag[32], ncflag[32], fkflag[32], jmode[32];
+#if defined(_WIN32) || defined(_WIN64)
+    char oemcp[32];
+#endif
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -9863,6 +10215,10 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
     jmode[0] = '\0';
     getdsnattr(buf, "journalmode", jmode, sizeof (jmode));
+#if defined(_WIN32) || defined(_WIN64)
+    oemcp[0] = '\0';
+    getdsnattr(buf, "oemcp", oemcp, sizeof (oemcp));
+#endif
 #else
     SQLGetPrivateProfileString(buf, "timeout", "100000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -9892,6 +10248,10 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 			       loadext, sizeof (loadext), ODBC_INI);
     SQLGetPrivateProfileString(buf, "journalmode", "",
 			       jmode, sizeof (jmode), ODBC_INI);
+#if defined(_WIN32) || defined(_WIN64)
+    SQLGetPrivateProfileString(buf, "oemcp", "1",
+			       oemcp, sizeof (oemcp), ODBC_INI);
+#endif
 #endif
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
@@ -9908,6 +10268,11 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
     d->fksupport = getbool(fkflag);
+#if defined(_WIN32) || defined(_WIN64)
+    d->oemcp = getbool(oemcp);
+#else
+    d->oemcp = 0;
+#endif
     ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag,
 		  jmode, busy);
     if (ret == SQL_SUCCESS) {
@@ -10249,6 +10614,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->nocreat = getbool(ncflag);
     d->nowchar = getbool(nwflag);
     d->fksupport = getbool(fkflag);
+    d->oemcp = 0;
     ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, jmode, busy);
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, loadext);
@@ -10337,6 +10703,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     memset(s, 0, sizeof (STMT));
     s->dbc = dbc;
     s->ov3 = d->ov3;
+    s->oemcp = &d->oemcp;
     s->nowchar[0] = d->nowchar;
     s->nowchar[1] = 0;
     s->curtype = d->curtype;
@@ -10529,9 +10896,43 @@ SQLGetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT buflen,
 		 SQLSMALLINT *lenp)
 {
     SQLRETURN ret;
+#if defined(_WIN32) || defined(_WIN64)
+    SQLSMALLINT len = 0;
+#endif
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvgetcursorname(stmt, cursor, buflen, lenp);
+	goto done;
+    }
+    ret = drvgetcursorname(stmt, cursor, buflen, &len);
+    if (ret == SQL_SUCCESS) {
+	char *c = NULL;
+
+	if (cursor) {
+	    c = utf_to_wmb((char *) cursor, len);
+	    if (!c) {
+		ret = nomem((STMT *) stmt);
+		goto done;
+	    }
+	    c[len] = 0;
+	    len = strlen(c);
+	    if (buflen > 0) {
+		strncpy((char *) cursor, c, buflen - 1);
+		cursor[buflen - 1] = 0;
+	    }
+	    uc_free(c);
+	}
+	if (lenp) {
+	    *lenp = min(len, buflen - 1);
+	}
+    }
+done:
+    ;
+#else
     ret = drvgetcursorname(stmt, cursor, buflen, lenp);
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -10628,10 +11029,34 @@ drvsetcursorname(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
 SQLRETURN SQL_API
 SQLSetCursorName(SQLHSTMT stmt, SQLCHAR *cursor, SQLSMALLINT len)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvsetcursorname(stmt, cursor, len);
+	goto done2;
+    }
+    if (cursor) {
+	c = wmb_to_utf_c((char *) cursor, len);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvsetcursorname(stmt, (SQLCHAR *) c, SQL_NTS);
+#else
     ret = drvsetcursorname(stmt, cursor, len);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -10662,8 +11087,8 @@ SQLSetCursorNameW(SQLHSTMT stmt, SQLWCHAR *cursor, SQLSMALLINT len)
     }
     ret = drvsetcursorname(stmt, (SQLCHAR *) c, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -11197,6 +11622,7 @@ converr:
 	    int offs = 0;
 #ifdef WCHARSUPPORT
 	    SQLWCHAR *ucdata = NULL;
+	    SQLCHAR *cdata = (SQLCHAR *) *data;
 #endif
 
 #if (defined(_WIN32) || defined(_WIN64)) && defined(WINTERFACE)
@@ -11226,12 +11652,22 @@ converr:
 		break;
 	    }
 	    if (type == SQL_C_WCHAR) {
-		ucdata = uc_from_utf((SQLCHAR *) *data, dlen);
+		ucdata = uc_from_utf(cdata, dlen);
 		if (!ucdata) {
 		    return nomem(s);
 		}
 		dlen = uc_strlen(ucdata) * sizeof (SQLWCHAR);
 	    }
+#if defined(_WIN32) || defined(_WIN64)
+	    else if (*s->oemcp && type == SQL_C_CHAR) {
+		ucdata = (SQLWCHAR *) utf_to_wmb((char *) cdata, dlen);
+		if (!ucdata) {
+		    return nomem(s);
+		}
+		cdata = (SQLCHAR *) ucdata;
+		dlen = strlen((char *) cdata);
+	    }
+#endif
 #else
 	    doz = (type == SQL_C_CHAR) ? 1 : 0;
 #endif
@@ -11268,7 +11704,7 @@ converr:
 		    uc_strncpy(val, ucdata + offs / sizeof (SQLWCHAR),
 			       (len - doz) / sizeof (SQLWCHAR));
 		} else {
-		    strncpy(val, *data + offs, len - doz);
+		    strncpy(val, (char *) cdata + offs, len - doz);
 		}
 #else
 		strncpy(val, *data + offs, len - doz);
@@ -11759,11 +12195,61 @@ SQLTables(SQLHSTMT stmt,
 	  SQLCHAR *table, SQLSMALLINT tableLen,
 	  SQLCHAR *type, SQLSMALLINT typeLen)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL, *y = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvtables(stmt, cat, catLen, schema, schemaLen,
+			table, tableLen, type, typeLen);
+	goto done2;
+    }
+    if (cat) {
+	c = wmb_to_utf_c((char *) cat, catLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (type) {
+	y = wmb_to_utf_c((char *) type, typeLen);
+	if (!y) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvtables(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+		    (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) y, SQL_NTS);
+#else
     ret = drvtables(stmt, cat, catLen, schema, schemaLen,
 		    table, tableLen, type, typeLen);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(y);
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -11826,11 +12312,11 @@ SQLTablesW(SQLHSTMT stmt,
     ret = drvtables(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
 		    (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) y, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(y);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -12226,11 +12712,61 @@ SQLColumns(SQLHSTMT stmt,
 	   SQLCHAR *table, SQLSMALLINT tableLen,
 	   SQLCHAR *col, SQLSMALLINT colLen)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL, *k = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvcolumns(stmt, cat, catLen, schema, schemaLen,
+			 table, tableLen, col, colLen);
+	goto done2;
+    }
+    if (cat) {
+	c = wmb_to_utf_c((char *) cat, catLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (col) {
+	k = wmb_to_utf_c((char *) col, colLen);
+	if (!k) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvcolumns(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+		     (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) k, SQL_NTS);
+#else
     ret = drvcolumns(stmt, cat, catLen, schema, schemaLen,
 		     table, tableLen, col, colLen);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(k);
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -12293,11 +12829,11 @@ SQLColumnsW(SQLHSTMT stmt,
     ret = drvcolumns(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
 		     (SQLCHAR *) t, SQL_NTS, (SQLCHAR *) k, SQL_NTS);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(k);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 
 }
@@ -13078,11 +13614,53 @@ SQLStatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 	      SQLCHAR *table, SQLSMALLINT tableLen,
 	      SQLUSMALLINT itype, SQLUSMALLINT resv)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    char *c = NULL, *s = NULL, *t = NULL;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvstatistics(stmt, cat, catLen, schema, schemaLen,
+			    table, tableLen, itype, resv);
+	goto done2;
+    }
+    if (cat) {
+	c = wmb_to_utf_c((char *) cat, catLen);
+	if (!c) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (schema) {
+	s = wmb_to_utf_c((char *) schema, schemaLen);
+	if (!s) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    if (table) {
+	t = wmb_to_utf_c((char *) table, tableLen);
+	if (!t) {
+	    ret = nomem((STMT *) stmt);
+	    goto done;
+	}
+    }
+    ret = drvstatistics(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
+			(SQLCHAR *) t, SQL_NTS, itype, resv);
+#else
     ret = drvstatistics(stmt, cat, catLen, schema, schemaLen,
 			table, tableLen, itype, resv);
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+done:
+    uc_free(t);
+    uc_free(s);
+    uc_free(c);
+done2:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -13137,10 +13715,10 @@ SQLStatisticsW(SQLHSTMT stmt, SQLWCHAR *cat, SQLSMALLINT catLen,
     ret = drvstatistics(stmt, (SQLCHAR *) c, SQL_NTS, (SQLCHAR *) s, SQL_NTS,
 			(SQLCHAR *) t, SQL_NTS, itype, resv);
 done:
-    HSTMT_UNLOCK(stmt);
     uc_free(t);
     uc_free(s);
     uc_free(c);
+    HSTMT_UNLOCK(stmt);
     return ret;
 }
 #endif
@@ -13694,11 +14272,60 @@ SQLDescribeCol(SQLHSTMT stmt, SQLUSMALLINT col, SQLCHAR *name,
 	       SQLSMALLINT *type, SQLULEN *size,
 	       SQLSMALLINT *digits, SQLSMALLINT *nullable)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    SQLSMALLINT len = 0;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvdescribecol(stmt, col, name, nameMax, nameLen,
+			     type, size, digits, nullable);
+	goto done;
+    }
+    ret = drvdescribecol(stmt, col, name, nameMax,
+			 &len, type, size, digits, nullable);
+    if (ret == SQL_SUCCESS) {
+	if (name) {
+	    if (len > 0) {
+		SQLCHAR *n = NULL;
+
+		n = (SQLCHAR *) utf_to_wmb((char *) name, len);
+		if (n) {
+		    strncpy((char *) name, (char *) n, nameMax);
+		    n[len] = 0;
+		    len = min(nameMax, strlen((char *) n));
+		    uc_free(n);
+		} else {
+		    len = 0;
+		}
+	    }
+	    if (len <= 0) {
+		len = 0;
+		if (nameMax > 0) {
+		    name[0] = 0;
+		}
+	    }
+	} else {
+	    STMT *s = (STMT *) stmt;
+	    COL *c = s->cols + col - 1;
+
+	    len = 0;
+	    if (c->column) {
+		len = strlen(c->column);
+	    }
+	}
+	if (nameLen) {
+	    *nameLen = len;
+	}
+    }
+done:
+    ;
+#else
     ret = drvdescribecol(stmt, col, name, nameMax, nameLen,
 			 type, size, digits, nullable);
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -14116,10 +14743,66 @@ SQLColAttributes(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		 SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
 		 SQLLEN *val2)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    SQLSMALLINT len = 0;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvcolattributes(stmt, col, id, val, valMax, valLen, val2);
+	goto done;
+    }
+    ret = drvcolattributes(stmt, col, id, val, valMax, &len, val2);
+    if (SQL_SUCCEEDED(ret)) {
+	char *v = NULL;
+
+	switch (id) {
+	case SQL_COLUMN_LABEL:
+	case SQL_COLUMN_NAME:
+	case SQL_DESC_NAME:
+	case SQL_COLUMN_TYPE_NAME:
+	case SQL_COLUMN_OWNER_NAME:
+	case SQL_COLUMN_QUALIFIER_NAME:
+	case SQL_COLUMN_TABLE_NAME:
+#if (SQL_COLUMN_TABLE_NAME != SQL_DESC_TABLE_NAME)
+	case SQL_DESC_TABLE_NAME:
+#endif
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+	case SQL_DESC_BASE_COLUMN_NAME:
+#endif
+#ifdef SQL_DESC_BASE_TABLE_NAME
+    case SQL_DESC_BASE_TABLE_NAME:
+#endif
+	    if (val && valMax > 0) {
+		int vmax = valMax;
+
+		v = utf_to_wmb((char *) val, SQL_NTS);
+		if (v) {
+		    strncpy(val, v, vmax);
+		    len = min(vmax, strlen(v));
+		    uc_free(v);
+		}
+		if (vmax > 0) {
+		    v = (char *) val;
+		    v[vmax - 1] = '\0';
+		}
+	    }
+	    if (len <= 0) {
+		len = 0;
+	    }
+	    break;
+	}
+	if (valLen) {
+	    *valLen = len;
+	}
+    }
+done:
+    ;
+#else
     ret = drvcolattributes(stmt, col, id, val, valMax, valLen, val2);
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -14548,11 +15231,65 @@ SQLColAttribute(SQLHSTMT stmt, SQLUSMALLINT col, SQLUSMALLINT id,
 		SQLPOINTER val, SQLSMALLINT valMax, SQLSMALLINT *valLen,
 		COLATTRIBUTE_LAST_ARG_TYPE val2)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    SQLSMALLINT len = 0;
+#endif
     SQLRETURN ret;
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvcolattribute(stmt, col, id, val, valMax, valLen,
+			      (SQLPOINTER) val2);
+	goto done;
+    }
+    ret = drvcolattribute(stmt, col, id, val, valMax, &len,
+			  (SQLPOINTER) val2);
+    if (SQL_SUCCEEDED(ret)) {
+	char *v = NULL;
+
+	switch (id) {
+	case SQL_DESC_SCHEMA_NAME:
+	case SQL_DESC_CATALOG_NAME:
+	case SQL_COLUMN_LABEL:
+	case SQL_DESC_NAME:
+	case SQL_DESC_TABLE_NAME:
+#ifdef SQL_DESC_BASE_TABLE_NAME
+	case SQL_DESC_BASE_TABLE_NAME:
+#endif
+#ifdef SQL_DESC_BASE_COLUMN_NAME
+	case SQL_DESC_BASE_COLUMN_NAME:
+#endif
+	case SQL_DESC_TYPE_NAME:
+	    if (val && valMax > 0) {
+		int vmax = valMax;
+
+		v = utf_to_wmb((char *) val, SQL_NTS);
+		if (v) {
+		    strncpy(val, v, vmax);
+		    len = min(vmax, strlen(v));
+		    uc_free(v);
+		}
+		if (vmax > 0) {
+		    v = (char *) val;
+		    v[vmax - 1] = '\0';
+		}
+	    }
+	    if (len <= 0) {
+		len = 0;
+	    }
+	    break;
+	}
+	if (valLen) {
+	    *valLen = len;
+	}
+    }
+done:
+    ;
+#else
     ret = drvcolattribute(stmt, col, id, val, valMax, valLen,
 			  (SQLPOINTER) val2);
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -15294,6 +16031,9 @@ cleanup:
 	    p->lenp = p->lenp0;
 	}
 	s->nrows = s->paramset_nrows;
+	if (s->parm_proc) {
+	    *s->parm_proc = s->paramset_count;
+	}
 	s->paramset_count = 0;
 	s->paramset_nrows = 0;
     }
@@ -15316,9 +16056,30 @@ SQLRETURN SQL_API
 SQLPrepare(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
 {
     SQLRETURN ret;
+#if defined(_WIN32) || defined(_WIN64)
+    char *q;
+#endif
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvprepare(stmt, query, queryLen);
+	goto done;
+    }
+    q = wmb_to_utf_c((char *) query, queryLen);
+    if (!q) {
+	ret = nomem((STMT *) stmt);
+	goto done;
+    }
+    query = (SQLCHAR *) q;
+    queryLen = SQL_NTS;
+#endif
     ret = drvprepare(stmt, query, queryLen);
+#if defined(_WIN32) || defined(_WIN64)
+    uc_free(q);
+done:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -15382,12 +16143,36 @@ SQLRETURN SQL_API
 SQLExecDirect(SQLHSTMT stmt, SQLCHAR *query, SQLINTEGER queryLen)
 {
     SQLRETURN ret;
+#if defined(_WIN32) || defined(_WIN64)
+    char *q;
+#endif
 
     HSTMT_LOCK(stmt);
+#if defined(_WIN32) || defined(_WIN64)
+    if (!((STMT *) stmt)->oemcp[0]) {
+	ret = drvprepare(stmt, query, queryLen);
+	if (ret == SQL_SUCCESS) {
+	    ret = drvexecute(stmt, 1);
+	}
+	goto done;
+    }
+    q = wmb_to_utf_c((char *) query, queryLen);
+    if (!q) {
+	ret = nomem((STMT *) stmt);
+	goto done;
+    }
+    query = (SQLCHAR *) q;
+    queryLen = SQL_NTS;
+#endif
     ret = drvprepare(stmt, query, queryLen);
     if (ret == SQL_SUCCESS) {
 	ret = drvexecute(stmt, 1);
     }
+#if defined(_WIN32) || defined(_WIN64)
+    uc_free(q);
+done:
+    ;
+#endif
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -15459,7 +16244,8 @@ done:
 #define KEY_LOADEXT	       12
 #define KEY_JMODE              13
 #define KEY_FKSUPPORT          14
-#define NUMOFKEYS	       15
+#define KEY_OEMCP              15
+#define NUMOFKEYS	       16
 
 typedef struct {
     BOOL supplied;
@@ -15495,6 +16281,7 @@ static struct {
     { "LoadExt", KEY_LOADEXT },
     { "JournalMode", KEY_JMODE },
     { "FKSupport", KEY_FKSUPPORT },
+    { "OEMCP", KEY_OEMCP },
     { NULL, 0 }
 };
 
@@ -15627,6 +16414,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_FKSUPPORT].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_OEMCP].supplied) {
+	SQLWritePrivateProfileString(dsn, "OEMCP",
+				     setupdlg->attr[KEY_OEMCP].attr,
+				     ODBC_INI);
+    }
     if (parent || setupdlg->attr[KEY_LOADEXT].supplied) {
 	SQLWritePrivateProfileString(dsn, "LoadExt",
 				     setupdlg->attr[KEY_LOADEXT].attr,
@@ -15713,6 +16505,12 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "FKSupport", "",
 				   setupdlg->attr[KEY_FKSUPPORT].attr,
 				   sizeof (setupdlg->attr[KEY_FKSUPPORT].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_OEMCP].supplied) {
+	SQLGetPrivateProfileString(dsn, "OEMCP", "",
+				   setupdlg->attr[KEY_OEMCP].attr,
+				   sizeof (setupdlg->attr[KEY_OEMCP].attr),
 				   ODBC_INI);
     }
     if (!setupdlg->attr[KEY_LOADEXT].supplied) {
@@ -15822,6 +16620,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_FKSUPPORT,
 		       getbool(setupdlg->attr[KEY_FKSUPPORT].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_OEMCP,
+		       getbool(setupdlg->attr[KEY_OEMCP].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -15903,6 +16704,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_FKSUPPORT].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_FKSUPPORT) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_OEMCP].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_OEMCP) == BST_CHECKED) ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -16028,6 +16832,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_FKSUPPORT,
 		       getbool(setupdlg->attr[KEY_FKSUPPORT].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_OEMCP,
+		       getbool(setupdlg->attr[KEY_OEMCP].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -16094,6 +16901,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_FKSUPPORT].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_FKSUPPORT) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_OEMCP].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_OEMCP) == BST_CHECKED) ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -16189,7 +16999,7 @@ retry:
 			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;"
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
-			 "FKSupport=%s;JournalMode=%s;LoadExt=%s;",
+			 "FKSupport=%s;JournalMode=%s;OEMCP=%s;LoadExt=%s;",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -16207,6 +17017,7 @@ retry:
 			 setupdlg->attr[KEY_NOWCHAR].attr,
 			 setupdlg->attr[KEY_FKSUPPORT].attr,
 			 setupdlg->attr[KEY_JMODE].attr,
+			 setupdlg->attr[KEY_OEMCP].attr,
 			 setupdlg->attr[KEY_LOADEXT].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
@@ -16236,6 +17047,7 @@ retry:
     d->longnames = getbool(setupdlg->attr[KEY_LONGNAM].attr);
     d->nocreat = getbool(setupdlg->attr[KEY_NOCREAT].attr);
     d->fksupport = getbool(setupdlg->attr[KEY_FKSUPPORT].attr);
+    d->oemcp = getbool(setupdlg->attr[KEY_OEMCP].attr);
     ret = dbopen(d, dbname ? dbname : "", 0,
 		 dsn ? dsn : "",
 		 setupdlg->attr[KEY_STEPAPI].attr,

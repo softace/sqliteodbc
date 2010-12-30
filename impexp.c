@@ -957,7 +957,7 @@ dump_cb(void *udata, int nargs, char **args, char **cols)
     const char *table, *type, *sql;
     DUMP_DATA *dd = (DUMP_DATA *) udata;
 
-    if (nargs != 3) {
+    if (nargs != 3 || args == NULL) {
 	return 1;
     }
     table = args[0];

@@ -10,7 +10,8 @@
 
 set -e
 
-VER3=3.7.2
+VER3=3.7.4
+VER3X=3070400
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
@@ -24,9 +25,9 @@ fi
 echo "====================="
 echo "Preparing sqlite3 ..."
 echo "====================="
-test -r sqlite-${VER3}.tar.gz || \
-    wget -c http://www.sqlite.org/sqlite-${VER3}.tar.gz
-test -r sqlite-${VER3}.tar.gz || exit 1
+test -r sqlite-src-${VER3X}.zip || \
+    wget -c http://www.sqlite.org/sqlite-src-${VER3X}.zip
+test -r sqlite-src-${VER3X}.zip || exit 1
 test -r extension-functions.c ||
     wget -O extension-functions.c -c \
       'http://www.sqlite.org/contrib/download/extension-functions.c?get=25'
@@ -37,8 +38,9 @@ fi
 test -r extfunc.c || exit 1
 
 rm -f sqlite3
-tar xzf sqlite-${VER3}.tar.gz
-ln -sf sqlite-${VER3} sqlite3
+rm -rf sqlite-src-${VER3X}
+unzip sqlite-src-${VER3X}.zip
+ln -sf sqlite-src-${VER3X} sqlite3
 
 patch sqlite3/main.mk <<'EOD'
 --- sqlite3.orig/main.mk        2007-03-31 14:32:21.000000000 +0200
@@ -221,7 +223,8 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.6.18" -a "$VER3" != "3.6.19" -a "$VER3" != "3.6.20" \
   -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
-  -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" \
+  -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
+  -a "$VER3" != "3.7.4" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -286,7 +289,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.13 2010/09/02 14:25:59 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.15 2010/12/30 10:24:08 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -435,7 +438,8 @@ EOD
 # patch: compile fix for FTS3 as extension module
 test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
-  -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" \
+  -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
+  -a "$VER3" != "3.7.4" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -515,7 +519,8 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
 EOD
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
-  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" \
+  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
+  -o "$VER3" = "3.7.4" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -601,7 +606,8 @@ test "$VER3" = "3.6.21" && patch -d sqlite3 -p1 <<'EOD'
 EOD
 test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
   -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
-  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" \
+  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
+  -o "$VER3" = "3.7.4" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_write.c   2010-01-05 09:42:19.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_write.c        2010-01-05 09:55:25.000000000 +0100
@@ -641,7 +647,7 @@ test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
 EOD
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
-  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" \
+  -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
@@ -701,6 +707,118 @@ test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
      zCopy = sqlite3_mprintf("%s", &z[8]);
 EOD
 
+test "$VER3" = "3.7.4" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
++++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
+@@ -14,6 +14,10 @@
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+ #include "fts3Int.h"
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ #include <ctype.h>
+--- sqlite3.orig/ext/fts3/fts3_tokenizer.c       2009-12-07 17:38:46.000000000 +0100
++++ sqlite3/ext/fts3/fts3_tokenizer.c    2010-01-05 08:12:50.000000000 +0100
+@@ -27,7 +27,7 @@
+ 
+ #include "sqlite3ext.h"
+ #ifndef SQLITE_CORE
+-  SQLITE_EXTENSION_INIT1
++extern const sqlite3_api_routines *sqlite3_api;
+ #endif
+ 
+ #include "fts3Int.h"
+--- sqlite3.orig/ext/fts3/fts3_expr.c    2009-12-03 12:33:32.000000000 +0100
++++ sqlite3/ext/fts3/fts3_expr.c 2010-01-05 08:06:10.000000000 +0100
+@@ -17,6 +17,11 @@
+ */
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ /*
+ ** By default, this module parses the legacy syntax that has been 
+ ** traditionally used by fts3. Or, if SQLITE_ENABLE_FTS3_PARENTHESIS
+@@ -445,7 +450,7 @@
+     const char *zStr = pParse->azCol[ii];
+     int nStr = (int)strlen(zStr);
+     if( nInput>nStr && zInput[nStr]==':' 
+-     && sqlite3_strnicmp(zStr, zInput, nStr)==0 
++     && memcmp(zStr, zInput, nStr)==0 
+     ){
+       iCol = ii;
+       iColLen = (int)((zInput - z) + nStr + 1);
+--- sqlite3.orig/ext/fts3/fts3.c	2010-12-07 16:14:36.000000000 +0100
++++ sqlite3/ext/fts3/fts3.c	2010-12-16 11:59:02.000000000 +0100
+@@ -702,8 +698,8 @@
+   sqlite3_tokenizer *pTokenizer = 0;        /* Tokenizer for this table */
+ 
+   assert( strlen(argv[0])==4 );
+-  assert( (sqlite3_strnicmp(argv[0], "fts4", 4)==0 && isFts4)
+-       || (sqlite3_strnicmp(argv[0], "fts3", 4)==0 && !isFts4)
++  assert( (strnicmp(argv[0], "fts4", 4)==0 && isFts4)
++       || (strnicmp(argv[0], "fts3", 4)==0 && !isFts4)
+   );
+ 
+   nDb = (int)strlen(argv[1]) + 1;
+@@ -732,7 +728,7 @@
+     /* Check if this is a tokenizer specification */
+     if( !pTokenizer 
+      && strlen(z)>8
+-     && 0==sqlite3_strnicmp(z, "tokenize", 8) 
++     && 0==strnicmp(z, "tokenize", 8) 
+      && 0==sqlite3Fts3IsIdChar(z[8])
+     ){
+       rc = sqlite3Fts3InitTokenizer(pHash, &z[9], &pTokenizer, pzErr);
+@@ -744,8 +740,8 @@
+         rc = SQLITE_NOMEM;
+         goto fts3_init_out;
+       }
+-      if( nKey==9 && 0==sqlite3_strnicmp(z, "matchinfo", 9) ){
+-        if( strlen(zVal)==4 && 0==sqlite3_strnicmp(zVal, "fts3", 4) ){
++      if( nKey==9 && 0==strnicmp(z, "matchinfo", 9) ){
++        if( strlen(zVal)==4 && 0==strnicmp(zVal, "fts3", 4) ){
+           bNoDocsize = 1;
+         }else{
+           *pzErr = sqlite3_mprintf("unrecognized matchinfo: %s", zVal);
+--- sqlite3.orig/ext/fts3/fts3_write.c	2010-12-16 12:08:45.000000000 +0100
++++ sqlite3/ext/fts3/fts3_write.c	2010-12-16 12:48:30.000000000 +0100
+@@ -868,16 +868,16 @@
+   assert( pnBlob);
+ 
+   if( p->pSegments ){
+-    rc = sqlite3_blob_reopen(p->pSegments, iBlockid);
+-  }else{
+-    if( 0==p->zSegmentsTbl ){
+-      p->zSegmentsTbl = sqlite3_mprintf("%s_segments", p->zName);
+-      if( 0==p->zSegmentsTbl ) return SQLITE_NOMEM;
+-    }
+-    rc = sqlite3_blob_open(
+-       p->db, p->zDb, p->zSegmentsTbl, "block", iBlockid, 0, &p->pSegments
+-    );
++    sqlite3_blob_close(p->pSegments);
++    p->pSegments = 0;
+   }
++  if( 0==p->zSegmentsTbl ){
++    p->zSegmentsTbl = sqlite3_mprintf("%s_segments", p->zName);
++    if( 0==p->zSegmentsTbl ) return SQLITE_NOMEM;
++  }
++  rc = sqlite3_blob_open(
++     p->db, p->zDb, p->zSegmentsTbl, "block", iBlockid, 0, &p->pSegments
++  );
+ 
+   if( rc==SQLITE_OK ){
+     int nByte = sqlite3_blob_bytes(p->pSegments);
+EOD
+
 # patch: FTS3 again, for SQLite3 >= 3.6.8
 test "$VER3" = "3.6.8" -o "$VER3" = "3.6.9" -o "$VER3" = "3.6.10" \
   -o "$VER3" = "3.6.11" -o "$VER3" = "3.6.12" -o "$VER3" = "3.6.13" \
@@ -751,6 +869,31 @@ patch -d sqlite3 -p1 <<'EOD'
  int sqlite3_extension_init(
    sqlite3 *db,
    char **pzErrMsg,
+EOD
+
+# patch: compile fix for rtree as extension module
+test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" && \
+  patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
++++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
+@@ -3193,6 +3193,8 @@
+   return rc;
+ }
+ 
++#ifdef SQLITE_CORE
++
+ /*
+ ** A version of sqlite3_free() that can be used as a callback. This is used
+ ** in two places - as the destructor for the blob value returned by the
+@@ -3257,6 +3259,8 @@
+   );
+ }
+ 
++#endif
++
+ #ifndef SQLITE_CORE
+ int sqlite3_extension_init(
+   sqlite3 *db,
 EOD
 
 echo "========================"

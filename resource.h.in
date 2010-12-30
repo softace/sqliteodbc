@@ -21,6 +21,7 @@
 #define IDC_LOADEXT			416
 #define IDC_LOADEXTTEXT			417
 #define IDC_FKSUPPORT			418
+#define IDC_OEMCP			419
 #define IDS_MSGTITLE                    500
 #define IDS_BADDSN                      501
 #define IDS_EXTTITLE			502

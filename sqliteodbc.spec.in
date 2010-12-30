@@ -23,6 +23,7 @@ http://www.iodbc.org     -  iODBC Driver Manager
 %setup -q
 
 %build
+mv configure.in DONTconfigure.in
 %configure
 make
 
