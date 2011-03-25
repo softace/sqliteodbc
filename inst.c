@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.12 2009/05/03 04:22:18 chw Exp chw $
+ * $Id: inst.c,v 1.13 2011/03/09 05:41:01 chw Exp chw $
  *
- * Copyright (c) 2001-2007 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a

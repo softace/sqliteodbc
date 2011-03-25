@@ -44,7 +44,9 @@ installation of SQLite ODBC Driver.\r\n\r\n$_CLICK"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license.txt"
 !insertmacro MUI_PAGE_DIRECTORY
+!ifndef WITHOUT_TCCEXT
 !insertmacro MUI_PAGE_COMPONENTS
+!endif
 !insertmacro MUI_PAGE_INSTFILES
 
 !define MUI_FINISHPAGE_TITLE "SQLite ODBC Installation"  
@@ -68,13 +70,17 @@ Section "-Main (required)" InstallationInfo
  
 ; Add files
  SetOutPath "$INSTDIR"
+!ifndef WITHOUT_SQLITE2
  File "sqliteodbc.dll"
  File "sqliteodbcu.dll"
+!endif
  File "sqlite3odbc.dll"
 ; unsupported non-WCHAR driver for SQLite3
  File "sqlite3odbcnw.dll"
+!ifndef WITHOUT_SQLITE2
  File "sqlite.exe"
  File "sqliteu.exe"
+!endif
  File "sqlite3.exe"
  File "inst.exe"
  File "instq.exe"
@@ -100,8 +106,10 @@ Section "-Main (required)" InstallationInfo
  File "README"
  File "readme.txt"
 !ifdef WITH_SQLITE_DLLS
+!ifndef WITHOUT_SQLITE2
  File "sqlite.dll"
  File "sqliteu.dll"
+!endif
  File "sqlite3.dll"
 !endif
 
@@ -225,6 +233,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 !endif
 
+!ifndef WITHOUT_TCCEXT
 Section /o "SQLite+TCC" TccInstall
  SetOutPath "$INSTDIR\TCC"
  File "README.sqlite+tcc"
@@ -253,6 +262,7 @@ SectionEnd
  !insertmacro MUI_DESCRIPTION_TEXT ${TccInstall} \
    "Experimental combination of SQLite and TinyCC"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
+!endif
 
 ;--------------------------------
 ; Uninstaller Section

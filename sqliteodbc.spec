@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.88
+%define version 0.89
 %define release 1
 
 Name: %{name}
@@ -21,9 +21,9 @@ http://www.iodbc.org     -  iODBC Driver Manager
 
 %prep
 %setup -q
+mv configure.in DONT-configure.in # RPM 3.x, don't run libtoolize
 
 %build
-mv configure.in DONTconfigure.in
 %configure
 make
 
@@ -102,5 +102,5 @@ fi
 %{_libdir}/*.so*
 
 %changelog
-* Thu Dec 30 2010 ...
+* Fri Mar 25 2011 ...
 - automatically recreated by configure ...

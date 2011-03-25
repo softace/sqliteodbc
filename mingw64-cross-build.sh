@@ -10,8 +10,8 @@
 
 set -e
 
-VER3=3.7.4
-VER3X=3070400
+VER3=3.7.5
+VER3X=3070500
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
@@ -224,7 +224,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -289,7 +289,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.15 2010/12/30 10:24:08 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.16 2011/03/10 12:31:23 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -439,7 +439,7 @@ EOD
 test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -520,7 +520,7 @@ EOD
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
-  -o "$VER3" = "3.7.4" \
+  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -607,7 +607,7 @@ EOD
 test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
   -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
-  -o "$VER3" = "3.7.4" \
+  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_write.c   2010-01-05 09:42:19.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_write.c        2010-01-05 09:55:25.000000000 +0100
@@ -707,7 +707,7 @@ test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
      zCopy = sqlite3_mprintf("%s", &z[8]);
 EOD
 
-test "$VER3" = "3.7.4" \
+test "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
@@ -872,7 +872,7 @@ patch -d sqlite3 -p1 <<'EOD'
 EOD
 
 # patch: compile fix for rtree as extension module
-test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" && \
+test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" && \
   patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -950,6 +950,6 @@ echo "==========================="
 echo "Creating NSIS installer ..."
 echo "==========================="
 cp -p README readme.txt
-unix2dos < license.terms > license.txt
+unix2dos < license.terms > license.txt || todos < license.terms > license.txt
 makensis $ADD_NSIS sqliteodbc_w64.nsi
 

@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.119 2010/12/30 10:48:11 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.121 2011/03/24 16:23:25 chw Exp chw $
  *
- * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -4010,24 +4010,28 @@ seqerr:
 		    }
 		}
 #endif
+#if defined(_WIN32) || defined(_WIN64)
+		if (*s->oemcp) {
+		    dp = wmb_to_utf(data, strlen (data));
+		    if (!dp) {
+			return nomem(s);
+		    }
+		}
+#endif
 		dlen = strlen(dp);
 		freep(&p->parbuf);
 		p->parbuf = xmalloc(dlen + 1);
 		if (!p->parbuf) {
-#ifdef WCHARSUPPORT
 		    if (dp != data) {
 			uc_free(dp);
 		    }
-#endif
 		    return nomem(s);
 		}
 		p->param = p->parbuf;
 		strcpy(p->param, dp);
-#ifdef WCHARSUPPORT
 		if (dp != data) {
 		    uc_free(dp);
 		}
-#endif
 		p->len = dlen;
 		p->need = -1;
 	    } else if (len < 0) {
@@ -4074,6 +4078,18 @@ seqerr:
 		    p->need = (type == SQL_C_CHAR) ? -1 : 0;
 #endif
 #if defined(_WIN32) || defined(_WIN64)
+		    if (type == SQL_C_CHAR && *s->oemcp) {
+			char *dp = wmb_to_utf(p->param, p->len);
+
+			if (!dp) {
+			    return nomem(s);
+			}
+			if (p->param == p->parbuf) {
+			    freep(&p->parbuf);
+			}
+			p->parbuf = p->param = dp;
+			p->len = strlen(dp);
+		    }
 		    if (p->type == SQL_C_WCHAR &&
 			(p->stype == SQL_VARCHAR ||
 			 p->stype == SQL_LONGVARCHAR) &&
@@ -4154,6 +4170,12 @@ setupparam(STMT *s, char *sql, int pnum)
     }
     p = &s->bindparms[pnum];
     type = mapdeftype(p->type, p->stype, -1, s->nowchar[0]);
+#if (defined(_WIN32) || defined(_WIN64)) && defined(WINTERFACE)
+    /* MS Access hack part 4 (map SQL_C_DEFAULT to SQL_C_CHAR) */
+    if (type == SQL_C_WCHAR && p->type == SQL_C_DEFAULT) {
+	type = SQL_C_CHAR;
+    }
+#endif
     if (p->need > 0) {
 	return setupparbuf(s, p);      
     }
@@ -4231,6 +4253,7 @@ setupparam(STMT *s, char *sql, int pnum)
 		freep(&p->parbuf);
 	    }
 	    p->parbuf = p->param = dp;
+	    p->need = -1;
 	    p->len = strlen(p->param);
 	    p->s3val = p->param;
 	    p->s3size = p->len;
@@ -4241,7 +4264,6 @@ setupparam(STMT *s, char *sql, int pnum)
 	    if (needalloc) {
 		char *dp;
 
-		freep(&p->parbuf);
 #if defined(_WIN32) || defined(_WIN64)
 		if (*s->oemcp) {
 		    dp = wmb_to_utf(p->param, p->len);
@@ -4265,7 +4287,11 @@ setupparam(STMT *s, char *sql, int pnum)
 		memcpy(dp, p->param, p->len);
 		dp[p->len] = '\0';
 #endif
+		if (p->param == p->parbuf) {
+		    freep(&p->parbuf);
+		}
 		p->parbuf = p->param = dp;
+		p->need = -1;
 		p->s3val = p->param;
 		p->s3size = p->len;
 	    }

@@ -15,9 +15,9 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.33 2010/10/17 04:48:17 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.34 2011/03/10 12:25:00 chw Exp chw $
  *
- * Copyright (c) 2004-2010 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a

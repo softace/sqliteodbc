@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.178 2010/12/30 10:48:11 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.180 2011/03/25 14:01:13 chw Exp chw $
  *
- * Copyright (c) 2001-2010 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -3639,6 +3639,14 @@ substparam(STMT *s, int pnum, char **outp)
     }
     p = &s->bindparms[pnum];
     type = mapdeftype(p->type, p->stype, -1, s->nowchar[0]);
+
+#if (defined(_WIN32) || defined(_WIN64)) && defined(WINTERFACE)
+    /* MS Access hack part 4 (map SQL_C_DEFAULT to SQL_C_CHAR) */
+    if (type == SQL_C_WCHAR && p->type == SQL_C_DEFAULT) {
+	type = SQL_C_CHAR;
+    }
+#endif
+
     if (p->need > 0) {
 	return setupparbuf(s, p);
     }
@@ -3804,6 +3812,7 @@ substparam(STMT *s, int pnum, char **outp)
 	    freep(&p->parbuf);
 	}
 	p->parbuf = p->param = dp;
+	p->need = -1;
 	p->len = strlen(p->param);
 	outdata = p->param;
     } else
@@ -3828,6 +3837,7 @@ substparam(STMT *s, int pnum, char **outp)
 	    freep(&p->parbuf);
 	}
 	p->parbuf = p->param = dp;
+	p->need = -1;
 	chkbin = 0;
 	outdata = p->param;
     } else
@@ -3845,6 +3855,7 @@ substparam(STMT *s, int pnum, char **outp)
 	    memcpy(dp, p->param, p->len);
 	    dp[p->len] = '\0';
 	    p->parbuf = p->param = dp;
+	    p->need = -1;
 	    outdata = p->param;
 	}
     } else {

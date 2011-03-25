@@ -8,16 +8,35 @@
 #  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.i386.rpm
 #  http://www.ch-werner.de/xtools/nsis-2.37-1.i386.rpm
 
+# Some aspects of the build process can be controlled by shell variables:
+#
+#  NO_SQLITE2=1      omit building SQLite 2 and drivers for it
+#  NO_TCCEXT=1       omit building TCC extension
+#  SQLITE_DLLS=1     build and package drivers with SQLite 2/3 DLLs
+#  WITH_SOURCES=1    add source directory to NSIS installer
+
 set -e
 
 VER2=2.8.17
-VER3=3.7.4
-VER3X=3070400
+VER3=3.7.5
+VER3X=3070500
 TCCVER=0.9.24
+
+nov2=false
+if test -n "$NO_SQLITE2" ; then
+    ADD_NSIS="-DWITHOUT_SQLITE2"
+    nov2=true
+fi
+
+notcc=false
+if test -n "$NO_TCCEXT" ; then
+    ADD_NSIS="$ADD_NSIS -DWITHOUT_TCCEXT"
+    notcc=true
+fi
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
-    ADD_NSIS="-DWITH_SQLITE_DLLS"
+    ADD_NSIS="$ADD_NSIS -DWITH_SQLITE_DLLS"
 fi
 
 if test -n "$WITH_SOURCES" ; then
@@ -27,16 +46,17 @@ fi
 echo "===================="
 echo "Preparing sqlite ..."
 echo "===================="
-test -r sqlite-${VER2}.tar.gz || \
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || test -r sqlite-${VER2}.tar.gz || \
     wget -c http://www.sqlite.org/sqlite-${VER2}.tar.gz
-test -r sqlite-${VER2}.tar.gz || exit 1
+$nov2 || test -r sqlite-${VER2}.tar.gz || exit 1
 
-rm -f sqlite
-tar xzf sqlite-${VER2}.tar.gz
-ln -sf sqlite-${VER2} sqlite
+$nov2 || rm -f sqlite
+$nov2 || tar xzf sqlite-${VER2}.tar.gz
+$nov2 || ln -sf sqlite-${VER2} sqlite
 
 # enable sqlite_encode_binary et.al.
-patch sqlite/main.mk <<'EOD'
+$nov2 || patch sqlite/main.mk <<'EOD'
 --- sqlite.orig/main.mk	2005-04-24 00:43:23.000000000 +0200
 +++ sqlite/main.mk	2006-03-16 14:29:55.000000000 +0100
 @@ -55,7 +55,7 @@
@@ -51,7 +71,7 @@ patch sqlite/main.mk <<'EOD'
 EOD
 
 # display encoding
-patch sqlite/src/shell.c <<'EOD'
+$nov2 || patch sqlite/src/shell.c <<'EOD'
 --- sqlite.orig/src/shell.c	2005-04-24 00:43:22.000000000 +0200
 +++ sqlite/src/shell.c	2006-05-23 08:22:01.000000000 +0200
 @@ -1180,6 +1180,7 @@
@@ -125,7 +145,7 @@ true || patch sqlite/src/shell.c <<'EOD'
 EOD
 
 # same but new module libshell.c
-patch sqlite/main.mk <<'EOD'
+$nov2 || patch sqlite/main.mk <<'EOD'
 --- sqlite.orig/main.mk        2007-01-10 19:30:52.000000000 +0100
 +++ sqlite/main.mk     2007-01-10 19:33:39.000000000 +0100
 @@ -54,7 +54,7 @@
@@ -138,8 +158,8 @@ patch sqlite/main.mk <<'EOD'
           main.o opcodes.o os.o pager.o parse.o pragma.o printf.o random.o \
           select.o table.o tokenize.o trigger.o update.o util.o \
 EOD
-cp -p sqlite/src/shell.c sqlite/src/libshell.c
-patch sqlite/src/libshell.c <<'EOD'
+$nov2 || cp -p sqlite/src/shell.c sqlite/src/libshell.c
+$nov2 || patch sqlite/src/libshell.c <<'EOD'
 --- sqlite.orig/src/libshell.c  2007-01-10 19:13:01.000000000 +0100
 +++ sqlite/src/libshell.c  2007-01-10 19:25:56.000000000 +0100
 @@ -20,6 +20,10 @@
@@ -182,9 +202,9 @@ patch sqlite/src/libshell.c <<'EOD'
    if( i<argc ){
 EOD
 
-rm -f sqlite/src/minshell.c
-touch sqlite/src/minshell.c
-patch sqlite/src/minshell.c <<'EOD'
+$nov2 || rm -f sqlite/src/minshell.c
+$nov2 || touch sqlite/src/minshell.c
+$nov2 || patch sqlite/src/minshell.c <<'EOD'
 --- sqlite.orig/src/minshell.c  2007-01-10 18:46:47.000000000 +0100
 +++ sqlite/src/minshell.c  2007-01-10 18:46:47.000000000 +0100
 @@ -0,0 +1,20 @@
@@ -412,7 +432,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -477,7 +497,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.53 2010/12/30 10:24:08 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.54 2011/03/10 12:31:31 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -627,7 +647,7 @@ EOD
 test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -655,7 +675,7 @@ EOD
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
-  -o "$VER3" = "3.7.4" \
+  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -741,7 +761,7 @@ EOD
 test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
   -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
-  -o "$VER3" = "3.7.4" \
+  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_write.c   2010-01-05 09:42:19.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_write.c        2010-01-05 09:55:25.000000000 +0100
@@ -841,7 +861,7 @@ test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
      zCopy = sqlite3_mprintf("%s", &z[8]);
 EOD
 
-test "$VER3" = "3.7.4" \
+test "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
@@ -1006,7 +1026,7 @@ patch -d sqlite3 -p1 <<'EOD'
 EOD
 
 # patch: compile fix for rtree as extension module
-test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" && \
+test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" && \
   patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1030,25 +1050,24 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" && \
    sqlite3 *db,
 EOD
 
-echo "========================"
-echo "Cleanup before build ..."
 echo "===================="
 echo "Preparing TinyCC ..."
 echo "===================="
-test -r tcc-${TCCVER}.tar.bz2 || \
+( $notcc && echo '*** skipped (NO_TCCEXT)' ) || true
+$notcc || test -r tcc-${TCCVER}.tar.bz2 || \
     wget -c http://download.savannah.nongnu.org/releases/tinycc/tcc-${TCCVER}.tar.bz2
-test -r tcc-${TCCVER}.tar.bz2 || exit 1
+$notcc || test -r tcc-${TCCVER}.tar.bz2 || exit 1
 
-rm -rf tcc tcc-${TCCVER}
-tar xjf tcc-${TCCVER}.tar.bz2
-ln -sf tcc-${TCCVER} tcc
-patch -d tcc -p1 < tcc-${TCCVER}.patch
+$notcc || rm -rf tcc tcc-${TCCVER}
+$notcc || tar xjf tcc-${TCCVER}.tar.bz2
+$notcc || ln -sf tcc-${TCCVER} tcc
+$notcc || patch -d tcc -p1 < tcc-${TCCVER}.patch
 
 echo "========================"
 echo "Cleanup before build ..."
 echo "========================"
 make -f Makefile.mingw-cross clean
-make -C sqlite -f ../mf-sqlite.mingw-cross clean
+$notv2 || make -C sqlite -f ../mf-sqlite.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3fts.mingw-cross clean
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw-cross clean
@@ -1057,9 +1076,10 @@ make -f mf-sqlite3extfunc.mingw-cross clean
 echo "============================="
 echo "Building SQLite 2 ... ISO8859"
 echo "============================="
-make -C sqlite -f ../mf-sqlite.mingw-cross all
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw-cross all
 if test -n "$SQLITE_DLLS" ; then
-    make -C sqlite -f ../mf-sqlite.mingw-cross sqlite.dll
+    $nov2 || make -C sqlite -f ../mf-sqlite.mingw-cross sqlite.dll
 fi
 
 echo "====================="
@@ -1075,32 +1095,40 @@ fi
 echo "==================="
 echo "Building TinyCC ..."
 echo "==================="
-( cd tcc ; sh mingw-cross-build.sh )
+( $notcc && echo '*** skipped (NO_TCCEXT)' ) || true
+$notcc || ( cd tcc ; sh mingw-cross-build.sh )
 # copy SQLite headers into TCC install include directory
-cp -p sqlite/sqlite.h TCC/include
-cp -p sqlite3/sqlite3.h sqlite3/src/sqlite3ext.h TCC/include
+$notcc || $nov2 || cp -p sqlite/sqlite.h TCC/include
+$notcc || cp -p sqlite3/sqlite3.h sqlite3/src/sqlite3ext.h TCC/include
 # copy LGPL to TCC install doc directory
-cp -p tcc-${TCCVER}/COPYING TCC/doc
+$notcc || cp -p tcc-${TCCVER}/COPYING TCC/doc
 
 echo "==============================="
 echo "Building ODBC drivers and utils"
 echo "==============================="
-make -f Makefile.mingw-cross
+if $nov2 ; then
+    make -f Makefile.mingw-cross all_no2
+else
+    make -f Makefile.mingw-cross
+fi
 make -f Makefile.mingw-cross sqlite3odbcnw.dll
 
 echo "=========================="
 echo "Building SQLite 2 ... UTF8"
 echo "=========================="
-make -C sqlite -f ../mf-sqlite.mingw-cross clean
-make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 all
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw-cross clean
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 all
 if test -n "$SQLITE_DLLS" ; then
-    make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 sqliteu.dll
+    $nov2 || \
+       make -C sqlite -f ../mf-sqlite.mingw-cross ENCODING=UTF8 sqliteu.dll
 fi
 
 echo "========================="
 echo "Building drivers ... UTF8"
 echo "========================="
-make -f Makefile.mingw-cross sqliteodbcu.dll sqliteu.exe
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -f Makefile.mingw-cross sqliteodbcu.dll sqliteu.exe
 
 echo "==================================="
 echo "Building SQLite3 FTS extensions ..."
@@ -1124,27 +1152,32 @@ echo "Building DLL import defs ..."
 echo "============================"
 # requires wine: create .def files with tiny_impdef.exe
 # for all .dll files which provide SQLite
-wine TCC/tiny_impdef.exe sqliteodbc.dll -o TCC/lib/sqlite.def
-wine TCC/tiny_impdef.exe sqliteodbcu.dll -o TCC/lib/sqliteu.def
-wine TCC/tiny_impdef.exe sqlite3odbc.dll -o TCC/lib/sqlite3.def
+( $notcc && echo '*** skipped (NO_TCCEXT)' ) || true
+$notcc || $nov2 || wine TCC/tiny_impdef.exe \
+  sqliteodbc.dll -o TCC/lib/sqlite.def
+$notcc || $nov2 || wine TCC/tiny_impdef.exe \
+  sqliteodbcu.dll -o TCC/lib/sqliteu.def
+$notcc || wine TCC/tiny_impdef.exe sqlite3odbc.dll -o TCC/lib/sqlite3.def
 
 if test -n "$SQLITE_DLLS" ; then
-    mv sqlite/sqlite.dll .
-    mv sqlite/sqliteu.dll .
+    $nov2 || mv sqlite/sqlite.dll .
+    $nov2 || mv sqlite/sqliteu.dll .
     mv sqlite3/sqlite3.dll .
 fi
 
 if test -n "$SQLITE_DLLS" ; then
-    wine TCC/tiny_impdef.exe sqlite.dll -o TCC/lib/sqlite.def
-    wine TCC/tiny_impdef.exe sqliteu.dll -o TCC/lib/sqliteu.def
-    wine TCC/tiny_impdef.exe sqlite3.dll -o TCC/lib/sqlite3.def
+    $notcc || $nov2 || wine TCC/tiny_impdef.exe \
+      sqlite.dll -o TCC/lib/sqlite.def
+    $notcc || $nov2 || wine TCC/tiny_impdef.exe \
+      sqliteu.dll -o TCC/lib/sqliteu.def
+    $notcc || wine TCC/tiny_impdef.exe sqlite3.dll -o TCC/lib/sqlite3.def
 fi
 
 echo "======================="
 echo "Cleanup after build ..."
 echo "======================="
-make -C sqlite -f ../mf-sqlite.mingw-cross clean
-rm -f sqlite/sqlite.exe
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw-cross clean
+$nov2 || rm -f sqlite/sqlite.exe
 mv sqlite3/sqlite3.c sqlite3/sqlite3.amalg
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross clean
 rm -f sqlite3/sqlite3.exe
@@ -1157,8 +1190,10 @@ echo "==========================="
 echo "Creating NSIS installer ..."
 echo "==========================="
 cp -p README readme.txt
-unix2dos < license.terms > license.txt
-unix2dos -k TCC/doc/COPYING
-unix2dos -k TCC/doc/readme.txt
+unix2dos < license.terms > license.txt || todos < license.terms > license.txt
+$notcc || unix2dos -k TCC/doc/COPYING || unix2dos -p TCC/doc/COPYING || \
+  todos -p TCC/doc/COPYING
+$notcc || unix2dos -k TCC/doc/readme.txt || unix2dos -p TCC/doc/readme.txt || \
+  todos -p TCC/doc/readme.txt
 makensis $ADD_NSIS sqliteodbc.nsi
 

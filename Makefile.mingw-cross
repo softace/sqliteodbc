@@ -57,6 +57,17 @@ all:		sqliteodbc.dll sqlite3odbc.dll \
 		addsysdsn.exe remsysdsn.exe \
 		SQLiteODBCInstaller.exe
 
+all_no2:	sqlite3odbc.dll \
+		sqlite3_mod_blobtoxy.dll \
+		sqlite3_mod_impexp.dll \
+		sqlite+tcc.dll \
+		sqlite3.exe \
+		inst.exe instq.exe uninst.exe uninstq.exe \
+		adddsn.exe remdsn.exe \
+		addsysdsn.exe remsysdsn.exe \
+		SQLiteODBCInstaller.exe
+
+
 sqliteodbc.o:	sqliteodbc.c sqliteodbc.h resource.h
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE_INC) $(ODBC_FLAGS) \
 		    $(SQLITE_FLAGS) $(ADD_CFLAGS) sqliteodbc.c
@@ -209,7 +220,10 @@ impexp.o:	impexp.c
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
 		    impexp.c
 
-sqlite3_mod_impexp.dll:	impexp.o
+impexpres.o:	impexp.rc resource3.h
+		$(RC) -o impexpres.o -I$(SQLITE3_INC) impexp.rc
+
+sqlite3_mod_impexp.dll:	impexp.o impexpres.o
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--strip-all -o sqlite3_mod_impexp.dll \
 		    impexp.o -lcomdlg32

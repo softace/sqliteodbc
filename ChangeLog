@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Fri Mar 25 2011 version 0.89 released
+
+	* update to SQLite 3.7.5
+	* fixes regarding parameter binding (conversions)
+	* added JSON output to impexp extension module
+	* improved Win32 cross build script
+
 Thu Dec 30 2010 version 0.88 released
 
 	* update to SQLite 3.7.4
