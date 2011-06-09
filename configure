@@ -463,7 +463,7 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
-ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_LIB SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO SPEC_CHANGELOG_TS LIBOBJS LTLIBOBJS'
+ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_LIB SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO DRVDIR SPEC_CHANGELOG_TS DEB_CHANGELOG_TS LIBOBJS LTLIBOBJS'
 ac_subst_files=''
 
 # Initialize some variables set by options.
@@ -20727,11 +20727,22 @@ else
 fi;
 
 #########
+# Install directory (on Debian $libdir/odbc)
+if test -r /etc/debian_version ; then
+  DRVDIR="/odbc"
+else
+  DRVDIR=""
+fi
+
+
+#########
 # Generate the output files.
 #
 SPEC_CHANGELOG_TS=`LANG=C date -u "+%a %b %d %Y"`
+DEB_CHANGELOG_TS=`LANG=C date "+%a, %d %b %Y %X %z"`
 
-                    ac_config_files="$ac_config_files Makefile sqliteodbc.spec"
+
+                              ac_config_files="$ac_config_files Makefile sqliteodbc.spec debian/changelog"
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
 # tests run on this system so they can be shared between configure
@@ -21285,6 +21296,7 @@ do
   # Handling of arguments.
   "Makefile" ) CONFIG_FILES="$CONFIG_FILES Makefile" ;;
   "sqliteodbc.spec" ) CONFIG_FILES="$CONFIG_FILES sqliteodbc.spec" ;;
+  "debian/changelog" ) CONFIG_FILES="$CONFIG_FILES debian/changelog" ;;
   *) { { echo "$as_me:$LINENO: error: invalid argument: $ac_config_target" >&5
 echo "$as_me: error: invalid argument: $ac_config_target" >&2;}
    { (exit 1); exit 1; }; };;
@@ -21436,7 +21448,9 @@ s,@DRVUNINST_TARGETS@,$DRVUNINST_TARGETS,;t t
 s,@ODBC_FLAGS@,$ODBC_FLAGS,;t t
 s,@ODBC_LIB@,$ODBC_LIB,;t t
 s,@VER_INFO@,$VER_INFO,;t t
+s,@DRVDIR@,$DRVDIR,;t t
 s,@SPEC_CHANGELOG_TS@,$SPEC_CHANGELOG_TS,;t t
+s,@DEB_CHANGELOG_TS@,$DEB_CHANGELOG_TS,;t t
 s,@LIBOBJS@,$LIBOBJS,;t t
 s,@LTLIBOBJS@,$LTLIBOBJS,;t t
 CEOF

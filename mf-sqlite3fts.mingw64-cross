@@ -129,7 +129,7 @@ FTS2OBJ+= fts2.o fts2_hash.o fts2_porter.o fts2_tokenizer1.o
 # Object files for FTS3
 #
 FTS3OBJ+= fts3.o fts3_hash.o fts3_porter.o fts3_tokenizer.o fts3_tokenizer1.o \
-	fts3_expr.o fts3_icu.o fts3_snippet.o fts3_write.o
+	fts3_expr.o fts3_icu.o fts3_snippet.o fts3_write.o fts3_aux.o
 
 # FTS1 source code files.
 #
@@ -166,7 +166,8 @@ FTS3SRC += \
   $(TOP)/ext/fts3/fts3_expr.c \
   $(TOP)/ext/fts3/fts3_icu.c \
   $(TOP)/ext/fts3/fts3_snippet.c \
-  $(TOP)/ext/fts3/fts3_write.c
+  $(TOP)/ext/fts3/fts3_write.c \
+  $(TOP)/ext/fts3/fts3_aux.c
 
 # Common headers
 HDR += $(TOP)/sqlite3.h \
@@ -267,6 +268,9 @@ fts3_write.o:	$(TOP)/ext/fts3/fts3_write.c $(FTS3HDR) $(HDR)
 
 fts3_snippet.o:	$(TOP)/ext/fts3/fts3_snippet.c $(FTS3HDR) $(HDR)	
 	$(TCCX) -c $(TOP)/ext/fts3/fts3_snippet.c
+
+fts3_aux.o:	$(TOP)/ext/fts3/fts3_aux.c $(FTS3HDR) $(HDR)	
+	$(TCCX) -c $(TOP)/ext/fts3/fts3_aux.c
 
 sqlite3_mod_fts3.$(SO):	$(FTS3OBJ)
 	$(TCCX) -shared -Wl,--kill-at \

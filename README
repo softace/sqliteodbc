@@ -9,7 +9,7 @@ risk.
 
 The current source can be downloaded from
 
-    http://www.ch-werner.de/sqliteodbc/sqliteodbc-*.*.tar.gz
+    http://www.ch-werner.de/sqliteodbc/sqliteodbc-*.tar.gz
 
 WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
@@ -284,13 +284,22 @@ Build Instructions for Alpha/Tru64 (OSF1 V5.1) and HP/UX (B.11.23 U ia64)
     HP/UX: gmake CFLAGS="+DD64" && gmake install
 
 
+Build Instructions for RPM based systems
+
+  rpmbuild -tb sqliteodbc-*.tar.gz
+
+
+Build Instructions for Debian based systems
+
+  ./configure && make deb
+
 
 TODO:
 
 - improve documentation
 
 
-2011-03-25
+2011-06-09
 Christian Werner
 mailto:chw@ch-werner.de
 

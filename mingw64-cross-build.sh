@@ -10,8 +10,8 @@
 
 set -e
 
-VER3=3.7.5
-VER3X=3070500
+VER3=3.7.6.3
+VER3X=3070603
 
 if test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
@@ -224,7 +224,8 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
+  -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -289,7 +290,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.16 2011/03/10 12:31:23 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.18 2011/06/09 12:42:28 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -439,7 +440,8 @@ EOD
 test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.6.23.1" -a "$VER3" != "3.7.0" -a "$VER3" != "3.7.0.1" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
-  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" \
+  -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
+  -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -520,7 +522,9 @@ EOD
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
-  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
+  -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" -o "$VER3" = "3.7.5" \
+  -o "$VER3" = "3.7.6" \
+  -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -645,6 +649,60 @@ test "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" -o "$VER3" = "3.6.23.1" \
      rc = SQLITE_OK;
  #endif
 EOD
+
+test "$VER3" = "3.7.6"\
+  -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3_write.c	2011-04-12 11:44:56.000000000 +0200
++++ sqlite3/ext/fts3/fts3_write.c	2011-04-13 08:00:51.000000000 +0200
+@@ -20,6 +20,10 @@
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+ #include "fts3Int.h"
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ #include <stdlib.h>
+@@ -2450,7 +2454,7 @@
+ 
+   if( !zVal ){
+     return SQLITE_NOMEM;
+-  }else if( nVal==8 && 0==sqlite3_strnicmp(zVal, "optimize", 8) ){
++  }else if( nVal==8 && 0==strnicmp(zVal, "optimize", 8) ){
+     rc = fts3SegmentMerge(p, FTS3_SEGCURSOR_ALL);
+     if( rc==SQLITE_DONE ){
+       rc = SQLITE_OK;
+@@ -2458,10 +2462,10 @@
+       sqlite3Fts3PendingTermsClear(p);
+     }
+ #ifdef SQLITE_TEST
+-  }else if( nVal>9 && 0==sqlite3_strnicmp(zVal, "nodesize=", 9) ){
++  }else if( nVal>9 && 0==strnicmp(zVal, "nodesize=", 9) ){
+     p->nNodeSize = atoi(&zVal[9]);
+     rc = SQLITE_OK;
+-  }else if( nVal>11 && 0==sqlite3_strnicmp(zVal, "maxpending=", 9) ){
++  }else if( nVal>11 && 0==strnicmp(zVal, "maxpending=", 9) ){
+     p->nMaxPendingData = atoi(&zVal[11]);
+     rc = SQLITE_OK;
+ #endif
+--- sqlite3.orig/ext/fts3/fts3_aux.c	2011-04-12 11:44:56.000000000 +0200
++++ sqlite3/ext/fts3/fts3_aux.c	2011-04-13 08:16:17.000000000 +0200
+@@ -15,6 +15,10 @@
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+ #include "fts3Int.h"
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ 
+EOD
+
 test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
   -o "$VER3" = "3.6.23.1" -o "$VER3" = "3.7.0" -o "$VER3" = "3.7.0.1" \
   -o "$VER3" = "3.7.1" -o "$VER3" = "3.7.2" -o "$VER3" = "3.7.3" \
@@ -707,7 +765,8 @@ test "$VER3" = "3.6.21" -o "$VER3" = "3.6.22" -o "$VER3" = "3.6.23" \
      zCopy = sqlite3_mprintf("%s", &z[8]);
 EOD
 
-test "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
+test "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" -o "$VER3" = "3.7.6" \
+  -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_snippet.c 2009-12-03 12:33:32.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_snippet.c      2010-01-05 08:03:51.000000000 +0100
@@ -872,8 +931,10 @@ patch -d sqlite3 -p1 <<'EOD'
 EOD
 
 # patch: compile fix for rtree as extension module
-test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" && \
-  patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
+  -o "$VER3" = "3.7.6" \
+  -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
 @@ -3193,6 +3193,8 @@
@@ -894,6 +955,21 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" && \
  #ifndef SQLITE_CORE
  int sqlite3_extension_init(
    sqlite3 *db,
+EOD
+
+# patch: .read shell command
+test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
++++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
+@@ -1957,6 +1957,7 @@
+     }else{
+       rc = process_input(p, alt);
+       fclose(alt);
++      if( rc ) rc = 1;
+     }
+   }else
+ 
 EOD
 
 echo "========================"

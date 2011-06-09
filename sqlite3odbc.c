@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.121 2011/03/24 16:23:25 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.122 2011/05/27 14:36:02 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -2998,6 +2998,139 @@ getbool(char *string)
 }
 
 /**
+ * SQLite function to import a BLOB from a file
+ * @param ctx function context
+ * @param nargs number arguments
+ * @param args arguments
+ */
+
+static void
+blob_import(sqlite3_context *ctx, int nargs, sqlite3_value **args)
+{
+#if 0
+    DBC *d = (DBC *) sqlite3_user_data(ctx);
+#endif
+    char *filename = 0;
+
+    if (nargs > 0) {
+	if (sqlite3_value_type(args[0]) != SQLITE_NULL) {
+	    filename = (char *) sqlite3_value_text(args[0]);
+	}
+    }
+    if (filename) {
+#ifdef _WIN32
+	char *wname = utf_to_wmb(filename, -1);
+	FILE *f;
+#else
+	FILE *f = fopen(filename, "r");
+#endif
+	char *p;
+	long n, nn;
+
+#ifdef _WIN32
+	if (wname) {
+	    f = fopen(wname, "rb");
+	} else {
+	    sqlite3_result_error(ctx, "out of memory", -1);
+	    return;
+	}
+	uc_free(wname);
+#endif
+	if (f) {
+	    if (fseek(f, 0, SEEK_END) == 0) {
+		n = ftell(f);
+		if (fseek(f, 0, SEEK_SET) == 0) {
+		    p = sqlite3_malloc(n);
+		    if (p) {
+			nn = fread(p, 1, n, f);
+			if (nn != n) {
+			    sqlite3_result_error(ctx, "read error", -1);
+			    sqlite3_free(p);
+			} else {
+			    sqlite3_result_blob(ctx, p, n, sqlite3_free);
+			}
+		    } else {
+			sqlite3_result_error(ctx, "out of memory", -1);
+		    }
+		} else {
+		    sqlite3_result_error(ctx, "seek error", -1);
+		}
+	    } else {
+		sqlite3_result_error(ctx, "seek error", -1);
+	    }
+	    fclose(f);
+	} else {
+	    sqlite3_result_error(ctx, "cannot open file", -1);
+	}
+    } else {
+	sqlite3_result_error(ctx, "no filename given", -1);
+    }
+}
+
+/**
+ * SQLite function to export a BLOB to a file
+ * @param ctx function context
+ * @param nargs number arguments
+ * @param args arguments
+ */
+
+static void
+blob_export(sqlite3_context *ctx, int nargs, sqlite3_value **args)
+{
+#if 0
+    DBC *d = (DBC *) sqlite3_user_data(ctx);
+#endif
+    char *filename = 0;
+    char *p = 0;
+    int n = 0;
+
+    if (nargs > 0) {
+	p = (char *) sqlite3_value_blob(args[0]);
+	n = sqlite3_value_bytes(args[0]);
+    }
+    if (nargs > 1) {
+	if (sqlite3_value_type(args[1]) != SQLITE_NULL) {
+	    filename = (char *) sqlite3_value_text(args[1]);
+	}
+    }
+    if (p) {
+	if (filename) {
+#ifdef _WIN32
+	    char *wname = utf_to_wmb(filename, -1);
+	    FILE *f;
+#else
+	    FILE *f = fopen(filename, "w");
+#endif
+	    int nn;
+
+#ifdef _WIN32
+	    if (wname) {
+		f = fopen(wname, "wb");
+	    } else {
+		sqlite3_result_error(ctx, "out of memory", -1);
+		return;
+	    }
+	    uc_free(wname);
+#endif
+	    if (f) {
+		nn = fwrite(p, 1, n, f);
+		if (nn != n) {
+		    sqlite3_result_error(ctx, "write error", -1);
+		} else {
+		    sqlite3_result_int(ctx, nn);
+		}
+	    } else {
+		sqlite3_result_error(ctx, "cannot open file", -1);
+	    }
+	} else {
+	    sqlite3_result_error(ctx, "no filename given", -1);
+	}
+    } else {
+	sqlite3_result_null(ctx);
+    }
+}
+
+/**
  * SQLite trace or profile callback
  * @param arg DBC pointer
  * @param msg log message, SQL text
@@ -3264,6 +3397,10 @@ connfail:
 	}
     }
 #endif
+    sqlite3_create_function(d->sqlite, "blob_import", 1, SQLITE_UTF8,
+			    d, blob_import, 0, 0);
+    sqlite3_create_function(d->sqlite, "blob_export", 2, SQLITE_UTF8,
+			    d, blob_export, 0, 0);
     return SQL_SUCCESS;
 }
 
@@ -6975,7 +7112,7 @@ begin_again:
 static SQLRETURN
 endtran(DBC *d, SQLSMALLINT comptype, int force)
 {
-    int fail = 0, ret, busy_count = 0;
+    int ret, busy_count = 0;
     char *sql, *errp = NULL;
 
     if (!d->sqlite) {
@@ -6990,12 +7127,11 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 	sql = "COMMIT TRANSACTION";
 	goto doit;
     case SQL_ROLLBACK:
-    rollback:
 	sql = "ROLLBACK TRANSACTION";
     doit:
 	ret = sqlite3_exec(d->sqlite, sql, NULL, NULL, &errp);
 	dbtracerc(d, ret, errp);
-	if (ret == SQLITE_BUSY && !fail && comptype == SQL_COMMIT) {
+	if (ret == SQLITE_BUSY && busy_count < 10) {
 	    if (busy_handler((void *) d, ++busy_count)) {
 		if (errp) {
 		    sqlite3_free(errp);
@@ -7006,16 +7142,8 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 	}
 	d->intrans = 0;
 	if (ret != SQLITE_OK) {
-	    if (!fail) {
-		setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
-			 errp ? errp : "transaction failed");
-		if (errp) {
-		    sqlite3_free(errp);
-		    errp = NULL;
-		}
-		fail = 1;
-		goto rollback;
-	    }
+	    setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
+		     errp ? errp : "transaction failed");
 	    if (errp) {
 		sqlite3_free(errp);
 		errp = NULL;
@@ -7077,7 +7205,6 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 	    ret = endtran(d, comptype, 0);
 	    if (ret != SQL_SUCCESS) {
 		fail++;
-		comptype = SQL_ROLLBACK;
 	    }
 	    d = d->next;
 	}
@@ -8546,15 +8673,17 @@ static SQLRETURN
 drvsetpos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
 {
     STMT *s = (STMT *) stmt;
+    int rowp;
 
     if (op != SQL_POSITION) {
 	return drvunimplstmt(stmt);
     }
-    if (!s->rows || row <= 0 || row > s->nrows) {
+    rowp = s->rowp + row - 1;
+    if (!s->rows || row <= 0 || rowp < -1 || rowp >= s->nrows) {
 	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
 	return SQL_ERROR;
     }
-    s->rowp = row - 1;
+    s->rowp = rowp;
     return SQL_SUCCESS;
 }
 

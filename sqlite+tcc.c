@@ -9,7 +9,7 @@
 **    May you share freely, never taking more than you give.
 **
 *************************************************************************
-** Experimental combination of SQLite 3.3.x and TinyCC 0.9.23
+** Experimental combination of SQLite 3.3.x and TinyCC 0.9.25
 ** using the new SQLite loadable extension mechanism.
 **
 ** This module creates an SQLite scalar function 'tcc_compile'
@@ -108,7 +108,9 @@ static struct {
   SYM(errmsg),
   SYM(errmsg16),
   SYM(exec),
+#if 0
   SYM(expired),
+#endif
   SYM(finalize),
   SYM(free),
   SYM(free_table),
@@ -153,7 +155,9 @@ static struct {
   SYM(thread_cleanup),
   SYM(total_changes),
   SYM(trace),
+#if 0
   SYM(transfer_bindings),
+#endif
   SYM(update_hook),
   SYM(user_data),
   SYM(value_blob),
@@ -207,6 +211,39 @@ static struct {
   SYM(vfs_find),
   SYM(vfs_register),
   SYM(vfs_unregister),
+  SYM(file_control),
+  SYM2(threadsafe, xthreadsafe),
+  SYM(result_zeroblob),
+  SYM(result_error_code),
+  SYM(test_control),
+  SYM(randomness),
+  SYM(context_db_handle),
+  SYM(extended_result_codes),
+  SYM(limit),
+  SYM(next_stmt),
+  SYM(sql),
+  SYM(status),
+  SYM(backup_finish),
+  SYM(backup_init),
+  SYM(backup_pagecount),
+  SYM(backup_remaining),
+  SYM(backup_step),
+  SYM(compileoption_get),
+  SYM(compileoption_used),
+  SYM(create_function_v2),
+  SYM(db_config),
+  SYM(db_mutes),
+  SYM(db_status),
+  SYM(extended_errcode),
+  SYM(long),
+  SYM(soft_heap_limit64),
+  SYM(sourceid),
+  SYM(stmt_status),
+  SYM(strnicmp),
+  SYM(unlock_notify),
+  SYM(wal_autocheckpoint),
+  SYM(wal_checkpoint),
+  SYM(wal_hook),
 #endif
   SYM_END
 };
@@ -214,6 +251,7 @@ static struct {
 #ifdef _WIN32
 /* TCC is not thread safe, provide a guard */
 static CRITICAL_SECTION tcc_mutex;
+static HANDLE tcc_hinst;
 #endif
 
 /* Module pointer to SQLite3 API function vector. */
@@ -228,6 +266,7 @@ static void tcc_compile(
   int i;
   unsigned long val;
   void (*xInit)(void *);
+  void *code;
   sqlite3 *db = sqlite3_user_data(ctx);
   if( argc<1 ){
     sqlite3_result_error(ctx, "need at least one argument", -1);
@@ -244,6 +283,9 @@ static void tcc_compile(
 #endif
     return;
   }
+#ifdef _WIN32
+  tcc_set_lib_path_mod(t, tcc_hinst);
+#endif
   tcc_set_output_type(t, TCC_OUTPUT_MEMORY);
   for( i=1; i<argc; i++ ){
     char *p = (char *) sqlite3_value_text(argv[i]);
@@ -266,7 +308,7 @@ static void tcc_compile(
   for( i=0; symtab[i].name; i++ ){
     val = ((unsigned long *) ((char *) sqlite3_api + symtab[i].offs))[0];
     if( val ){
-      tcc_add_symbol(t, symtab[i].name, val);
+      tcc_add_symbol(t, symtab[i].name, (void *) val);
     } else {
 #ifdef _WIN32
       char msg[512];
@@ -279,11 +321,23 @@ static void tcc_compile(
 #endif
     }
   }
-  if( tcc_relocate(t) ){
+  i = tcc_relocate( t, 0 );
+  if( i<=0 ){
     sqlite3_result_error(ctx, "link error", -1);
     goto error;
   }
-  if( tcc_get_symbol(t, &val, "init") != 0 ){
+  if( (code = malloc(i))==0 ){
+    sqlite3_result_error(ctx, "link error, out of memory", -1);
+    goto error;
+  }
+  if( tcc_relocate(t, code)<0 ){
+    free(code);
+    sqlite3_result_error(ctx, "link error", -1);
+    goto error;
+  }
+  val = (unsigned long) tcc_get_symbol(t, "init");
+  if( val==0 ){
+    free(code);
     sqlite3_result_error(ctx, "no init function", -1);
     goto error;
   }
@@ -329,7 +383,7 @@ BOOL APIENTRY LibMain(
     while( !initialized ){
       if( InterlockedIncrement(&lock)==1 ){
         InitializeCriticalSection(&tcc_mutex);
-        tcc_set_lib_path(hinst);
+	tcc_hinst = hinst;
         ++initialized;
       }else{
         Sleep(1);

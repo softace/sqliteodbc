@@ -70,17 +70,9 @@ Section "-Main (required)" InstallationInfo
  
 ; Add files
  SetOutPath "$INSTDIR"
-!ifndef WITHOUT_SQLITE2
- File "sqliteodbc.dll"
- File "sqliteodbcu.dll"
-!endif
  File "sqlite3odbc.dll"
 ; unsupported non-WCHAR driver for SQLite3
  File "sqlite3odbcnw.dll"
-!ifndef WITHOUT_SQLITE2
- File "sqlite.exe"
- File "sqliteu.exe"
-!endif
  File "sqlite3.exe"
  File "inst.exe"
  File "instq.exe"
@@ -106,10 +98,6 @@ Section "-Main (required)" InstallationInfo
  File "README"
  File "readme.txt"
 !ifdef WITH_SQLITE_DLLS
-!ifndef WITHOUT_SQLITE2
- File "sqlite.dll"
- File "sqliteu.dll"
-!endif
  File "sqlite3.dll"
 !endif
 
@@ -126,10 +114,6 @@ Section "-Main (required)" InstallationInfo
  SetOutPath "$SMPROGRAMS\${PROD_NAME0}\Shells"
  CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 3.lnk" \
    "$INSTDIR\sqlite3.exe"
- CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2.lnk" \
-   "$INSTDIR\sqlite.exe"
- CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2 (UTF-8).lnk" \
-   "$INSTDIR\sqliteu.exe"
  
 ; Write uninstall information to the registry
  WriteRegStr HKLM \
@@ -145,6 +129,27 @@ Section "-Main (required)" InstallationInfo
  ExecWait '"$INSTDIR\instq.exe"'
 
 SectionEnd
+
+!ifndef WITHOUT_SQLITE2
+Section /o "SQLite 2 Drivers" Sqlite2Install
+ SetOutPath "$INSTDIR"
+ File "sqliteodbc.dll"
+ File "sqliteodbcu.dll"
+ File "sqlite.exe"
+ File "sqliteu.exe"
+!ifdef WITH_SQLITE_DLLS
+ File "sqlite.dll"
+ File "sqliteu.dll"
+!endif
+
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2.lnk" \
+   "$INSTDIR\sqlite.exe"
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2 (UTF-8).lnk" \
+   "$INSTDIR\sqliteu.exe"
+
+ ExecWait '"$INSTDIR\instq.exe"'
+SectionEnd
+!endif
 
 !ifdef WITH_SOURCES
 Section /o "Source Code" SourceInstall
@@ -226,11 +231,6 @@ Section /o "Source Code" SourceInstall
  SetOutPath "$INSTDIR\source\tccex\a10n"
  File "source\tccex\a10n\README.txt"
 SectionEnd
-
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
- !insertmacro MUI_DESCRIPTION_TEXT ${SourceInstall} \
-   "Source code"
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
 !endif
 
 !ifndef WITHOUT_TCCEXT
@@ -241,9 +241,11 @@ Section /o "SQLite+TCC" TccInstall
  File "strict_typing.sql"
  File "TCC\tcc.exe"
  File "TCC\tiny_impdef.exe"
+ File "TCC\tiny_libmaker.exe"
  File /r "TCC\doc"
  File /r "TCC\include"
  File /r "TCC\lib"
+ File /r "TCC\libtcc"
  SetOutPath "$INSTDIR\TCC\samples"
  File "tccex/samplext.c"
  File "tccex/sqlite.c"
@@ -257,12 +259,22 @@ Section /o "SQLite+TCC" TccInstall
 ; File "sqlite3/sqlite3internal.h"
  File "tccex/a10n/README.txt"
 SectionEnd
+!endif
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+!ifndef WITHOUT_SQLITE2
+ !insertmacro MUI_DESCRIPTION_TEXT ${Sqlite2Install} \
+   "Drivers and utilities for SQLite Version 2"
+!endif
+!ifdef WITH_SOURCES
+ !insertmacro MUI_DESCRIPTION_TEXT ${SourceInstall} \
+   "Source code"
+!endif
+!ifndef WITHOUT_TCCEXT
  !insertmacro MUI_DESCRIPTION_TEXT ${TccInstall} \
    "Experimental combination of SQLite and TinyCC"
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
 !endif
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------
 ; Uninstaller Section

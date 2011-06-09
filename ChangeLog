@@ -1,6 +1,16 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Jun 09 2011 version 0.90 released
+
+	* update to SQLite 3.7.6.3
+	* added packaging infrastructure for Debian
+	* update sqlite+tcc module to TCC 0.9.25
+	* added blob_import/blob_export functions to SQLite 3 driver
+	* fixes in SQLSetPos()
+	* made SQLEndTran() logic simpler, no more automatic rollback
+	* reviewed Win32 installer, SQLite 2 now an optional component
+
 Fri Mar 25 2011 version 0.89 released
 
 	* update to SQLite 3.7.5

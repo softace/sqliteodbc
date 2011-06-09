@@ -594,8 +594,19 @@ AC_ARG_ENABLE(winterface,
    [ ODBC_FLAGS="$ODBC_FLAGS -DWITHOUT_WINTERFACE=1" ])
 
 #########
+# Install directory (on Debian $libdir/odbc)
+if test -r /etc/debian_version ; then
+  DRVDIR="/odbc"
+else
+  DRVDIR=""
+fi
+AC_SUBST(DRVDIR)
+
+#########
 # Generate the output files.
 #
 SPEC_CHANGELOG_TS=`LANG=C date -u "+%a %b %d %Y"`
+DEB_CHANGELOG_TS=`LANG=C date "+%a, %d %b %Y %X %z"`
 AC_SUBST(SPEC_CHANGELOG_TS)
-AC_OUTPUT(Makefile sqliteodbc.spec)
+AC_SUBST(DEB_CHANGELOG_TS)
+AC_OUTPUT(Makefile sqliteodbc.spec debian/changelog)

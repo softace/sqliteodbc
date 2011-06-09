@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.180 2011/03/25 14:01:13 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.181 2011/05/27 14:35:37 chw Exp chw $
  *
  * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -6081,7 +6081,7 @@ starttran(STMT *s)
 static SQLRETURN
 endtran(DBC *d, SQLSMALLINT comptype, int force)
 {
-    int fail = 0, ret;
+    int ret;
     char *sql, *errp = NULL;
 
     if (!d->sqlite) {
@@ -6096,25 +6096,16 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 	sql = "COMMIT TRANSACTION";
 	goto doit;
     case SQL_ROLLBACK:
-    rollback:
 	sql = "ROLLBACK TRANSACTION";
     doit:
 	d->intrans = 0;
 	ret = sqlite_exec(d->sqlite, sql, NULL, NULL, &errp);
 	dbtracerc(d, ret, errp);
 	if (ret != SQLITE_OK) {
-	    if (!fail) {
-		setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
-			 errp ? errp : "transaction failed");
-		if (errp) {
-		    sqlite_freemem(errp);
-		    errp = NULL;
-		}
-		fail = 1;
-		goto rollback;
-	    }
+	    setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
+		     errp ? errp : "transaction failed");
 	    if (errp) {
-		sqlite_freemem(errp);
+	        sqlite_freemem(errp);
 		errp = NULL;
 	    }
 	    return SQL_ERROR;
@@ -6174,7 +6165,6 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 	    ret = endtran(d, comptype, 0);
 	    if (ret != SQL_SUCCESS) {
 		fail++;
-		comptype = SQL_ROLLBACK;
 	    }
 	    d = d->next;
 	}
@@ -7658,15 +7648,17 @@ static SQLRETURN
 drvsetpos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
 {
     STMT *s = (STMT *) stmt;
+    int rowp;
 
     if (op != SQL_POSITION) {
 	return drvunimplstmt(stmt);
     }
-    if (!s->rows || row <= 0 || row > s->nrows) {
+    rowp = s->rowp + row - 1;
+    if (!s->rows || row <= 0 || rowp < -1 || rowp >= s->nrows) {
 	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
 	return SQL_ERROR;
     }
-    s->rowp = row - 1;
+    s->rowp = rowp;
     return SQL_SUCCESS;
 }
 
