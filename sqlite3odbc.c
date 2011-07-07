@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.122 2011/05/27 14:36:02 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.124 2011/07/04 12:16:26 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -208,9 +208,9 @@ xstrdup_(const char *str, char *file, int line)
 
 #else
 
-#define xmalloc(x)    malloc(x)
-#define xrealloc(x,y) realloc(x, y)
-#define xfree(x)      free(x)
+#define xmalloc(x)    sqlite3_malloc(x)
+#define xrealloc(x,y) sqlite3_realloc(x, y)
+#define xfree(x)      sqlite3_free(x)
 #define xstrdup(x)    strdup_(x)
 
 #endif
@@ -224,6 +224,28 @@ xstrdup_(const char *str, char *file, int line)
 
 static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 
+#endif
+
+#ifdef HAVE_SQLITE3STRNICMP
+#undef  strncasecmp
+#define strncasecmp(A,B,C) sqlite3_strnicmp(A,B,C)
+#undef  strcasecmp
+#define strcasecmp(A,B) strcasecmp_(A,B)
+
+#if defined(__GNUC__) && (__GNUC__ >= 2)
+static int strcasecmp_(const char *a, const char *b)
+    __attribute__((__unused__));
+#endif
+
+static int strcasecmp_(const char *a, const char *b)
+{
+    int c = strlen(a), d = strlen(b);
+
+    if (c > d) {
+	return strncasecmp(a, b, c);
+    }
+    return strncasecmp(a, b, d);
+}
 #endif
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -1466,10 +1488,11 @@ noconn(STMT *s)
  * @result double value
  */
 
+#if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
+
 static double
 ln_strtod(const char *data, char **endp)
 {
-#if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
     struct lconv *lc;
     char buf[128], *p, *end;
     double value;
@@ -1493,10 +1516,13 @@ ln_strtod(const char *data, char **endp)
 	*endp = end;
     }
     return value;
-#else
-    return strtod(data, endp);
-#endif
 }
+
+#else
+
+#define ln_strtod(A,B) strtod(A,B)
+
+#endif
 
 /**
  * Strip quotes from quoted string in-place.
@@ -1647,6 +1673,9 @@ busy_handler(void *udata, int count)
     int ret = 0;
 #if !defined(_WIN32) && !defined(_WIN64)
     struct timeval tv;
+#ifdef HAVE_NANOSLEEP
+    struct timespec ts;
+#endif
 #endif
 
     if (d->busyint) {
@@ -1676,12 +1705,23 @@ busy_handler(void *udata, int count)
 #if defined(_WIN32) || defined(_WIN64)
     Sleep(10);
 #else
+#ifdef HAVE_NANOSLEEP
+    ts.tv_sec = 0;
+    ts.tv_nsec = 10000000;
+    do {
+	ret = nanosleep(&ts, &ts);
+	if (ret < 0 && errno != EINTR) {
+	    ret = 0;
+	}
+    } while (ret); 
+#else
 #ifdef HAVE_USLEEP
     usleep(10000);
 #else
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
     select(0, NULL, NULL, NULL, &tv);
+#endif
 #endif
 #endif
     ret = 1;
@@ -1869,6 +1909,7 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 #endif
 #ifdef SQL_BIGINT
     } else if (strncmp(p, "bigint", 6) == 0) {
+	testsign = 1;
 	result = SQL_BIGINT;
 #endif
     } else if (strncmp(p, "blob", 4) == 0) {
@@ -3160,8 +3201,8 @@ dbtrace(void *arg, const char *msg)
 	    }
 	    fprintf(d->trace, "%s%s", msg, end);
 #if defined(HAVE_SQLITE3PROFILE) && HAVE_SQLITE3PROFILE
-	    s = et / (3600LL * 24LL * 1000000000LL);
-	    f = et % (3600LL * 24LL * 1000000000LL);
+	    s = et / 1000000000LL;
+	    f = et % 1000000000LL;
 	    fprintf(d->trace, "-- took %lu.%09lu seconds\n", s, f);
 #endif
 	    fflush(d->trace);
@@ -3257,6 +3298,9 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 #endif
 #if defined(ENABLE_NVFS) && ENABLE_NVFS
     vfs_name = nvfs_makevfs(uname);
+#endif
+#ifdef SQLITE_OPEN_URI
+    flags |= SQLITE_OPEN_URI;
 #endif
     rc = sqlite3_open_v2(uname, &d->sqlite, flags, vfs_name);
 #if defined(WINTERFACE) || defined(_WIN32) || defined(_WIN64)
@@ -12199,7 +12243,7 @@ drvtables(SQLHSTMT stmt,
 #ifdef MEMORY_DEBUG
 	s->rowfree = xfree__;
 #else
-	s->rowfree = free;
+	s->rowfree = sqlite3_free;
 #endif
 	s->nrows = 2;
 	s->rowp = -1;
@@ -13250,7 +13294,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 #ifdef MEMORY_DEBUG
     s->rowfree = xfree__;
 #else
-    s->rowfree = free;
+    s->rowfree = sqlite3_free;
 #endif
     memset(s->rows, 0, sizeof (char *) * (s->nrows + 1) * asize);
     if (sqltype == SQL_ALL_TYPES) {

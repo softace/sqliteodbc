@@ -15,7 +15,7 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.54 2011/03/09 07:02:55 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.55 2011/07/04 05:42:49 chw Exp chw $
  *
  * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -48,6 +48,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <errno.h>
 #endif
 #include <stdlib.h>
 #if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)

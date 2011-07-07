@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.16 2011/03/09 07:02:21 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.17 2011/07/04 05:43:59 chw Exp chw $
  *
  * Copyright (c) 2007-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -956,8 +956,14 @@ b2xy_bestindex(sqlite3_vtab *tab, sqlite3_index_info *info)
     return SQLITE_OK;
 }
 
+static int
+b2xy_rename(sqlite3_vtab *tab, const char *newname)
+{
+    return SQLITE_OK;
+}
+
 static const sqlite3_module b2xy_module = {
-    0,              /* iVersion */
+    1,              /* iVersion */
     b2xy_create,    /* xCreate */		      
     b2xy_create,    /* xConnect */
     b2xy_bestindex, /* xBestIndex */
@@ -975,7 +981,8 @@ static const sqlite3_module b2xy_module = {
     0,              /* xSync */
     0,              /* xCommit */
     0,              /* xRollback */
-    0,              /* xFindMethod */
+    0,              /* xFindFunction */
+    b2xy_rename,    /* xRename */
 };
 
 typedef struct {

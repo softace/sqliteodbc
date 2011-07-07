@@ -255,6 +255,7 @@ Section /o "SQLite+TCC" TccInstall
  File "tccex/README.bench"
  SetOutPath "$INSTDIR\TCC\samples\a10n"
  File "sqlite3/sqlite3.c"
+ File "sqlite3/src/test_vfstrace.c"
 ; deprecated as of 3.5.1
 ; File "sqlite3/sqlite3internal.h"
  File "tccex/a10n/README.txt"

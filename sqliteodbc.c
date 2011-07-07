@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.181 2011/05/27 14:35:37 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.183 2011/07/04 12:16:15 chw Exp chw $
  *
  * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -964,14 +964,15 @@ noconn(STMT *s)
 
 extern double sqliteAtoF(char *data, char **endp);
 
-#define ln_strtod sqliteAtoF
+#define ln_strtod(A,B) sqliteAtoF(A,B)
 
 #else
+
+#if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
 
 static double
 ln_strtod(const char *data, char **endp)
 {
-#if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
     struct lconv *lc;
     char buf[128], *p, *end;
     double value;
@@ -995,10 +996,13 @@ ln_strtod(const char *data, char **endp)
 	*endp = end;
     }
     return value;
-#else
-    return strtod(data, endp);
-#endif
 }
+
+#else
+
+#define ln_strtod(A,B) strtod(A,B)
+
+#endif
 
 #endif
 
@@ -1181,6 +1185,9 @@ busy_handler(void *udata, const char *table, int count)
     int ret = 0;
 #if !defined(_WIN32) && !defined(_WIN64)
     struct timeval tv;
+#ifdef HAVE_NANOSLEEP
+    struct timespec ts;
+#endif
 #endif
 
     if (d->busyint) {
@@ -1210,12 +1217,23 @@ busy_handler(void *udata, const char *table, int count)
 #if defined(_WIN32) || defined(_WIN64)
     Sleep(10);
 #else
+#ifdef HAVE_NANOSLEEP
+    ts.tv_sec = 0;
+    ts.tv_nsec = 10000000;
+    do {
+	ret = nanosleep(&ts, &ts);
+	if (ret < 0 && errno != EINTR) {
+	    ret = 0;
+	}
+    } while (ret);
+#else
 #ifdef HAVE_USLEEP
     usleep(10000);
 #else
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
     select(0, NULL, NULL, NULL, &tv);
+#endif
 #endif
 #endif
     ret = 1;
@@ -6105,7 +6123,7 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 	    setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
 		     errp ? errp : "transaction failed");
 	    if (errp) {
-	        sqlite_freemem(errp);
+		sqlite_freemem(errp);
 		errp = NULL;
 	    }
 	    return SQL_ERROR;

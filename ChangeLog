@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Jul 07 2011 version 0.91 released
+
+	* update to SQLite 3.7.7.1
+	* updated blobtoxy module interface (xRename was missing)
+	* support URI names in SQLite 3 driver when available
+	* SQLite 3 driver now uses SQLite memory management routines
+	* fixed BIGINT signed/unsigned flag
+
 Thu Jun 09 2011 version 0.90 released
 
 	* update to SQLite 3.7.6.3

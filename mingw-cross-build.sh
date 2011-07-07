@@ -18,8 +18,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.7.6.3
-VER3X=3070603
+VER3=3.7.7.1
+VER3X=3070701
 TCCVER=0.9.25
 
 nov2=false
@@ -434,6 +434,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
+  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -498,7 +499,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.56 2011/06/09 12:42:39 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.57 2011/07/04 05:51:54 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -650,6 +651,7 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
+  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -1087,6 +1089,7 @@ EOD
 test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
+  -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1112,6 +1115,7 @@ EOD
 
 # patch: .read shell command
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
+  -o "$VER3" = "3.7.7" -a "$VER3" != "3.7.7.1" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1123,6 +1127,158 @@ test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
      }
    }else
  
+EOD
+
+# patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
+test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
+@@ -14,6 +14,10 @@
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ 
+--- sqlite3.orig/ext/fts3/fts3.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3.c	2011-06-25 06:48:49.000000000 +0200
+@@ -295,10 +295,6 @@
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+-#if defined(SQLITE_ENABLE_FTS3) && !defined(SQLITE_CORE)
+-# define SQLITE_CORE 1
+-#endif
+-
+ #include <assert.h>
+ #include <stdlib.h>
+ #include <stddef.h>
+@@ -3136,7 +3132,7 @@
+   return rc;
+ }
+ 
+-#if !SQLITE_CORE
++#ifndef SQLITE_CORE
+ int sqlite3_extension_init(
+   sqlite3 *db, 
+   char **pzErrMsg,
+--- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
+@@ -18,6 +18,11 @@
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
++
+ /*
+ ** By default, this module parses the legacy syntax that has been 
+ ** traditionally used by fts3. Or, if SQLITE_ENABLE_FTS3_PARENTHESIS
+--- sqlite3.orig/ext/fts3/fts3_snippet.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3_snippet.c	2011-06-25 06:45:47.000000000 +0200
+@@ -13,7 +13,10 @@
+ 
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+-
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ 
+--- sqlite3.orig/ext/fts3/fts3_tokenizer.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3_tokenizer.c	2011-06-25 06:50:19.000000000 +0200
+@@ -25,7 +25,7 @@
+ */
+ #include "sqlite3ext.h"
+ #ifndef SQLITE_CORE
+-  SQLITE_EXTENSION_INIT1
++extern const sqlite3_api_routines *sqlite3_api;
+ #endif
+ #include "fts3Int.h"
+ 
+--- sqlite3.orig/ext/fts3/fts3_write.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/ext/fts3/fts3_write.c	2011-06-25 06:45:05.000000000 +0200
+@@ -20,6 +20,10 @@
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
++#include "sqlite3ext.h"
++#ifndef SQLITE_CORE
++extern const sqlite3_api_routines *sqlite3_api;
++#endif
+ #include <string.h>
+ #include <assert.h>
+ #include <stdlib.h>
+--- sqlite3.orig/src/sqlite3ext.h	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/src/sqlite3ext.h	2011-06-25 07:28:06.000000000 +0200
+@@ -212,6 +212,9 @@
+   int (*wal_autocheckpoint)(sqlite3*,int);
+   int (*wal_checkpoint)(sqlite3*,const char*);
+   void *(*wal_hook)(sqlite3*,int(*)(void*,sqlite3*,const char*,int),void*);
++  int (*blob_reopen)(sqlite3_blob*,sqlite3_int64);
++  int (*vtab_config)(sqlite3*,int op,...);
++  int (*vtab_on_conflict)(sqlite3*);
+ };
+ 
+ /*
+@@ -412,6 +415,9 @@
+ #define sqlite3_wal_autocheckpoint     sqlite3_api->wal_autocheckpoint
+ #define sqlite3_wal_checkpoint         sqlite3_api->wal_checkpoint
+ #define sqlite3_wal_hook               sqlite3_api->wal_hook
++#define sqlite3_blob_reopen            sqlite3_api->blob_reopen
++#define sqlite3_vtab_config            sqlite3_api->vtab_config
++#define sqlite3_vtab_on_conflict       sqlite3_api->vtab_on_conflict
+ #endif /* SQLITE_CORE */
+ 
+ #define SQLITE_EXTENSION_INIT1     const sqlite3_api_routines *sqlite3_api = 0;
+--- sqlite3.orig/src/loadext.c	2011-06-24 09:06:08.000000000 +0200
++++ sqlite3/src/loadext.c	2011-06-25 07:29:59.000000000 +0200
+@@ -84,6 +84,8 @@
+ # define sqlite3_create_module 0
+ # define sqlite3_create_module_v2 0
+ # define sqlite3_declare_vtab 0
++# define sqlite3_vtab_config 0
++# define sqlite3_vtab_on_conflict 0
+ #endif
+ 
+ #ifdef SQLITE_OMIT_SHARED_CACHE
+@@ -107,6 +109,7 @@
+ #define sqlite3_blob_open      0
+ #define sqlite3_blob_read      0
+ #define sqlite3_blob_write     0
++#define sqlite3_blob_reopen    0
+ #endif
+ 
+ /*
+@@ -372,6 +375,18 @@
+   0,
+   0,
+ #endif
++#ifndef SQLITE_OMIT_INCRBLOB
++  sqlite3_blob_reopen,
++#else
++  0,
++#endif
++#ifndef SQLITE_OMIT_VIRTUALTABLE
++  sqlite3_vtab_config,
++  sqlite3_vtab_on_conflict,
++#else
++  0,
++  0,
++#endif
+ };
+ 
+ /*
 EOD
 
 echo "===================="

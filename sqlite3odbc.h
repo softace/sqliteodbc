@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.34 2011/03/10 12:25:00 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.35 2011/07/04 05:42:49 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -33,6 +33,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <errno.h>
 #endif
 #include <stdlib.h>
 #if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)

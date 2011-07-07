@@ -463,7 +463,7 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
-ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_LIB SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO DRVDIR SPEC_CHANGELOG_TS DEB_CHANGELOG_TS LIBOBJS LTLIBOBJS'
+ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_LIB SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE SQLITE3_STRNICMP EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO DRVDIR SPEC_CHANGELOG_TS DEB_CHANGELOG_TS LIBOBJS LTLIBOBJS'
 ac_subst_files=''
 
 # Initialize some variables set by options.
@@ -18607,9 +18607,9 @@ if test -n "$SQLITE3_A10N_C" ; then
    SQLITE3_PREPARE_V2=1
    SQLITE3_CLEARBINDINGS=1
    SQLITE3_CREATEMODULE_V2=1
-   SQLITE3_LOADEXTENSION=1
    SQLITE3_TABLECOLUMNMETADATA=1
    SQLITE3_VFS=1
+   SQLITE3_STRNICMP=1
 else
    saved_CFLAGS=$CFLAGS
    CFLAGS="$CFLAGS -I$SQLITE3_INC"
@@ -19323,6 +19323,76 @@ else
   SQLITE3_PROFILE=0
 fi
 
+   echo "$as_me:$LINENO: checking for sqlite3_strnicmp in -lsqlite3" >&5
+echo $ECHO_N "checking for sqlite3_strnicmp in -lsqlite3... $ECHO_C" >&6
+if test "${ac_cv_lib_sqlite3_sqlite3_strnicmp+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lsqlite3  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+/* Override any gcc2 internal prototype to avoid an error.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+/* We use char because int might match the return type of a gcc2
+   builtin and then its argument prototype would still apply.  */
+char sqlite3_strnicmp ();
+int
+main ()
+{
+sqlite3_strnicmp ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_lib_sqlite3_sqlite3_strnicmp=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_lib_sqlite3_sqlite3_strnicmp=no
+fi
+rm -f conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+echo "$as_me:$LINENO: result: $ac_cv_lib_sqlite3_sqlite3_strnicmp" >&5
+echo "${ECHO_T}$ac_cv_lib_sqlite3_sqlite3_strnicmp" >&6
+if test $ac_cv_lib_sqlite3_sqlite3_strnicmp = yes; then
+  SQLITE3_STRNICMP=1
+else
+  SQLITE3_STRNICMP=0
+fi
+
    LIBS=$saved_LIBS
    CFLAGS=$saved_CFLAGS
 fi
@@ -19335,6 +19405,7 @@ else
    EXT_BLOBTOXY=""
    EXT_IMPEXP=""
 fi
+
 
 
 
@@ -20323,7 +20394,7 @@ echo "${ECHO_T}NOT using sqlite_exec_vprintf/sqlite_vmprintf" >&6
 fi
 
 ##########
-# Check for usleep()
+# Check for usleep() and nanosleep()
 #
 echo "$as_me:$LINENO: checking for usleep" >&5
 echo $ECHO_N "checking for usleep... $ECHO_C" >&6
@@ -20417,6 +20488,100 @@ echo "$as_me:$LINENO: result: $ac_cv_func_usleep" >&5
 echo "${ECHO_T}$ac_cv_func_usleep" >&6
 if test $ac_cv_func_usleep = yes; then
   ODBC_FLAGS="$ODBC_FLAGS -DHAVE_USLEEP=1"
+fi
+
+echo "$as_me:$LINENO: checking for nanosleep" >&5
+echo $ECHO_N "checking for nanosleep... $ECHO_C" >&6
+if test "${ac_cv_func_nanosleep+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+/* Define nanosleep to an innocuous variant, in case <limits.h> declares nanosleep.
+   For example, HP-UX 11i <limits.h> declares gettimeofday.  */
+#define nanosleep innocuous_nanosleep
+
+/* System header to define __stub macros and hopefully few prototypes,
+    which can conflict with char nanosleep (); below.
+    Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
+    <limits.h> exists even on freestanding compilers.  */
+
+#ifdef __STDC__
+# include <limits.h>
+#else
+# include <assert.h>
+#endif
+
+#undef nanosleep
+
+/* Override any gcc2 internal prototype to avoid an error.  */
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+/* We use char because int might match the return type of a gcc2
+   builtin and then its argument prototype would still apply.  */
+char nanosleep ();
+/* The GNU C library defines this for functions which it implements
+    to always fail with ENOSYS.  Some functions are actually named
+    something starting with __ and the normal name is an alias.  */
+#if defined (__stub_nanosleep) || defined (__stub___nanosleep)
+choke me
+#else
+char (*f) () = nanosleep;
+#endif
+#ifdef __cplusplus
+}
+#endif
+
+int
+main ()
+{
+return f != nanosleep;
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"
+			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_func_nanosleep=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_func_nanosleep=no
+fi
+rm -f conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+fi
+echo "$as_me:$LINENO: result: $ac_cv_func_nanosleep" >&5
+echo "${ECHO_T}$ac_cv_func_nanosleep" >&6
+if test $ac_cv_func_nanosleep = yes; then
+  ODBC_FLAGS="$ODBC_FLAGS -DHAVE_NANOSLEEP=1"
 fi
 
 
@@ -21438,6 +21603,7 @@ s,@SQLITE3_LOADEXTENSION@,$SQLITE3_LOADEXTENSION,;t t
 s,@SQLITE3_TABLECOLUMNMETADATA@,$SQLITE3_TABLECOLUMNMETADATA,;t t
 s,@SQLITE3_VFS@,$SQLITE3_VFS,;t t
 s,@SQLITE3_PROFILE@,$SQLITE3_PROFILE,;t t
+s,@SQLITE3_STRNICMP@,$SQLITE3_STRNICMP,;t t
 s,@EXT_BLOBTOXY@,$EXT_BLOBTOXY,;t t
 s,@EXT_IMPEXP@,$EXT_IMPEXP,;t t
 s,@LIB_TARGETS@,$LIB_TARGETS,;t t
