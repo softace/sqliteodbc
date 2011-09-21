@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.124 2011/07/04 12:16:26 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.127 2011/09/20 14:15:30 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -1819,11 +1819,13 @@ freerows(char **rowp)
  * @param nosign pointer to indicator for unsigned field or NULL
  * @param ov3 boolean, true for SQL_OV_ODBC3
  * @param nowchar boolean, for WINTERFACE don't use WCHAR
+ * @param dobigint boolean, force SQL_BIGINT on INTEGER columns
  * @result SQL data type
  */
 
 static int
-mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
+mapsqltype(const char *typename, int *nosign, int ov3, int nowchar,
+	   int dobigint)
 {
     char *p, *q;
     int testsign = 0, result;
@@ -1926,6 +1928,11 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 	    *nosign = 1;
 	}
     }
+#ifdef SQL_BIGINT
+    if (dobigint && result == SQL_INTEGER) {
+	result = SQL_BIGINT;
+    }
+#endif
     xfree(p);
     return result;
 }
@@ -2087,7 +2094,7 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 #endif
 #ifdef SQL_BIGINT
 	case SQL_BIGINT:
-	    type = (nosign > 0) ? SQL_C_UBIGINT : SQL_C_SBIGINT;
+	    type = SQL_C_CHAR;
 	    break;
 #endif
 	default:
@@ -2357,7 +2364,7 @@ fixupdyncols(STMT *s, DBC *d)
     for (i = 0; i < s->dcols; i++) {
 	s->dyncols[i].type =
 	    mapsqltype(s->dyncols[i].typename, &s->dyncols[i].nosign, *s->ov3,
-		       s->nowchar[0] || s->nowchar[1]);
+		       s->nowchar[0] || s->nowchar[1], s->dobigint);
 	getmd(s->dyncols[i].typename, s->dyncols[i].type,
 	      &s->dyncols[i].size, &s->dyncols[i].prec);
 #ifdef SQL_LONGVARCHAR
@@ -2443,7 +2450,8 @@ fixupdyncols(STMT *s, DBC *d)
 		    s->dyncols[m].typename = xstrdup(typename);
 		    s->dyncols[m].type =
 			mapsqltype(typename, &s->dyncols[m].nosign, *s->ov3,
-				   s->nowchar[0] || s->nowchar[1]);
+				   s->nowchar[0] || s->nowchar[1],
+				   s->dobigint);
 		    getmd(typename, s->dyncols[m].type, &s->dyncols[m].size,
 			  &s->dyncols[m].prec);
 #ifdef SQL_LONGVARCHAR
@@ -6254,7 +6262,8 @@ nodata_but_rowid:
 					
 				    s->rows[roffs + 3] = xstrdup(typen);
 				    sqltype = mapsqltype(typen, NULL, *s->ov3,
-							 s->nowchar[0]);
+							 s->nowchar[0],
+							 s->dobigint);
 				    getmd(typen, sqltype, &mm, &dd);
 #ifdef SQL_LONGVARCHAR
 				    if (sqltype == SQL_VARCHAR && mm > 255) {
@@ -10338,7 +10347,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4], tracef[SQL_MAX_MESSAGE_LENGTH];
     char loadext[SQL_MAX_MESSAGE_LENGTH];
-    char sflag[32], spflag[32], ntflag[32], nwflag[32];
+    char sflag[32], spflag[32], ntflag[32], nwflag[32], biflag[32];
     char snflag[32], lnflag[32], ncflag[32], fkflag[32], jmode[32];
 #if defined(_WIN32) || defined(_WIN64)
     char oemcp[32];
@@ -10418,6 +10427,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     oemcp[0] = '\0';
     getdsnattr(buf, "oemcp", oemcp, sizeof (oemcp));
 #endif
+    biflag[0] = '\0';
+    getdsnattr(buf, "bigint", biflag, sizeof (biflag));
 #else
     SQLGetPrivateProfileString(buf, "timeout", "100000",
 			       busy, sizeof (busy), ODBC_INI);
@@ -10451,6 +10462,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     SQLGetPrivateProfileString(buf, "oemcp", "1",
 			       oemcp, sizeof (oemcp), ODBC_INI);
 #endif
+    SQLGetPrivateProfileString(buf, "bigint", "",
+			       biflag, sizeof (biflag), ODBC_INI);
 #endif
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
@@ -10472,6 +10485,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
 #else
     d->oemcp = 0;
 #endif
+    d->dobigint = getbool(biflag);
     ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag,
 		  jmode, busy);
     if (ret == SQL_SUCCESS) {
@@ -10631,7 +10645,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
-    char ncflag[32], nwflag[32], fkflag[32], jmode[32];
+    char ncflag[32], nwflag[32], fkflag[32], jmode[32], biflag[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -10767,6 +10781,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   jmode, sizeof (jmode), ODBC_INI);
     }
 #endif
+    biflag[0] = '\0';
+    getdsnattr(buf, "bigint", biflag, sizeof (biflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !biflag[0]) {
+	SQLGetPrivateProfileString(dsn, "bigint", "",
+				   biflag, sizeof (biflag), ODBC_INI);
+    }
+#endif
 
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
@@ -10789,10 +10811,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;FKSupport=%s;Tracefile=%s;"
-			 "JournalMode=%s;LoadExt=%s",
+			 "JournalMode=%s;LoadExt=%s;BigInt=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
 			 snflag, lnflag, ncflag, nwflag, fkflag, tracef,
-			 jmode, loadext);
+			 jmode, loadext, biflag);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -10813,6 +10835,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->nocreat = getbool(ncflag);
     d->nowchar = getbool(nwflag);
     d->fksupport = getbool(fkflag);
+    d->dobigint = getbool(biflag);
     d->oemcp = 0;
     ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, jmode, busy);
     if (ret == SQL_SUCCESS) {
@@ -10905,6 +10928,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->oemcp = &d->oemcp;
     s->nowchar[0] = d->nowchar;
     s->nowchar[1] = 0;
+    s->dobigint = d->dobigint;
     s->curtype = d->curtype;
     s->row_status0 = &s->row_status1;
     s->rowset_size = 1;
@@ -10918,7 +10942,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
 #ifdef _WIN64
     sprintf((char *) s->cursorname, "CUR_%I64X", (SQLUBIGINT) *stmt);
 #else
-    sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
+    sprintf((char *) s->cursorname, "CUR_%016lX", (long) *stmt);
 #endif
     sl = d->stmt;
     pl = NULL;
@@ -12853,7 +12877,7 @@ drvcolumns(SQLHSTMT stmt,
 			ir = asize * (roffs + mr);
 			s->rows[ir + 5] = xstrdup(typename);
 			sqltype = mapsqltype(typename, NULL, *s->ov3,
-					     s->nowchar[0]);
+					     s->nowchar[0], s->dobigint);
 			getmd(typename, sqltype, &mm, &dd);
 #ifdef SQL_LONGVARCHAR
 			if (sqltype == SQL_VARCHAR && mm > 255) {
@@ -14126,6 +14150,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	}
     } else if (s->rows) {
+	int rowp;
+
 	switch (orient) {
 	case SQL_FETCH_NEXT:
 	    if (s->nrows < 1) {
@@ -14211,8 +14237,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    ret = SQL_ERROR;
 	    goto done;
 	}
+	rowp = ++s->rowp;
 	for (; i < s->rowset_size; i++) {
-	    ++s->rowp;
 	    if (s->rowp < 0 || s->rowp >= s->nrows) {
 		break;
 	    }
@@ -14222,7 +14248,9 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
 		withinfo = 1;
 	    }
+	    ++s->rowp;
 	}
+	s->rowp = rowp;
     }
 done:
     if (i == 0) {
@@ -16444,7 +16472,8 @@ done:
 #define KEY_JMODE              13
 #define KEY_FKSUPPORT          14
 #define KEY_OEMCP              15
-#define NUMOFKEYS	       16
+#define KEY_BIGINT             16
+#define NUMOFKEYS	       17
 
 typedef struct {
     BOOL supplied;
@@ -16481,6 +16510,7 @@ static struct {
     { "JournalMode", KEY_JMODE },
     { "FKSupport", KEY_FKSUPPORT },
     { "OEMCP", KEY_OEMCP },
+    { "BigInt", KEY_BIGINT },
     { NULL, 0 }
 };
 
@@ -16623,6 +16653,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_LOADEXT].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_BIGINT].supplied) {
+	SQLWritePrivateProfileString(dsn, "BigInt",
+				     setupdlg->attr[KEY_BIGINT].attr,
+				     ODBC_INI);
+    }
     if (setupdlg->attr[KEY_DSN].supplied &&
 	strcasecmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
@@ -16724,6 +16759,12 @@ GetAttributes(SETUPDLG *setupdlg)
 				   sizeof (setupdlg->attr[KEY_JMODE].attr),
 				   ODBC_INI);
     }
+    if (!setupdlg->attr[KEY_BIGINT].supplied) {
+	SQLGetPrivateProfileString(dsn, "BigInt", "",
+				   setupdlg->attr[KEY_BIGINT].attr,
+				   sizeof (setupdlg->attr[KEY_BIGINT].attr),
+				   ODBC_INI);
+    }
 }
 
 /**
@@ -16822,6 +16863,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_OEMCP,
 		       getbool(setupdlg->attr[KEY_OEMCP].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_BIGINT,
+		       getbool(setupdlg->attr[KEY_BIGINT].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -16906,6 +16950,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_OEMCP].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_OEMCP) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_BIGINT].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_BIGINT) == BST_CHECKED) ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -17034,6 +17081,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_OEMCP,
 		       getbool(setupdlg->attr[KEY_OEMCP].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_BIGINT,
+		       getbool(setupdlg->attr[KEY_BIGINT].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -17103,6 +17153,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_OEMCP].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_OEMCP) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_BIGINT].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_BIGINT) == BST_CHECKED) ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -17198,7 +17251,8 @@ retry:
 			 "SyncPragma=%s;NoTXN=%s;Timeout=%s;"
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
-			 "FKSupport=%s;JournalMode=%s;OEMCP=%s;LoadExt=%s;",
+			 "FKSupport=%s;JournalMode=%s;OEMCP=%s;LoadExt=%s;"
+			 "BigInt=%s;",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -17217,7 +17271,8 @@ retry:
 			 setupdlg->attr[KEY_FKSUPPORT].attr,
 			 setupdlg->attr[KEY_JMODE].attr,
 			 setupdlg->attr[KEY_OEMCP].attr,
-			 setupdlg->attr[KEY_LOADEXT].attr);
+			 setupdlg->attr[KEY_LOADEXT].attr,
+			 setupdlg->attr[KEY_BIGINT].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -17247,6 +17302,7 @@ retry:
     d->nocreat = getbool(setupdlg->attr[KEY_NOCREAT].attr);
     d->fksupport = getbool(setupdlg->attr[KEY_FKSUPPORT].attr);
     d->oemcp = getbool(setupdlg->attr[KEY_OEMCP].attr);
+    d->dobigint = getbool(setupdlg->attr[KEY_BIGINT].attr);
     ret = dbopen(d, dbname ? dbname : "", 0,
 		 dsn ? dsn : "",
 		 setupdlg->attr[KEY_STEPAPI].attr,
@@ -17885,6 +17941,13 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
     prop->nPromptType = ODBCINST_PROMPTTYPE_TEXTEDIT;
     strncpy(prop->szName, "LoadExt", INI_MAX_PROPERTY_NAME);
     strncpy(prop->szValue, "", INI_MAX_PROPERTY_VALUE);
+    prop->pNext = (HODBCINSTPROPERTY) malloc(sizeof (ODBCINSTPROPERTY));
+    memset(prop, 0, sizeof (ODBCINSTPROPERTY));
+    prop->nPromptType = ODBCINST_PROMPTTYPE_COMBOBOX;
+    prop->aPromptData = malloc(sizeof (instYN));
+    memcpy(prop->aPromptData, instYN, sizeof (instYN));
+    strncpy(prop->szName, "BigInt", INI_MAX_PROPERTY_NAME);
+    strncpy(prop->szValue, "No", INI_MAX_PROPERTY_VALUE);
     return 1;
 }
 

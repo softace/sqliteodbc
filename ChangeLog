@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Wed Sep 21 2011 version 0.92 released
+
+	* update to SQLite 3.7.8
+	* another SQLSetPos() fix
+	* added "Always BIGINT" DSN option
+	* bug fixes in blobtoxy extension module
+	* segfault in SQLite 2 driver fixed, thanks Dave Peticolas
+
 Thu Jul 07 2011 version 0.91 released
 
 	* update to SQLite 3.7.7.1

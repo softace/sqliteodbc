@@ -18,8 +18,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.7.7.1
-VER3X=3070701
+VER3=3.7.8
+VER3X=3070800
 TCCVER=0.9.25
 
 nov2=false
@@ -434,7 +434,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
-  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" \
+  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -499,7 +499,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.57 2011/07/04 05:51:54 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.58 2011/09/20 14:05:46 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -651,7 +651,7 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.1" -a "$VER3" != "3.7.2" -a "$VER3" != "3.7.3" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
-  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" \
+  -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -734,6 +734,8 @@ patch -d sqlite3 -p1 <<'EOD'
  #include "fts3_tokenizer.h"
  
  typedef struct simple_tokenizer {
+EOD
+test "$VER3" != "3.7.8" && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
 @@ -29,6 +29,11 @@
@@ -1089,7 +1091,7 @@ EOD
 test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
-  -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
+  -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1115,7 +1117,7 @@ EOD
 
 # patch: .read shell command
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
-  -o "$VER3" = "3.7.7" -a "$VER3" != "3.7.7.1" \
+  -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1130,7 +1132,7 @@ test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
 EOD
 
 # patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
-test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
+test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
@@ -1145,6 +1147,9 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
  #include <string.h>
  #include <assert.h>
  
+EOD
+test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3.c	2011-06-25 06:48:49.000000000 +0200
 @@ -295,10 +295,6 @@
@@ -1167,6 +1172,34 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
  int sqlite3_extension_init(
    sqlite3 *db, 
    char **pzErrMsg,
+EOD
+test "$VER3" = "3.7.8" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/ext/fts3/fts3.c	2011-09-19 20:46:52.000000000 +0200
++++ sqlite3/ext/fts3/fts3.c	2011-09-20 09:47:40.000000000 +0200
+@@ -295,10 +295,6 @@
+ #include "fts3Int.h"
+ #if !defined(SQLITE_CORE) || defined(SQLITE_ENABLE_FTS3)
+ 
+-#if defined(SQLITE_ENABLE_FTS3) && !defined(SQLITE_CORE)
+-# define SQLITE_CORE 1
+-#endif
+-
+ #include <assert.h>
+ #include <stdlib.h>
+ #include <stddef.h>
+@@ -4826,7 +4822,7 @@
+   }
+ }
+ 
+-#if !SQLITE_CORE
++#ifndef SQLITE_CORE
+ /*
+ ** Initialize API pointer table, if required.
+ */
+EOD
+test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
 @@ -18,6 +18,11 @@
@@ -1195,6 +1228,9 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
  #include <string.h>
  #include <assert.h>
  
+EOD
+test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
+  && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_tokenizer.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_tokenizer.c	2011-06-25 06:50:19.000000000 +0200
 @@ -25,7 +25,7 @@

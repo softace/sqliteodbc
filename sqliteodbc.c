@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.183 2011/07/04 12:16:15 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.185 2011/09/20 14:15:30 chw Exp chw $
  *
  * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -9736,9 +9736,9 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->paramset_size = 1;
     s->parm_bind_type = SQL_PARAM_BIND_BY_COLUMN;
 #ifdef _WIN64
-    sprintf((char *) s->cursorname, "CUR_%08lX", (SQLUBIGINT) *stmt);
+    sprintf((char *) s->cursorname, "CUR_%I64X", (SQLUBIGINT) *stmt);
 #else
-    sprintf((char *) s->cursorname, "CUR_%08lX", (long) *stmt);
+    sprintf((char *) s->cursorname, "CUR_%016lX", (long) *stmt);
 #endif
     sl = d->stmt;
     pl = NULL;
@@ -11285,7 +11285,7 @@ drvcolumns(SQLHSTMT stmt,
     }
     /* pass 1; compute number of rows of result set */
     if (tncols * tnrows <= 0) {
-	sqlite_free_table(rowp);
+	sqlite_free_table(trows);
 	return SQL_SUCCESS;
     }
     size = 0;
@@ -12636,6 +12636,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	}
     } else if (s->rows) {
+	int rowp;
+
 	switch (orient) {
 	case SQL_FETCH_NEXT:
 	    if (s->nrows < 1) {
@@ -12721,8 +12723,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    ret = SQL_ERROR;
 	    goto done;
 	}
+	rowp = ++s->rowp;
 	for (; i < s->rowset_size; i++) {
-	    ++s->rowp;
 	    if (s->rowp < 0 || s->rowp >= s->nrows) {
 		break;
 	    }
@@ -12732,7 +12734,9 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
 		withinfo = 1;
 	    }
+	    ++s->rowp;
 	}
+	s->rowp = rowp;
     }
 done:
     if (i == 0) {

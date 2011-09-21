@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.35 2011/07/04 05:42:49 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.36 2011/08/20 08:14:35 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -129,6 +129,7 @@ typedef struct dbc {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar;		/**< Don't try to use WCHAR */
+    int dobigint;		/**< Force SQL_BIGINT for INTEGER columns */
     int shortnames;		/**< Always use short column names */
     int longnames;		/**< Don't shorten column names */
     int nocreat;		/**< Don't auto create database file */
@@ -247,6 +248,7 @@ typedef struct stmt {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar[2];		/**< Don't try to use WCHAR */
+    int dobigint;		/**< Force SQL_BIGINT for INTEGER columns */
     int longnames;		/**< Don't shorten column names */
     int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLUINTEGER rowset_size;	/**< Size of rowset */
