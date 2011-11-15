@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.127 2011/09/20 14:15:30 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.136 2011/11/12 04:35:40 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -11,7 +11,169 @@
  * DISCLAIMER OF ALL WARRANTIES.
  */
 
+#if defined(SQLITE_HAS_CODEC) && defined(SQLITE_API)
+#undef WITH_SQLITE_DLLS
+#undef SQLITE_DYNLOAD
+#include "sqlite3.c"
+#endif
+
+#if defined(WITH_SQLITE_DLLS) && (WITH_SQLITE_DLLS > 1)
+#define SQLITE_DYNLOAD 1
+#endif
+
 #include "sqlite3odbc.h"
+
+#ifdef SQLITE_DYNLOAD
+
+#undef MEMORY_DEBUG
+
+#if defined(_WIN32) || defined(_WIN64)
+static void dls_init(void);
+static void dls_fini(void);
+#else
+void dls_init(void);
+void dls_fini(void);
+#endif
+
+static struct dl_sqlite3_funcs {
+    void (*activate_see)(const char *p0);
+    int (*bind_blob)(sqlite3_stmt *p0, int p1, const void *p2, int p3,
+		     void (*p4)(void *));
+    int (*bind_double)(sqlite3_stmt *p0, int p1, double p2);
+    int (*bind_int)(sqlite3_stmt *p0, int p1, int p2);
+    int (*bind_int64)(sqlite3_stmt *p0, int p1, sqlite3_int64 p2);
+    int (*bind_null)(sqlite3_stmt *p0, int p1);
+    int (*bind_parameter_count)(sqlite3_stmt *p0);
+    int (*bind_text)(sqlite3_stmt *p0, int p1, const char *p2, int p3,
+		     void (*p4)(void *));
+    int (*busy_handler)(sqlite3 *p0, int (*p2)(void *, int), void *p3);
+    int (*changes)(sqlite3 *p0);
+    int (*close)(sqlite3 *p0);
+    const void * (*column_blob)(sqlite3_stmt *p0, int p1);
+    int (*column_bytes)(sqlite3_stmt *p0, int p1);
+    int (*column_count)(sqlite3_stmt *p0);
+    const char * (*column_database_name)(sqlite3_stmt *p0, int p1);
+    const char * (*column_decltype)(sqlite3_stmt *p0, int p1);
+    const char * (*column_name)(sqlite3_stmt *p0, int p1);
+    const char * (*column_origin_name)(sqlite3_stmt *p0, int p1);
+    const char * (*column_table_name)(sqlite3_stmt *p0, int p1);
+    const unsigned char * (*column_text)(sqlite3_stmt *p0, int p1);
+    int (*column_type)(sqlite3_stmt *p0, int p1);
+    int (*create_function)(sqlite3 *p0, const char *p1, int p2, int p3,
+			   void *p4,
+			   void (*p5)(sqlite3_context *, int, sqlite3_value **),
+			   void (*p6)(sqlite3_context *, int, sqlite3_value **),
+			   void (*p7)(sqlite3_context *));
+    int (*enable_load_extension)(sqlite3 *p0, int p1);
+    int (*errcode)(sqlite3 *p0);
+    const char * (*errmsg)(sqlite3 *p0);
+    int (*exec)(sqlite3 *p0, const char *p1,
+		int (*p2)(void *, int, char **, char **),
+		void *p3, char **p4);
+    int (*finalize)(sqlite3_stmt *p0);
+    void (*free)(void *p0);
+    void (*free_table)(char **p0);
+    int (*get_table)(sqlite3 *p0, const char *p1, char ***p2,
+		     int *p3, int *p4, char **p5);
+    void (*interrupt)(sqlite3 *p0);
+    int (*key)(sqlite3 *p0, const void *p1, int p2);
+    const char * (*libversion)(void);
+    int (*load_extension)(sqlite3 *p0, const char *p1, const char *p2,
+			  char **p3);
+    void * (*malloc)(int p0);
+    char * (*mprintf)(const char *p0, ...);
+    int (*open)(const char *p0, sqlite3 **p1);
+    int (*open16)(const void *p0, sqlite3 **p1);
+    int (*open_v2)(const char *p0, sqlite3 **p1, int p2, const char *p3);
+    int (*prepare)(sqlite3 *p0, const char *p1, int p2, sqlite3_stmt **p3,
+		   const char **p4);
+    int (*prepare_v2)(sqlite3 *p0, const char *p1, int p2, sqlite3_stmt **p3,
+		      const char **p4);
+    void * (*profile)(sqlite3 *p0,
+		      void (*p1)(void *, const char *, sqlite3_uint64),
+		      void *p2);
+    void * (*realloc)(void *p0, int p1);
+    int (*rekey)(sqlite3 *p0, const void *p1, int p2);
+    int (*reset)(sqlite3_stmt *p0);
+    void (*result_blob)(sqlite3_context *p0, const void *p1,
+			int p2, void (*p3)(void *));
+    void (*result_error)(sqlite3_context *p0, const char *p1, int p2);
+    void (*result_int)(sqlite3_context *p0, int p1);
+    void (*result_null)(sqlite3_context *p0);
+    int (*step)(sqlite3_stmt *p0);
+    int (*xstrnicmp)(const char *p0, const char *p1, int p2);
+    int (*table_column_metadata)(sqlite3 *p0, const char *p1,
+				 const char *p2, const char *p3,
+				 char const **p4, char const **p5,
+				 int *p6, int *p7, int *p8);
+    void * (*trace)(sqlite3 *p0, void (*p1)(void *, const char *), void *p2);
+    void * (*user_data)(sqlite3_context *p0);
+    const void * (*value_blob)(sqlite3_value *p0);
+    int (*value_bytes)(sqlite3_value *p0);
+    const unsigned char * (*value_text)(sqlite3_value *p0);
+    int (*value_type)(sqlite3_value *p0);
+} dls_funcs;
+
+#define sqlite3_activate_see          dls_funcs.activate_see
+#define sqlite3_bind_blob             dls_funcs.bind_blob
+#define sqlite3_bind_double           dls_funcs.bind_double
+#define sqlite3_bind_int              dls_funcs.bind_int
+#define sqlite3_bind_int64            dls_funcs.bind_int64
+#define sqlite3_bind_null             dls_funcs.bind_null
+#define sqlite3_bind_parameter_count  dls_funcs.bind_parameter_count
+#define sqlite3_bind_text             dls_funcs.bind_text
+#define sqlite3_busy_handler          dls_funcs.busy_handler
+#define sqlite3_changes               dls_funcs.changes
+#define sqlite3_close                 dls_funcs.close
+#define sqlite3_column_blob           dls_funcs.column_blob
+#define sqlite3_column_bytes          dls_funcs.column_bytes
+#define sqlite3_column_count          dls_funcs.column_count
+#define sqlite3_column_database_name  dls_funcs.column_database_name
+#define sqlite3_column_decltype       dls_funcs.column_decltype
+#define sqlite3_column_name           dls_funcs.column_name
+#define sqlite3_column_origin_name    dls_funcs.column_origin_name
+#define sqlite3_column_table_name     dls_funcs.column_table_name
+#define sqlite3_column_text           dls_funcs.column_text
+#define sqlite3_column_type           dls_funcs.column_type
+#define sqlite3_create_function       dls_funcs.create_function
+#define sqlite3_enable_load_extension dls_funcs.enable_load_extension
+#define sqlite3_errcode               dls_funcs.errcode
+#define sqlite3_errmsg                dls_funcs.errmsg
+#define sqlite3_exec                  dls_funcs.exec
+#define sqlite3_finalize              dls_funcs.finalize
+#define sqlite3_free                  dls_funcs.free
+#define sqlite3_free_table            dls_funcs.free_table
+#define sqlite3_get_table             dls_funcs.get_table
+#define sqlite3_interrupt             dls_funcs.interrupt
+#define sqlite3_key                   dls_funcs.key
+#define sqlite3_libversion            dls_funcs.libversion
+#define sqlite3_load_extension        dls_funcs.load_extension
+#define sqlite3_malloc                dls_funcs.malloc
+#define sqlite3_mprintf               dls_funcs.mprintf
+#define sqlite3_open                  dls_funcs.open
+#define sqlite3_open16                dls_funcs.open16
+#define sqlite3_open_v2               dls_funcs.open_v2
+#define sqlite3_prepare               dls_funcs.prepare
+#define sqlite3_prepare_v2            dls_funcs.prepare_v2
+#define sqlite3_profile               dls_funcs.profile
+#define sqlite3_realloc               dls_funcs.realloc
+#define sqlite3_rekey                 dls_funcs.rekey
+#define sqlite3_reset                 dls_funcs.reset
+#define sqlite3_result_blob           dls_funcs.result_blob
+#define sqlite3_result_error          dls_funcs.result_error
+#define sqlite3_result_int            dls_funcs.result_int
+#define sqlite3_result_null           dls_funcs.result_null
+#define sqlite3_step                  dls_funcs.step
+#define sqlite3_strnicmp              dls_funcs.xstrnicmp
+#define sqlite3_table_column_metadata dls_funcs.table_column_metadata
+#define sqlite3_trace                 dls_funcs.trace
+#define sqlite3_user_data             dls_funcs.user_data
+#define sqlite3_value_blob            dls_funcs.value_blob
+#define sqlite3_value_bytes           dls_funcs.value_bytes
+#define sqlite3_value_text            dls_funcs.value_text
+#define sqlite3_value_type            dls_funcs.value_type
+
+#endif
 
 #ifndef WITHOUT_WINTERFACE
 #define WINTERFACE
@@ -19,7 +181,7 @@
 #endif
 
 #if !defined(_WIN32) && !defined(_WIN64)
-#if !defined(WCHARSUPPORT) && defined(HAVE_SQLWCHAR) && HAVE_SQLWCHAR
+#if !defined(WCHARSUPPORT) && defined(HAVE_SQLWCHAR) && (HAVE_SQLWCHAR)
 #define WCHARSUPPORT
 #endif
 #endif
@@ -344,7 +506,7 @@ static int strcasecmp_(const char *a, const char *b)
 
 #endif
 
-#if defined(ENABLE_NVFS) && ENABLE_NVFS
+#if defined(ENABLE_NVFS) && (ENABLE_NVFS)
 extern void nvfs_init(void);
 extern const char *nvfs_makevfs(const char *);
 #endif
@@ -1203,7 +1365,7 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	int ncol;
 
 	tres.stmt = NULL;
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+#if defined(HAVE_SQLITE3PREPAREV2) && (HAVE_SQLITE3PREPAREV2)
 	dbtraceapi(d, "sqlite3_prepare_v2", sql);
 	rc = sqlite3_prepare_v2(d->sqlite, sql, -1, &tres.stmt, &sqlleft);
 #else
@@ -1891,7 +2053,8 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar,
 #endif
 #ifdef SQL_LONGVARCHAR
     } else if (strncmp(p, "text", 4) == 0 ||
-	       strncmp(p, "memo", 4) == 0) {
+	       strncmp(p, "memo", 4) == 0 ||
+	       strncmp(p, "longvarchar", 11) == 0) {
 #ifdef WINTERFACE
 	result = nowchar ? SQL_LONGVARCHAR : SQL_WLONGVARCHAR;
 #else
@@ -2334,7 +2497,7 @@ static void
 fixupdyncols(STMT *s, DBC *d)
 {
     int i;
-#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !HAVE_SQLITE3TABLECOLUMNMETADATA
+#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !(HAVE_SQLITE3TABLECOLUMNMETADATA)
     int k, pk, nn, t, r, nrows, ncols;
     char **rowp, *flagp, flags[128];
 #endif
@@ -2386,7 +2549,7 @@ fixupdyncols(STMT *s, DBC *d)
 	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
     }
-#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !HAVE_SQLITE3TABLECOLUMNMETADATA
+#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !(HAVE_SQLITE3TABLECOLUMNMETADATA)
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
 	if (flagp == NULL) {
@@ -3187,7 +3350,7 @@ blob_export(sqlite3_context *ctx, int nargs, sqlite3_value **args)
  */
 
 static void
-#if defined(HAVE_SQLITE3PROFILE) && HAVE_SQLITE3PROFILE
+#if defined(HAVE_SQLITE3PROFILE) && (HAVE_SQLITE3PROFILE)
 dbtrace(void *arg, const char *msg, sqlite_uint64 et)
 #else
 dbtrace(void *arg, const char *msg)
@@ -3197,7 +3360,7 @@ dbtrace(void *arg, const char *msg)
 
     if (msg && d->trace) {
 	int len = strlen(msg);
-#if defined(HAVE_SQLITE3PROFILE) && HAVE_SQLITE3PROFILE
+#if defined(HAVE_SQLITE3PROFILE) && (HAVE_SQLITE3PROFILE)
 	unsigned long s, f;
 #endif
 
@@ -3208,7 +3371,7 @@ dbtrace(void *arg, const char *msg)
 		end = ";\n";
 	    }
 	    fprintf(d->trace, "%s%s", msg, end);
-#if defined(HAVE_SQLITE3PROFILE) && HAVE_SQLITE3PROFILE
+#if defined(HAVE_SQLITE3PROFILE) && (HAVE_SQLITE3PROFILE)
 	    s = et / 1000000000LL;
 	    f = et % 1000000000LL;
 	    fprintf(d->trace, "-- took %lu.%09lu seconds\n", s, f);
@@ -3275,7 +3438,7 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 {
     char *endp = NULL;
     int rc, tmp, busyto = 100000;
-#if defined(HAVE_SQLITE3VFS) && HAVE_SQLITE3VFS
+#if defined(HAVE_SQLITE3VFS) && (HAVE_SQLITE3VFS)
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
     char *uname = name;
     const char *vfs_name = NULL;
@@ -3290,7 +3453,7 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 	sqlite3_close(d->sqlite);
 	d->sqlite = NULL;
     }
-#if defined(HAVE_SQLITE3VFS) && HAVE_SQLITE3VFS
+#if defined(HAVE_SQLITE3VFS) && (HAVE_SQLITE3VFS)
     if (d->nocreat) {
 	flags &= ~ SQLITE_OPEN_CREATE;
     }
@@ -3304,7 +3467,7 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 	}
     }
 #endif
-#if defined(ENABLE_NVFS) && ENABLE_NVFS
+#if defined(ENABLE_NVFS) && (ENABLE_NVFS)
     vfs_name = nvfs_makevfs(uname);
 #endif
 #ifdef SQLITE_OPEN_URI
@@ -3324,7 +3487,8 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 	if (isu) {
 	    cname = utf_to_wmb(name, -1);
 	}
-	if (GetFileAttributesA(cname ? cname : name) == 0xffffffff) {
+	if (GetFileAttributesA(cname ? cname : name) ==
+	    INVALID_FILE_ATTRIBUTES) {
 	    uc_free(cname);
 	    rc = SQLITE_CANTOPEN;
 	    setstatd(d, rc, "cannot open database",
@@ -3364,8 +3528,15 @@ connfail:
 	}
 	return SQL_ERROR;
     }
+#if defined(SQLITE_DYNLOAD) || defined(SQLITE_HAS_CODEC)
+    if (d->pwd) {
+	sqlite3_key(d->sqlite, d->pwd, d->pwdLen);
+    }
+#endif
+    d->pwd = NULL;
+    d->pwdLen = 0;
     if (d->trace) {
-#if defined(HAVE_SQLITE3PROFILE) && HAVE_SQLITE3PROFILE
+#if defined(HAVE_SQLITE3PROFILE) && (HAVE_SQLITE3PROFILE)
 	sqlite3_profile(d->sqlite, dbtrace, d);
 #else
 	sqlite3_trace(d->sqlite, dbtrace, d);
@@ -3465,7 +3636,7 @@ connfail:
 static void
 dbloadext(DBC *d, char *exts)
 {
-#if defined(HAVE_SQLITE3LOADEXTENSION) && HAVE_SQLITE3LOADEXTENSION
+#if defined(HAVE_SQLITE3LOADEXTENSION) && (HAVE_SQLITE3LOADEXTENSION)
     char *p;
     char path[SQL_MAX_MESSAGE_LENGTH];
     int plen = 0;
@@ -3571,7 +3742,7 @@ s3stmt_coltype(sqlite3_stmt *s3stmt, int col, DBC *d, int *guessed_types)
     return typename;
 }
 
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
 
 /**
  * Add meta data for column
@@ -3729,7 +3900,7 @@ s3stmt_step(STMT *s)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
 		s3stmt_addmeta(s->s3stmt, i, d, &dyncols[i]);
 #else
 		dyncols[i].autoinc = SQL_FALSE;
@@ -3914,14 +4085,14 @@ s3stmt_start(STMT *s)
 
     d->s3stmt_needmeta = 0;
     if (!s->s3stmt) {
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+#if defined(HAVE_SQLITE3PREPAREV2) && (HAVE_SQLITE3PREPAREV2)
 	dbtraceapi(d, "sqlite3_prepare_v2", (char *) s->query);
 #else
 	dbtraceapi(d, "sqlite3_prepare", (char *) s->query);
 #endif
 	do {
 	    s3stmt = NULL;
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+#if defined(HAVE_SQLITE3PREPAREV2) && (HAVE_SQLITE3PREPAREV2)
 	    rc = sqlite3_prepare_v2(d->sqlite, (char *) s->query, -1,
 				    &s3stmt, &endp);
 #else
@@ -5417,7 +5588,7 @@ doit:
 }
 
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Retrieve privileges on tables and/or views.
  * @param stmt statement handle
@@ -5489,7 +5660,7 @@ done2:
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Retrieve privileges on tables and/or views (UNICODE version).
@@ -5571,7 +5742,7 @@ static COL colPrivSpec3[] = {
     { "SYSTEM", "COLPRIV", "PRIVILEGE", SCOL_VARCHAR, 50 }
 };
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Retrieve privileges on columns.
  * @param stmt statement handle
@@ -5603,7 +5774,7 @@ SQLColumnPrivileges(SQLHSTMT stmt,
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Retrieve privileges on columns (UNICODE version).
@@ -7820,7 +7991,7 @@ done:
     return ret;
 }
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT).
  * @param htype handle type
@@ -7844,7 +8015,7 @@ SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT)
@@ -8180,7 +8351,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
     STMT *s = (STMT *) stmt;
-    SQLUINTEGER *uval = (SQLUINTEGER *) val;
+    SQLULEN *uval = (SQLULEN *) val;
 
     switch (attr) {
     case SQL_QUERY_TIMEOUT:
@@ -8230,7 +8401,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUSMALLINT **) val) = s->row_status;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROWS_FETCHED_PTR:
-	*((SQLUINTEGER **) val) = s->row_count;
+	*((SQLULEN **) val) = s->row_count;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS: {
 	STMT *s = (STMT *) stmt;
@@ -8239,10 +8410,10 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     }
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	*((SQLUINTEGER **) val) = s->parm_bind_offs;
+	*((SQLULEN **) val) = s->parm_bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	*((SQLUINTEGER *) val) = s->parm_bind_type;
+	*((SQLULEN *) val) = s->parm_bind_type;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	*((SQLUSMALLINT **) val) = s->parm_oper;
@@ -8251,27 +8422,32 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUSMALLINT **) val) = s->parm_status;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMS_PROCESSED_PTR:
-	*((SQLUINTEGER **) val) = s->parm_proc;
+	*((SQLULEN **) val) = s->parm_proc;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
-	*((SQLUINTEGER *) val) = s->paramset_size;
+	*((SQLULEN *) val) = s->paramset_size;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
-	*(SQLUINTEGER *) val = s->bind_type;
+	*(SQLULEN *) val = s->bind_type;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-	*((SQLUINTEGER **) val) = s->bind_offs;
+	*((SQLULEN **) val) = s->bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
-	*((SQLUINTEGER *) val) = s->max_rows;
+	*((SQLULEN *) val) = s->max_rows;
     case SQL_ATTR_MAX_LENGTH:
 	*((SQLINTEGER *) val) = 1000000000;
 	return SQL_SUCCESS;
+#ifdef SQL_ATTR_METADATA_ID
+    case SQL_ATTR_METADATA_ID:
+	*((SQLULEN *) val) = SQL_FALSE;
+	return SQL_SUCCESS;
+#endif
     }
     return drvunimplstmt(stmt);
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(WINTERFACE)
+#if (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC)) || !defined(WINTERFACE)
 /**
  * Get option of HSTMT.
  * @param stmt statement handle
@@ -8333,7 +8509,15 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER buflen)
 {
     STMT *s = (STMT *) stmt;
+#if defined(SQL_BIGINT) && defined(__WORDSIZE) && (__WORDSIZE == 64)
+    SQLBIGINT uval;
 
+    uval = (SQLBIGINT) val;
+#else
+    SQLULEN uval;
+
+    uval = (SQLULEN) val;
+#endif
     switch (attr) {
     case SQL_ATTR_CURSOR_TYPE:
 	if (val == (SQLPOINTER) SQL_CURSOR_FORWARD_ONLY) {
@@ -8379,18 +8563,18 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    val != (SQLPOINTER) SQL_RD_OFF) {
 	    goto e01s02;
 	}
-	s->retr_data = (PTRDIFF_T) val;
+	s->retr_data = uval;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
-	if ((PTRDIFF_T) val < 1) {
+	if (uval < 1) {
 	    setstat(s, -1, "invalid rowset size", "HY000");
 	    return SQL_ERROR;
 	} else {
 	    SQLUSMALLINT *rst = &s->row_status1;
 
-	    if ((PTRDIFF_T) val > 1) {
-		rst = xmalloc(sizeof (SQLUSMALLINT) * (PTRDIFF_T) val);
+	    if (uval > 1) {
+		rst = xmalloc(sizeof (SQLUSMALLINT) * uval);
 		if (!rst) {
 		    return nomem(s);
 		}
@@ -8399,20 +8583,20 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 		freep(&s->row_status0);
 	    }
 	    s->row_status0 = rst;
-	    s->rowset_size = (PTRDIFF_T) val;
+	    s->rowset_size = uval;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_STATUS_PTR:
 	s->row_status = (SQLUSMALLINT *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROWS_FETCHED_PTR:
-	s->row_count = (SQLUINTEGER *) val;
+	s->row_count = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	s->parm_bind_offs = (SQLUINTEGER *) val;
+	s->parm_bind_offs = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	s->parm_bind_type = (PTRDIFF_T) val;
+	s->parm_bind_type = uval;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	s->parm_oper = (SQLUSMALLINT *) val;
@@ -8421,20 +8605,20 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_status = (SQLUSMALLINT *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMS_PROCESSED_PTR:
-	s->parm_proc = (SQLUINTEGER *) val;
+	s->parm_proc = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
-	if ((PTRDIFF_T) val < 1) {
+	if (uval < 1) {
 	    goto e01s02;
 	}
-	s->paramset_size = (PTRDIFF_T) val;
+	s->paramset_size = uval;
 	s->paramset_count = 0;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
-	s->bind_type = (PTRDIFF_T) val;
+	s->bind_type = uval;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-	s->bind_offs = (SQLUINTEGER *) val;
+	s->bind_offs = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS:
 	if (val != (SQLPOINTER) SQL_UB_OFF &&
@@ -8444,18 +8628,25 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->bkmrk = val == (SQLPOINTER) SQL_UB_ON;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
-	s->max_rows = (PTRDIFF_T) val;
+	s->max_rows = uval;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_LENGTH:
 	if (val != (SQLPOINTER) 1000000000) {
 	    goto e01s02;
 	}
 	return SQL_SUCCESS;
+#ifdef SQL_ATTR_METADATA_ID
+    case SQL_ATTR_METADATA_ID:
+	if (val != (SQLPOINTER) SQL_FALSE) {
+	    goto e01s02;
+	}
+	return SQL_SUCCESS;
+#endif
     }
     return drvunimplstmt(stmt);
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(WINTERFACE)
+#if (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC)) || !defined(WINTERFACE)
 /**
  * Set option on HSTMT.
  * @param stmt statement handle
@@ -9262,7 +9453,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     return SQL_SUCCESS;
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(WINTERFACE)
+#if (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC)) || !defined(WINTERFACE)
 /**
  * Return information about what this ODBC driver supports.
  * @param dbc database connection handle
@@ -9493,7 +9684,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	SET_EXISTS(SQL_API_SQLSETENVATTR);
 	SET_EXISTS(SQL_API_SQLCLOSECURSOR);
 	SET_EXISTS(SQL_API_SQLBINDPARAM);
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 	/*
 	 * Some unixODBC versions have problems with
 	 * SQLError() vs. SQLGetDiagRec() with loss
@@ -9519,7 +9710,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	    case SQL_API_SQLSETENVATTR:
 	    case SQL_API_SQLCLOSECURSOR:
 	    case SQL_API_SQLBINDPARAM:
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 	    /*
 	     * Some unixODBC versions have problems with
 	     * SQLError() vs. SQLGetDiagRec() with loss
@@ -9565,7 +9756,7 @@ drvallocenv(SQLHENV *env)
     InitializeCriticalSection(&e->cs);
     e->owner = 0;
 #else
-#if defined(ENABLE_NVFS) && ENABLE_NVFS
+#if defined(ENABLE_NVFS) && (ENABLE_NVFS)
     nvfs_init();
 #endif
 #endif
@@ -9859,23 +10050,27 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLINTEGER *) val) = SQL_TXN_SERIALIZABLE;
 	*buflen = sizeof (SQLINTEGER);
 	break;
-    case SQL_ATTR_TRACE:
     case SQL_ATTR_TRACEFILE:
+    case SQL_ATTR_TRANSLATE_LIB:
+    case SQL_ATTR_CURRENT_CATALOG:
+	*((SQLCHAR *) val) = 0;
+	*buflen = 0;
+	break;
+    case SQL_ATTR_TRACE:
     case SQL_ATTR_QUIET_MODE:
     case SQL_ATTR_TRANSLATE_OPTION:
     case SQL_ATTR_KEYSET_SIZE:
     case SQL_ATTR_QUERY_TIMEOUT:
-    case SQL_ATTR_CURRENT_CATALOG:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	*((SQLULEN *) val) = SQL_PARAM_BIND_BY_COLUMN;
 	*buflen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ATTR_ROW_BIND_TYPE:
-	*((SQLUINTEGER *) val) = SQL_BIND_BY_COLUMN;
-	*buflen = sizeof (SQLUINTEGER);
+	*((SQLULEN *) val) = SQL_BIND_BY_COLUMN;
+	*buflen = sizeof (SQLULEN);
 	break;
     case SQL_ATTR_USE_BOOKMARKS:
 	*((SQLINTEGER *) val) = SQL_UB_OFF;
@@ -9918,6 +10113,11 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLINTEGER *) val) = SQL_RD_ON;
 	*buflen = sizeof (SQLINTEGER);
 	break;
+#ifdef SQL_ATTR_METADATA_ID
+    case SQL_ATTR_METADATA_ID:
+	*((SQLULEN *) val) = SQL_FALSE;
+	return SQL_SUCCESS;
+#endif
     default:
 	*((SQLINTEGER *) val) = 0;
 	*buflen = sizeof (SQLINTEGER);
@@ -10015,6 +10215,13 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	    s3stmt_end(d->cur_s3stmt);
 	}
 	return SQL_SUCCESS;
+#ifdef SQL_ATTR_METADATA_ID
+    case SQL_ATTR_METADATA_ID:
+	if (val == (SQLPOINTER) SQL_FALSE) {
+	    return SQL_SUCCESS;
+	}
+	/* fall through */
+#endif
     default:
 	setstatd(d, -1, "option value changed", "01S02");
 	return SQL_SUCCESS_WITH_INFO;
@@ -10334,12 +10541,15 @@ getdsnattr(char *dsn, char *attr, char *out, int outLen)
  * @param dbc database connection handle
  * @param dsn DSN string
  * @param dsnLen length of DSN string or SQL_NTS
+ * @param pwd password or NULL
+ * @param pwdLen length of password or SQL_NTS
  * @param isu true/false: file name is UTF8 encoded
  * @result ODBC error code
  */
 
 static SQLRETURN
-drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
+drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, char *pwd,
+	   int pwdLen, int isu)
 {
     DBC *d;
     int len;
@@ -10486,6 +10696,11 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
     d->oemcp = 0;
 #endif
     d->dobigint = getbool(biflag);
+    d->pwd = pwd;
+    d->pwdLen = 0;
+    if (d->pwd) {
+	d->pwdLen = (pwdLen == SQL_NTS) ? strlen(d->pwd) : pwdLen;
+    }
     ret = dbopen(d, dbname, isu, (char *) dsn, sflag, spflag, ntflag,
 		  jmode, busy);
     if (ret == SQL_SUCCESS) {
@@ -10502,20 +10717,20 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, int isu)
  * @param dsnLen length of DSN string or SQL_NTS
  * @param uid user id string or NULL
  * @param uidLen length of user id string or SQL_NTS
- * @param pass password string or NULL
- * @param passLen length of password string or SQL_NTS
+ * @param pwd password string or NULL
+ * @param pwdLen length of password string or SQL_NTS
  * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
 	   SQLCHAR *uid, SQLSMALLINT uidLen,
-	   SQLCHAR *pass, SQLSMALLINT passLen)
+	   SQLCHAR *pwd, SQLSMALLINT pwdLen)
 {
     SQLRETURN ret;
 
     HDBC_LOCK(dbc);
-    ret = drvconnect(dbc, dsn, dsnLen, 0);
+    ret = drvconnect(dbc, dsn, dsnLen, (char *) pwd, pwdLen, 0);
     HDBC_UNLOCK(dbc);
     return ret;
 }
@@ -10529,17 +10744,18 @@ SQLConnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen,
  * @param dsnLen length of DSN string or SQL_NTS
  * @param uid user id string or NULL
  * @param uidLen length of user id string or SQL_NTS
- * @param pass password string or NULL
- * @param passLen length of password string or SQL_NTS
+ * @param pwd password string or NULL
+ * @param pwdLen length of password string or SQL_NTS
  * @result ODBC error code
  */
 
 SQLRETURN SQL_API
 SQLConnectW(SQLHDBC dbc, SQLWCHAR *dsn, SQLSMALLINT dsnLen,
 	    SQLWCHAR *uid, SQLSMALLINT uidLen,
-	    SQLWCHAR *pass, SQLSMALLINT passLen)
+	    SQLWCHAR *pwd, SQLSMALLINT pwdLen)
 {
     char *dsna = NULL;
+    char *pwda = NULL;
     SQLRETURN ret;
 
     HDBC_LOCK(dbc);
@@ -10553,10 +10769,21 @@ SQLConnectW(SQLHDBC dbc, SQLWCHAR *dsn, SQLSMALLINT dsnLen,
 	    goto done;
 	}
     }
-    ret = drvconnect(dbc, (SQLCHAR *) dsna, SQL_NTS, 1);
+    if (pwd) {
+	pwda = uc_to_utf_c(pwd, pwdLen);
+	if (!pwda) {
+	    DBC *d = (DBC *) dbc;
+
+	    setstatd(d, -1, "out of memory", (*d->ov3) ? "HY000" : "S1000");
+	    ret = SQL_ERROR;
+	    goto done;
+	}
+    }
+    ret = drvconnect(dbc, (SQLCHAR *) dsna, SQL_NTS, pwda, SQL_NTS, 1);
 done:
     HDBC_UNLOCK(dbc);
     uc_free(dsna);
+    uc_free(pwda);
     return ret;
 }
 #endif
@@ -10644,6 +10871,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char buf[SQL_MAX_MESSAGE_LENGTH * 2], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
+    char pwd[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
     char ncflag[32], nwflag[32], fkflag[32], jmode[32], biflag[32];
 
@@ -10789,6 +11017,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   biflag, sizeof (biflag), ODBC_INI);
     }
 #endif
+    pwd[0] = '\0';
+    getdsnattr(buf, "pwd", pwd, sizeof (pwd));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !pwd[0]) {
+	SQLGetPrivateProfileString(dsn, "pwd", "",
+				   pwd, sizeof (pwd), ODBC_INI);
+    }
+#endif
 
     if (!dbname[0] && !dsn[0]) {
 	strcpy(dsn, "SQLite");
@@ -10811,10 +11047,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;FKSupport=%s;Tracefile=%s;"
-			 "JournalMode=%s;LoadExt=%s;BigInt=%s",
+			 "JournalMode=%s;LoadExt=%s;BigInt=%s;PWD=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
 			 snflag, lnflag, ncflag, nwflag, fkflag, tracef,
-			 jmode, loadext, biflag);
+			 jmode, loadext, biflag,pwd);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -10837,7 +11073,10 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->fksupport = getbool(fkflag);
     d->dobigint = getbool(biflag);
     d->oemcp = 0;
+    d->pwdLen = strlen(pwd);
+    d->pwd = (d->pwdLen > 0) ? pwd : NULL;
     ret = dbopen(d, dbname, 0, dsn, sflag, spflag, ntflag, jmode, busy);
+    memset(pwd, 0, sizeof (pwd));
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, loadext);
     }
@@ -14150,8 +14389,6 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	}
     } else if (s->rows) {
-	int rowp;
-
 	switch (orient) {
 	case SQL_FETCH_NEXT:
 	    if (s->nrows < 1) {
@@ -14237,8 +14474,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    ret = SQL_ERROR;
 	    goto done;
 	}
-	rowp = ++s->rowp;
 	for (; i < s->rowset_size; i++) {
+	    ++s->rowp;
 	    if (s->rowp < 0 || s->rowp >= s->nrows) {
 		break;
 	    }
@@ -14248,9 +14485,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
 		withinfo = 1;
 	    }
-	    ++s->rowp;
 	}
-	s->rowp = rowp;
     }
 done:
     if (i == 0) {
@@ -15435,7 +15670,7 @@ checkLen:
 	return SQL_ERROR;
     }
     if (val2) {
-	*(int *) val2 = v;
+	*(SQLLEN *) val2 = v;
     }
     return SQL_SUCCESS;
 }
@@ -15927,7 +16162,7 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && HAVE_SQLITE3TABLECOLUMNMETADATA
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
 		s3stmt_addmeta(s3stmt, i, d, &dyncols[i]);
 #else
 		dyncols[i].autoinc = SQL_FALSE;
@@ -15996,14 +16231,14 @@ noconn:
 	const char *rest;
 	sqlite3_stmt *s3stmt = NULL;
 
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+#if defined(HAVE_SQLITE3PREPAREV2) && (HAVE_SQLITE3PREPAREV2)
 	dbtraceapi(d, "sqlite3_prepare_v2", (char *) s->query);
 #else
 	dbtraceapi(d, "sqlite3_prepare", (char *) s->query);
 #endif
 	do {
 	    s3stmt = NULL;
-#if defined(HAVE_SQLITE3PREPAREV2) && HAVE_SQLITE3PREPAREV2
+#if defined(HAVE_SQLITE3PREPAREV2) && (HAVE_SQLITE3PREPAREV2)
 	    ret = sqlite3_prepare_v2(d->sqlite, (char *) s->query, -1,
 				     &s3stmt, &rest);
 #else
@@ -16473,7 +16708,8 @@ done:
 #define KEY_FKSUPPORT          14
 #define KEY_OEMCP              15
 #define KEY_BIGINT             16
-#define NUMOFKEYS	       17
+#define KEY_PASSWD             17
+#define NUMOFKEYS	       18
 
 typedef struct {
     BOOL supplied;
@@ -16511,6 +16747,7 @@ static struct {
     { "FKSupport", KEY_FKSUPPORT },
     { "OEMCP", KEY_OEMCP },
     { "BigInt", KEY_BIGINT },
+    { "PWD", KEY_PASSWD },
     { NULL, 0 }
 };
 
@@ -16658,6 +16895,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_BIGINT].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_PASSWD].supplied) {
+	SQLWritePrivateProfileString(dsn, "PWD",
+				     setupdlg->attr[KEY_PASSWD].attr,
+				     ODBC_INI);
+    }
     if (setupdlg->attr[KEY_DSN].supplied &&
 	strcasecmp(setupdlg->DSN, setupdlg->attr[KEY_DSN].attr)) {
 	SQLRemoveDSNFromIni(setupdlg->DSN);
@@ -16763,6 +17005,12 @@ GetAttributes(SETUPDLG *setupdlg)
 	SQLGetPrivateProfileString(dsn, "BigInt", "",
 				   setupdlg->attr[KEY_BIGINT].attr,
 				   sizeof (setupdlg->attr[KEY_BIGINT].attr),
+				   ODBC_INI);
+    }
+    if (!setupdlg->attr[KEY_PASSWD].supplied) {
+	SQLGetPrivateProfileString(dsn, "PWD", "",
+				   setupdlg->attr[KEY_PASSWD].attr,
+				   sizeof (setupdlg->attr[KEY_PASSWD].attr),
 				   ODBC_INI);
     }
 }
@@ -17252,7 +17500,7 @@ retry:
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
 			 "FKSupport=%s;JournalMode=%s;OEMCP=%s;LoadExt=%s;"
-			 "BigInt=%s;",
+			 "BigInt=%s;PWD=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -17272,7 +17520,8 @@ retry:
 			 setupdlg->attr[KEY_JMODE].attr,
 			 setupdlg->attr[KEY_OEMCP].attr,
 			 setupdlg->attr[KEY_LOADEXT].attr,
-			 setupdlg->attr[KEY_BIGINT].attr);
+			 setupdlg->attr[KEY_BIGINT].attr,
+			 setupdlg->attr[KEY_PASSWD].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -17303,6 +17552,8 @@ retry:
     d->fksupport = getbool(setupdlg->attr[KEY_FKSUPPORT].attr);
     d->oemcp = getbool(setupdlg->attr[KEY_OEMCP].attr);
     d->dobigint = getbool(setupdlg->attr[KEY_BIGINT].attr);
+    d->pwdLen = strlen(setupdlg->attr[KEY_PASSWD].attr);
+    d->pwd = (d->pwdLen > 0) ? setupdlg->attr[KEY_PASSWD].attr : NULL;
     ret = dbopen(d, dbname ? dbname : "", 0,
 		 dsn ? dsn : "",
 		 setupdlg->attr[KEY_STEPAPI].attr,
@@ -17316,6 +17567,8 @@ retry:
 	    goto retry;
 	}
     }
+    memset(setupdlg->attr[KEY_PASSWD].attr, 0,
+	   sizeof (setupdlg->attr[KEY_PASSWD].attr));
     if (ret == SQL_SUCCESS) {
 	dbloadext(d, setupdlg->attr[KEY_LOADEXT].attr);
     }
@@ -17457,15 +17710,25 @@ LibMain(HANDLE hinst, DWORD reason, LPVOID reserved)
 	    statSpec2P = statSpec2;
 	    statSpec3P = statSpec3;
 #endif
+#ifdef SQLITE_DYNLOAD
+	    dls_init();
+#endif
+#ifdef SQLITE_HAS_CODEC
+	    sqlite3_activate_see(SQLITE_ACTIVATION_KEY);
+#endif
 	}
-#if defined(ENABLE_NVFS) && ENABLE_NVFS
+#if defined(ENABLE_NVFS) && (ENABLE_NVFS)
 	nvfs_init();
 #endif
 	break;
     case DLL_THREAD_ATTACH:
 	break;
     case DLL_PROCESS_DETACH:
-	--initialized;
+	if (--initialized <= 0) {
+#ifdef SQLITE_DYNLOAD
+	    dls_fini();
+#endif
+	}
 	break;
     case DLL_THREAD_DETACH:
 	break;
@@ -17512,7 +17775,7 @@ InUnError(char *name)
 	sqlret = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
 	if (SQL_SUCCEEDED(sqlret)) {
 	    MessageBox(NULL, errmsg, name,
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+		       MB_ICONSTOP | MB_OK | MB_TASKMODAL | MB_SETFOREGROUND);
 	    ret = TRUE;
 	}
 	err++;
@@ -17529,8 +17792,13 @@ InUnError(char *name)
 static BOOL
 InUn(int remove, char *cmdline)
 {
+#ifdef SQLITE_HAS_CODEC
+    static char *drivername = "SQLite3 ODBC Driver (SEE)";
+    static char *dsname = "SQLite3 SEE Datasource";
+#else
     static char *drivername = "SQLite3 ODBC Driver";
     static char *dsname = "SQLite3 Datasource";
+#endif
     char *dllname, *p;
     char dllbuf[301], path[301], driver[300], attr[300], inst[400];
     WORD pathmax = sizeof (path) - 1, pathlen;
@@ -17573,14 +17841,14 @@ InUn(int remove, char *cmdline)
 	sprintf(inst, "%s\\%s", path, dllname);
 	if (!remove && usecnt > 0) {
 	    /* first install try: copy over driver dll, keeping DSNs */
-	    if (GetFileAttributes(dllbuf) != 0xFFFFFFFF &&
+	    if (GetFileAttributesA(dllbuf) != INVALID_FILE_ATTRIBUTES &&
 		CopyFile(dllbuf, inst, 0)) {
 		if (!quiet) {
 		    char buf[512];
 
 		    sprintf(buf, "%s replaced.", drivername);
 		    MessageBox(NULL, buf, "Info",
-			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_ICONINFORMATION | MB_OK | MB_TASKMODAL |
 			       MB_SETFOREGROUND);
 		}
 		return TRUE;
@@ -17604,7 +17872,7 @@ InUn(int remove, char *cmdline)
 		if (!quiet) {
 		    sprintf(buf, "%s uninstalled.", drivername);
 		    MessageBox(NULL, buf, "Info",
-			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_ICONINFORMATION |MB_OK | MB_TASKMODAL |
 			       MB_SETFOREGROUND);
 		}
 	    }
@@ -17619,7 +17887,7 @@ InUn(int remove, char *cmdline)
 	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
 	    return TRUE;
 	}
-	if (GetFileAttributes(dllbuf) == 0xFFFFFFFF) {
+	if (GetFileAttributesA(dllbuf) == INVALID_FILE_ATTRIBUTES) {
 	    return FALSE;
 	}
 	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
@@ -17627,7 +17895,7 @@ InUn(int remove, char *cmdline)
 
 	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);
 	    MessageBox(NULL, buf, "CopyFile",
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+		       MB_ICONSTOP |MB_OK | MB_TASKMODAL | MB_SETFOREGROUND); 
 	    return FALSE;
 	}
 	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,
@@ -17653,7 +17921,7 @@ InUn(int remove, char *cmdline)
 
 	    sprintf(buf, "%s installed.", drivername);
 	    MessageBox(NULL, buf, "Info",
-		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+		       MB_ICONINFORMATION | MB_OK | MB_TASKMODAL |
 		       MB_SETFOREGROUND);
 	}
     } else {
@@ -17832,7 +18100,7 @@ shell(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
 	freopen("CONOUT$", "w", stderr);
     }
     setargv(&argc, &argv, lpszCmdLine, (char *) name);
-#if defined(ENABLE_NVFS) && ENABLE_NVFS
+#if defined(ENABLE_NVFS) && (ENABLE_NVFS)
     nvfs_init();
 #endif
     sqlite3_main(argc, argv);
@@ -17842,7 +18110,7 @@ shell(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
 
 #endif /* _WIN32 || _WIN64 */
 
-#if defined(HAVE_ODBCINSTEXT_H) && HAVE_ODBCINSTEXT_H
+#if defined(HAVE_ODBCINSTEXT_H) && (HAVE_ODBCINSTEXT_H)
 
 /*
  * unixODBC property page for this driver,
@@ -17952,3 +18220,226 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
 }
 
 #endif /* HAVE_ODBCINSTEXT_H */
+
+#ifdef SQLITE_DYNLOAD
+
+/*
+ * SQLite3 shared library/DLL stubs.
+ */
+
+static void
+dls_void(void)
+{
+}
+
+static int
+dls_error(void)
+{
+    return SQLITE_ERROR;
+}
+
+static int
+dls_0(void)
+{
+    return 0;
+}
+
+static void *
+dls_null(void)
+{
+    return NULL;
+}
+
+static const char *
+dls_empty(void)
+{
+    return "";
+}
+
+static int
+dls_snull(void)
+{
+    return SQLITE_NULL;
+}
+
+#define DLS_ENT(name, func)						\
+    { "sqlite3_" #name, offsetof(struct dl_sqlite3_funcs, name),	\
+      (void *) func }
+
+#define DLS_ENT3(name, off, func)					\
+    { "sqlite3_" #name, offsetof(struct dl_sqlite3_funcs, off),		\
+      (void *) func }
+
+#define DLS_END { NULL, 0, NULL }
+
+static struct {
+    const char *name;
+    int offset;
+    void *func;
+} dls_nametab[] = {
+    DLS_ENT(activate_see, dls_void),
+    DLS_ENT(bind_blob, dls_error),
+    DLS_ENT(bind_double, dls_error),
+    DLS_ENT(bind_int, dls_error),
+    DLS_ENT(bind_int64, dls_error),
+    DLS_ENT(bind_null, dls_error),
+    DLS_ENT(bind_parameter_count, dls_0),
+    DLS_ENT(bind_text, dls_error),
+    DLS_ENT(busy_handler, dls_error),
+    DLS_ENT(changes, dls_0),
+    DLS_ENT(close, dls_error),
+    DLS_ENT(column_blob, dls_null),
+    DLS_ENT(column_bytes, dls_0),
+    DLS_ENT(column_count, dls_0),
+    DLS_ENT(column_database_name, dls_empty),
+    DLS_ENT(column_decltype, dls_empty),
+    DLS_ENT(column_name, dls_empty),
+    DLS_ENT(column_origin_name, dls_null),
+    DLS_ENT(column_table_name, dls_null),
+    DLS_ENT(column_text, dls_null),
+    DLS_ENT(column_type, dls_snull),
+    DLS_ENT(create_function, dls_error),
+    DLS_ENT(enable_load_extension, dls_error),
+    DLS_ENT(errcode, dls_error),
+    DLS_ENT(errmsg, dls_empty),
+    DLS_ENT(exec, dls_error),
+    DLS_ENT(finalize, dls_error),
+    DLS_ENT(free, free),
+    DLS_ENT(free_table, dls_void),
+    DLS_ENT(get_table, dls_error),
+    DLS_ENT(interrupt, dls_void),
+    DLS_ENT(key, dls_error),
+    DLS_ENT(libversion, dls_empty),
+    DLS_ENT(load_extension, dls_error),
+    DLS_ENT(malloc, malloc),
+    DLS_ENT(mprintf, dls_null),
+    DLS_ENT(open, dls_error),
+    DLS_ENT(open16, dls_error),
+    DLS_ENT(open_v2, dls_error),
+    DLS_ENT(prepare, dls_error),
+    DLS_ENT(prepare_v2, dls_error),
+    DLS_ENT(profile, dls_null),
+    DLS_ENT(realloc, realloc),
+    DLS_ENT(rekey, dls_error),
+    DLS_ENT(reset, dls_error),
+    DLS_ENT(result_blob, dls_void),
+    DLS_ENT(result_error, dls_void),
+    DLS_ENT(result_int, dls_void),
+    DLS_ENT(result_null, dls_void),
+    DLS_ENT(step, dls_error),
+#if defined(_WIN32) || defined(_WIN64)
+    DLS_ENT3(strnicmp, xstrnicmp, _strnicmp),
+#else
+    DLS_ENT3(strnicmp, xstrnicmp, strncasecmp),
+#endif
+    DLS_ENT(table_column_metadata, dls_error),
+    DLS_ENT(trace, dls_null),
+    DLS_ENT(user_data, dls_null),
+    DLS_ENT(value_blob, dls_null),
+    DLS_ENT(value_bytes, dls_0),
+    DLS_ENT(value_text, dls_empty),
+    DLS_ENT(value_type, dls_snull),
+    DLS_END
+};
+
+#if defined(_WIN32) || defined(_WIN64)
+
+static HMODULE sqlite3_dll = 0;
+
+static void
+dls_init(void)
+{
+    int i;
+    static const char *dll_names[] = {
+	"System.Data.SQLite.dll",
+	"sqlite3.dll",
+	NULL,
+    };
+
+    i = 0;
+    while (dll_names[i]) {
+	sqlite3_dll = LoadLibrary(dll_names[i]);
+	if (sqlite3_dll) {
+	    break;
+	}
+	++i;
+    }
+    i = 0;
+    while (dls_nametab[i].name) {
+	void *func = 0, **loc;
+
+	if (sqlite3_dll) {
+	    func = (void *) GetProcAddress(sqlite3_dll, dls_nametab[i].name);
+	}
+	if (!func) {
+	    func = dls_nametab[i].func;
+	}
+	loc = (void **) ((char *) &dls_funcs + dls_nametab[i].offset);
+	*loc = func;
+	++i;
+    }
+    if (!sqlite3_dll) {
+	char buf[MAXPATHLEN], msg[MAXPATHLEN];
+
+	LoadString(hModule, IDS_DRVTITLE, buf, sizeof (buf));
+	LoadString(hModule, IDS_DLLERR, msg, sizeof (msg));
+	MessageBox(NULL, msg, buf,
+		   MB_ICONEXCLAMATION | MB_OK | MB_TASKMODAL |
+		   MB_SETFOREGROUND);
+    }
+}
+
+static void
+dls_fini(void)
+{
+    if (sqlite3_dll) {
+	FreeLibrary(sqlite3_dll);
+	sqlite3_dll = 0;
+    }
+}
+
+#else
+
+#include <dlfcn.h>
+
+static void *libsqlite3_so = 0;
+
+void
+dls_init(void)
+{
+    int i;
+
+    libsqlite3_so = dlopen("libsqlite3.so.0", RTLD_NOW | RTLD_GLOBAL);
+    i = 0;
+    while (dls_nametab[i].name) {
+	void *func = 0, **loc;
+
+	if (libsqlite3_so) {
+	    func = dlsym(libsqlite3_so, dls_nametab[i].name);
+	}
+	if (!func) {
+	    func = dls_nametab[i].func;
+	}
+	loc = (void **) ((char *) &dls_funcs + dls_nametab[i].offset);
+	*loc = func;
+	++i;
+    }
+    if (!libsqlite3_so) {
+	const char errmsg[] = "SQLite3 shared library not found.\n";
+
+	write(2, errmsg, sizeof (errmsg) - 1);
+    }
+}
+
+void
+dls_fini(void)
+{
+    if (libsqlite3_so) {
+	dlclose(libsqlite3_so);
+	libsqlite3_so = 0;
+    }
+}
+
+#endif
+
+#endif

@@ -9,7 +9,7 @@ MAKENSIS =	makensis
 
 DRV_VER=	$(shell cat VERSION)
 
-CFLAGS=		-O2 -Wall -DDRIVER_VER_INFO=\"$(DRV_VER)\"
+CFLAGS=		-O2 -Wall -DNDEBUG=1 -DDRIVER_VER_INFO=\"$(DRV_VER)\"
 
 SQLITE3_INC =	sqlite3
 SQLITE3_SRC =	sqlite3/src
@@ -36,13 +36,12 @@ ODBC_FLAGS =	-DHAVE_LONG_LONG=1 -DHAVE_SQLROWOFFSET=1 -DHAVE_SQLLEN=1 \
 		-DPTRDIFF_T=ptrdiff_t
 ODBC_LIB =	-lodbc
 
-all:		sqlite3odbc.dll \
+all:		sqlite3odbc$(SEEEXT).dll \
 		sqlite3_mod_blobtoxy.dll \
 		sqlite3_mod_impexp.dll \
-		sqlite3.exe \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
-		addsysdsn.exe remsysdsn.exe
+		addsysdsn.exe remsysdsn.exe $(SQLITE3_EXE)
 
 sqlite3a10n.o:	$(SQLITE3_A10N)
 		$(CC) $(CFLAGS) -c -I$(SQLITE3_INC) $(SQLITE3_A10N_FLAGS) \
@@ -57,27 +56,28 @@ sqlite3odbcnw.o:	sqlite3odbc.c sqlite3odbc.h resource3.h
 		    $(SQLITE3_FLAGS) $(ADD_CFLAGS) -DWITHOUT_WINTERFACE=1 \
 		    -o sqlite3odbcnw.o sqlite3odbc.c
 
-sqlite3odbc.dll:	sqlite3odbc.o sqlite3odbcres.o sqlite3a10n.o
+sqlite3odbc$(SEEEXT).dll:	sqlite3odbc.o sqlite3odbcres.o $(SQLITE3_A10N_O)
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--out-implib,libsqlite3odbc.a -Wl,--strip-all \
-		    -o sqlite3odbc.dll \
-		    sqlite3odbc.o sqlite3odbcres.o sqlite3a10n.o \
+		    -o sqlite3odbc$(SEEEXT).dll \
+		    sqlite3odbc.o sqlite3odbcres.o $(SQLITE3_A10N_O) \
 		    -lodbc32 -lodbccp32 -lcomdlg32 \
-		    -lkernel32 -luser32 -lmsvcrt
-		$(STRIP) sqlite3odbc.dll
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_DLL)
+		$(STRIP) sqlite3odbc$(SEEEXT).dll
 
-sqlite3odbcnw.dll:	sqlite3odbcnw.o sqlite3odbcres.o sqlite3a10n.o
+sqlite3odbc$(SEEEXT)nw.dll:	sqlite3odbcnw.o sqlite3odbcres.o $(SQLITE3_A10N_O)
 		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
 		    -Wl,--out-implib,libsqlite3odbcnw.a -Wl,--strip-all \
-		    -o sqlite3odbcnw.dll \
-		    sqlite3odbcnw.o sqlite3odbcres.o sqlite3a10n.o \
+		    -o sqlite3odbc$(SEEEXT)nw.dll \
+		    sqlite3odbcnw.o sqlite3odbcres.o $(SQLITE3_A10N_O) \
 		    -lodbc32 -lodbccp32 -lcomdlg32 \
-		    -lkernel32 -luser32 -lmsvcrt
-		$(STRIP) sqlite3odbcnw.dll
+		    -lkernel32 -luser32 -lmsvcrt $(SQLITE3_DLL)
+		$(STRIP) sqlite3odbc$(SEEEXT)nw.dll
 
-sqlite3.exe:		sqlite3odbc.dll sqlite3/src/minshell.c sqliteres.o
+sqlite3.exe:		sqlite3odbc$(SEEEXT).dll sqlite3/src/minshell.c sqliteres.o
 		$(CC) $(CFLAGS) $(SQLITE3_FLAGS) -Isqlite3 -o sqlite3.exe \
-		    sqlite3/src/minshell.c sqliteres.o -L. -lsqlite3odbc
+		    sqlite3/src/minshell.c sqliteres.o \
+		    -L. -lsqlite3odbc$(SEEEXT)
 		$(STRIP) sqlite3.exe
 
 sqlite3odbcres.o:	sqlite3odbc.rc resource3.h
@@ -147,7 +147,7 @@ sqlite3_mod_impexp.dll:	impexp.o
 		    impexp.o -lcomdlg32
 
 clean:
-		rm -f *.o sqlite3odbc.dll \
+		rm -f *.o sqlite3odbc$(SEEEXT).dll \
 		    sqlite3_mod_blobtoxy.dll \
 		    sqlite3_mod_impexp.dll \
 		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ \

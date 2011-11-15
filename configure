@@ -463,7 +463,7 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
-ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_LIB SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE SQLITE3_STRNICMP EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO DRVDIR SPEC_CHANGELOG_TS DEB_CHANGELOG_TS LIBOBJS LTLIBOBJS'
+ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS build build_cpu build_vendor build_os host host_cpu host_vendor host_os CC CFLAGS LDFLAGS CPPFLAGS ac_ct_CC EXEEXT OBJEXT SED EGREP LN_S ECHO AR ac_ct_AR RANLIB ac_ct_RANLIB STRIP ac_ct_STRIP CPP CXX CXXFLAGS ac_ct_CXX CXXCPP F77 FFLAGS ac_ct_F77 LIBTOOL INSTALL_PROGRAM INSTALL_SCRIPT INSTALL_DATA SQLITE_INC SQLITE_LIB SQLITE_LIBVERSION SQLITE_ENCDEC SQLITE_ATOF SQLITE_MPRINTF SQLITE_TRACE SQLITE3_INC SQLITE3_A10N_C SQLITE3_A10N_O SQLITE3_A10N_FLAGS SQLITE3_COLUMNTABLENAME SQLITE3_OVERLOADFUNCTION SQLITE3_PREPARE_V2 SQLITE3_CLEARBINDINGS SQLITE3_CREATEMODULE_V2 SQLITE3_LOADEXTENSION SQLITE3_TABLECOLUMNMETADATA SQLITE3_VFS SQLITE3_PROFILE SQLITE3_STRNICMP EXT_BLOBTOXY EXT_IMPEXP LIB_TARGETS INST_TARGETS UNINST_TARGETS DRVINST_TARGETS DRVUNINST_TARGETS ODBC_FLAGS ODBC_LIB VER_INFO DRVDIR DL_OPTS DL_INITFINI SQLITE3_LIB SPEC_CHANGELOG_TS DEB_CHANGELOG_TS LIBOBJS LTLIBOBJS'
 ac_subst_files=''
 
 # Initialize some variables set by options.
@@ -1038,6 +1038,7 @@ Optional Packages:
   --with-sqlite=DIR       use SQLite header/lib from DIR
   --with-sqlite3=DIR      use SQLite3 hdr/lib from DIR
   --with-odbc=DIR         use ODBC header/libs from DIR
+  --with-dls              dlopen SQLite3 lib
 
 Some influential environment variables:
   CC          C compiler command
@@ -3068,7 +3069,7 @@ ia64-*-hpux*)
   ;;
 *-*-irix6*)
   # Find out which ABI we are using.
-  echo '#line 3071 "configure"' > conftest.$ac_ext
+  echo '#line 3072 "configure"' > conftest.$ac_ext
   if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -4558,7 +4559,7 @@ fi
 
 
 # Provide some information about the compiler.
-echo "$as_me:4561:" \
+echo "$as_me:4562:" \
      "checking for Fortran 77 compiler version" >&5
 ac_compiler=`set X $ac_compile; echo $2`
 { (eval echo "$as_me:$LINENO: \"$ac_compiler --version </dev/null >&5\"") >&5
@@ -5625,11 +5626,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:5628: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:5629: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:5632: \$? = $ac_status" >&5
+   echo "$as_me:5633: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -5893,11 +5894,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:5896: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:5897: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:5900: \$? = $ac_status" >&5
+   echo "$as_me:5901: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -5997,11 +5998,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6000: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6001: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:6004: \$? = $ac_status" >&5
+   echo "$as_me:6005: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -7466,7 +7467,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 7469 "configure"' > conftest.$ac_ext
+    echo '#line 7470 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -8363,7 +8364,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 8366 "configure"
+#line 8367 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -8463,7 +8464,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 8466 "configure"
+#line 8467 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -10810,11 +10811,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:10813: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:10814: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:10817: \$? = $ac_status" >&5
+   echo "$as_me:10818: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -10914,11 +10915,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:10917: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:10918: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:10921: \$? = $ac_status" >&5
+   echo "$as_me:10922: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -11450,7 +11451,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 11453 "configure"' > conftest.$ac_ext
+    echo '#line 11454 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -12508,11 +12509,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:12511: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:12512: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:12515: \$? = $ac_status" >&5
+   echo "$as_me:12516: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -12612,11 +12613,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:12615: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:12616: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:12619: \$? = $ac_status" >&5
+   echo "$as_me:12620: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -14061,7 +14062,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 14064 "configure"' > conftest.$ac_ext
+    echo '#line 14065 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -14843,11 +14844,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:14846: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:14847: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:14850: \$? = $ac_status" >&5
+   echo "$as_me:14851: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -15111,11 +15112,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:15114: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:15115: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:15118: \$? = $ac_status" >&5
+   echo "$as_me:15119: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -15215,11 +15216,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:15218: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:15219: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:15222: \$? = $ac_status" >&5
+   echo "$as_me:15223: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -16684,7 +16685,7 @@ linux*)
   libsuff=
   case "$host_cpu" in
   x86_64*|s390x*|powerpc64*)
-    echo '#line 16687 "configure"' > conftest.$ac_ext
+    echo '#line 16688 "configure"' > conftest.$ac_ext
     if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -18588,7 +18589,6 @@ echo "${ECHO_T}yes" >&6
       SQLITE3_A10N_FLAGS="$SQLITE3_A10N_FLAGS -DSQLITE_THREADSAFE=1"
    fi
 fi
-
 
 
 
@@ -20900,6 +20900,28 @@ else
 fi
 
 
+##########
+# Experimental: dlopen for resolving SQLite3 symbols
+#
+
+# Check whether --with-dls or --without-dls was given.
+if test "${with_dls+set}" = set; then
+  withval="$with_dls"
+  WITH_DLS=1
+else
+  WITH_DLS=0
+fi;
+if test "$DLOPENFORGPPS" = "1" ; then
+   if test "$WITH_DLS" = "1" ; then
+      DL_OPTS="-DSQLITE_DYNLOAD=1"
+      SQLITE3_LIB=""
+      DL_INITFINI="-Wl,-init,dls_init -Wl,-fini,dls_fini"
+   fi
+fi
+
+
+
+
 #########
 # Generate the output files.
 #
@@ -21590,7 +21612,6 @@ s,@SQLITE_ATOF@,$SQLITE_ATOF,;t t
 s,@SQLITE_MPRINTF@,$SQLITE_MPRINTF,;t t
 s,@SQLITE_TRACE@,$SQLITE_TRACE,;t t
 s,@SQLITE3_INC@,$SQLITE3_INC,;t t
-s,@SQLITE3_LIB@,$SQLITE3_LIB,;t t
 s,@SQLITE3_A10N_C@,$SQLITE3_A10N_C,;t t
 s,@SQLITE3_A10N_O@,$SQLITE3_A10N_O,;t t
 s,@SQLITE3_A10N_FLAGS@,$SQLITE3_A10N_FLAGS,;t t
@@ -21615,6 +21636,9 @@ s,@ODBC_FLAGS@,$ODBC_FLAGS,;t t
 s,@ODBC_LIB@,$ODBC_LIB,;t t
 s,@VER_INFO@,$VER_INFO,;t t
 s,@DRVDIR@,$DRVDIR,;t t
+s,@DL_OPTS@,$DL_OPTS,;t t
+s,@DL_INITFINI@,$DL_INITFINI,;t t
+s,@SQLITE3_LIB@,$SQLITE3_LIB,;t t
 s,@SPEC_CHANGELOG_TS@,$SPEC_CHANGELOG_TS,;t t
 s,@DEB_CHANGELOG_TS@,$DEB_CHANGELOG_TS,;t t
 s,@LIBOBJS@,$LIBOBJS,;t t

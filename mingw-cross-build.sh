@@ -7,36 +7,60 @@
 # Cross toolchain and NSIS for Linux/i386 can be fetched from
 #  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.i386.rpm
 #  http://www.ch-werner.de/xtools/nsis-2.37-1.i386.rpm
+# or
+#  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.tar.gz
+#  http://www.ch-werner.de/xtools/nsis-2.37-1_i386.tar.gz
 
 # Some aspects of the build process can be controlled by shell variables:
 #
 #  NO_SQLITE2=1      omit building SQLite 2 and drivers for it
 #  NO_TCCEXT=1       omit building TCC extension
-#  SQLITE_DLLS=1     build and package drivers with SQLite 2/3 DLLs
 #  WITH_SOURCES=1    add source directory to NSIS installer
+#  SQLITE_DLLS=1     build and package drivers with SQLite 2/3 DLLs
+#  SQLITE_DLLS=2     build drivers with refs to SQLite 2/3 DLLs
+#                    SQLite3 driver can use System.Data.SQlite.dll
 
 set -e
 
 VER2=2.8.17
-VER3=3.7.8
-VER3X=3070800
+VER3=3.7.9
+VER3X=3070900
 TCCVER=0.9.25
 
 nov2=false
 if test -n "$NO_SQLITE2" ; then
-    ADD_NSIS="-DWITHOUT_SQLITE2"
     nov2=true
+    ADD_NSIS="-DWITHOUT_SQLITE2"
 fi
 
 notcc=false
 if test -n "$NO_TCCEXT" ; then
-    ADD_NSIS="$ADD_NSIS -DWITHOUT_TCCEXT"
     notcc=true
+    ADD_NSIS="$ADD_NSIS -DWITHOUT_TCCEXT"
+else
+    export SQLITE_TCC_DLL="sqlite+tcc.dll"
 fi
 
-if test -n "$SQLITE_DLLS" ; then
+if test -f "$WITH_SEE" ; then
+    export SEEEXT=see
+    ADD_NSIS="$ADD_NSIS -DWITH_SEE=$SEEEXT"
+    if test "$SQLITE_DLLS" = "2" ; then
+	SQLITE_DLLS=1
+    fi
+fi
+
+if test "$SQLITE_DLLS" = "2" ; then
+    # turn on -DSQLITE_DYNLOAD in sqlite3odbc.c
+    export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=2"
+    ADD_NSIS="$ADD_NSIS -DWITHOUT_SQLITE3_EXE"
+elif test -n "$SQLITE_DLLS" ; then
     export ADD_CFLAGS="-DWITHOUT_SHELL=1 -DWITH_SQLITE_DLLS=1"
+    export SQLITE3_DLL="-Lsqlite3 -lsqlite3"
+    export SQLITE3_EXE="sqlite3.exe"
     ADD_NSIS="$ADD_NSIS -DWITH_SQLITE_DLLS"
+else
+    export SQLITE3_A10N_O="sqlite3a10n.o"
+    export SQLITE3_EXE="sqlite3.exe"
 fi
 
 if test -n "$WITH_SOURCES" ; then
@@ -435,6 +459,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
+  -a "$VER3" != "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -499,7 +524,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.58 2011/09/20 14:05:46 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.63 2011/11/08 16:50:53 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -652,6 +677,7 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
+  -a "$VER3" != "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -735,7 +761,7 @@ patch -d sqlite3 -p1 <<'EOD'
  
  typedef struct simple_tokenizer {
 EOD
-test "$VER3" != "3.7.8" && patch -d sqlite3 -p1 <<'EOD'
+test "$VER3" != "3.7.8" -a "$VER3" != "3.7.9" && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
 @@ -29,6 +29,11 @@
@@ -1092,6 +1118,7 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
+  -o "$VER3" = "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1118,6 +1145,7 @@ EOD
 # patch: .read shell command
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
+  -o "$VER3" = "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1133,6 +1161,7 @@ EOD
 
 # patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
+  -o "$VER3" = "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
@@ -1173,7 +1202,7 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
    sqlite3 *db, 
    char **pzErrMsg,
 EOD
-test "$VER3" = "3.7.8" \
+test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c	2011-09-19 20:46:52.000000000 +0200
 +++ sqlite3/ext/fts3/fts3.c	2011-09-20 09:47:40.000000000 +0200
@@ -1199,6 +1228,7 @@ test "$VER3" = "3.7.8" \
  */
 EOD
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
+  -o "$VER3" = "3.7.9" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
@@ -1355,6 +1385,23 @@ echo "====================="
 make -C sqlite3 -f ../mf-sqlite3.mingw-cross all
 test -r sqlite3/tool/mksqlite3c.tcl && \
   make -C sqlite3 -f ../mf-sqlite3.mingw-cross sqlite3.c
+if test -r sqlite3/sqlite3.c -a -f "$WITH_SEE" ; then
+    cat sqlite3/sqlite3.c "$WITH_SEE" >sqlite3.c
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_HAS_CODEC=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_ACTIVATION_KEY=\\\"$SEE_KEY\\\""
+    ADD_CFLAGS="$ADD_CFLAGS -DSEEEXT=\\\"$SEEEXT\\\""
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_API=static -DWIN32=1 -DNDEBUG=1 -DNO_TCL"
+    ADD_CFLAGS="$ADD_CFLAGS -DTHREADSAFE=1 -DSQLITE_OMIT_EXPLAIN=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_DLL=1 -DSQLITE_TRHEADSAFE=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_OS_WIN=1 -DSQLITE_ASCII=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_SOUNDEX=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DSQLITE_ENABLE_COLUMN_METADATA=1"
+    ADD_CFLAGS="$ADD_CFLAGS -DWITHOUT_SHELL=1"
+    export ADD_CFLAGS
+    ADD_NSIS="$ADD_NSIS -DWITHOUT_SQLITE3_EXE"
+    unset SQLITE3_A10N_O
+    unset SQLITE3_EXE
+fi
 if test -n "$SQLITE_DLLS" ; then
     make -C sqlite3 -f ../mf-sqlite3.mingw-cross sqlite3.dll
 fi
@@ -1379,7 +1426,7 @@ if $nov2 ; then
 else
     make -f Makefile.mingw-cross
 fi
-make -f Makefile.mingw-cross sqlite3odbcnw.dll
+make -f Makefile.mingw-cross sqlite3odbc${SEEEXT}nw.dll
 
 echo "=========================="
 echo "Building SQLite 2 ... UTF8"

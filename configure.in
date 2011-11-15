@@ -171,7 +171,6 @@ else
    fi
 fi
 AC_SUBST(SQLITE3_INC)
-AC_SUBST(SQLITE3_LIB)
 AC_SUBST(SQLITE3_A10N_C)
 AC_SUBST(SQLITE3_A10N_O)
 AC_SUBST(SQLITE3_A10N_FLAGS)
@@ -606,6 +605,22 @@ else
   DRVDIR=""
 fi
 AC_SUBST(DRVDIR)
+
+##########
+# Experimental: dlopen for resolving SQLite3 symbols
+#
+AC_ARG_WITH(dls,[  --with-dls              dlopen SQLite3 lib],
+   WITH_DLS=1,WITH_DLS=0)
+if test "$DLOPENFORGPPS" = "1" ; then
+   if test "$WITH_DLS" = "1" ; then
+      DL_OPTS="-DSQLITE_DYNLOAD=1"
+      SQLITE3_LIB=""
+      DL_INITFINI="-Wl,-init,dls_init -Wl,-fini,dls_fini"
+   fi
+fi
+AC_SUBST(DL_OPTS)
+AC_SUBST(DL_INITFINI)
+AC_SUBST(SQLITE3_LIB)
 
 #########
 # Generate the output files.

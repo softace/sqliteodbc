@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.36 2011/08/20 08:14:35 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.38 2011/11/08 17:02:04 chw Exp chw $
  *
  * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
  *
@@ -141,6 +141,8 @@ typedef struct dbc {
     struct stmt *cur_s3stmt;	/**< Current STMT executing sqlite statement */
     int s3stmt_needmeta;	/**< True to get meta data in s3stmt_step(). */
     FILE *trace;		/**< sqlite3_trace() file pointer or NULL */
+    char *pwd;			/**< Password or NULL */
+    int pwdLen;			/**< Length of password */
 #ifdef USE_DLOPEN_FOR_GPPS
     void *instlib;
     int (*gpps)();
@@ -250,25 +252,25 @@ typedef struct stmt {
     int nowchar[2];		/**< Don't try to use WCHAR */
     int dobigint;		/**< Force SQL_BIGINT for INTEGER columns */
     int longnames;		/**< Don't shorten column names */
-    int retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
-    SQLUINTEGER rowset_size;	/**< Size of rowset */
+    SQLULEN retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
+    SQLULEN rowset_size;	/**< Size of rowset */
     SQLUSMALLINT *row_status;	/**< Row status pointer */
     SQLUSMALLINT *row_status0;	/**< Internal status array */
     SQLUSMALLINT row_status1;	/**< Internal status array for 1 row rowsets */
-    SQLUINTEGER *row_count;	/**< Row count pointer */
-    SQLUINTEGER row_count0;	/**< Row count */
-    SQLUINTEGER paramset_size;	/**< SQL_ATTR_PARAMSET_SIZE */
-    SQLUINTEGER paramset_count;	/**< Internal for paramset */
+    SQLULEN *row_count;		/**< Row count pointer */
+    SQLULEN row_count0;		/**< Row count */
+    SQLULEN paramset_size;	/**< SQL_ATTR_PARAMSET_SIZE */
+    SQLULEN paramset_count;	/**< Internal for paramset */
     SQLUINTEGER paramset_nrows;	/**< Row count for paramset handling */
-    SQLUINTEGER max_rows;	/**< SQL_ATTR_MAX_ROWS */
-    SQLUINTEGER bind_type;	/**< SQL_ATTR_ROW_BIND_TYPE */
-    SQLUINTEGER *bind_offs;	/**< SQL_ATTR_ROW_BIND_OFFSET_PTR */
+    SQLULEN max_rows;		/**< SQL_ATTR_MAX_ROWS */
+    SQLULEN bind_type;		/**< SQL_ATTR_ROW_BIND_TYPE */
+    SQLULEN *bind_offs;		/**< SQL_ATTR_ROW_BIND_OFFSET_PTR */
     /* Dummies to make ADO happy */
-    SQLUINTEGER *parm_bind_offs;/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
+    SQLULEN *parm_bind_offs;	/**< SQL_ATTR_PARAM_BIND_OFFSET_PTR */
     SQLUSMALLINT *parm_oper;	/**< SQL_ATTR_PARAM_OPERATION_PTR */
     SQLUSMALLINT *parm_status;	/**< SQL_ATTR_PARAMS_STATUS_PTR */
-    SQLUINTEGER *parm_proc;	/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
-    SQLUINTEGER parm_bind_type;	/**< SQL_ATTR_PARAM_BIND_TYPE */
+    SQLULEN *parm_proc;		/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
+    SQLULEN parm_bind_type;	/**< SQL_ATTR_PARAM_BIND_TYPE */
     int curtype;		/**< Cursor type */
     sqlite3_stmt *s3stmt;	/**< SQLite statement handle or NULL */
     int s3stmt_noreset;		/**< False when sqlite3_reset() needed. */

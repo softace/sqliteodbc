@@ -27,4 +27,6 @@
 #define IDS_BADDSN                      501
 #define IDS_EXTTITLE			502
 #define IDS_EXTERR			503
+#define IDS_DRVTITLE			504
+#define IDS_DLLERR			505 
 #define IDC_STATIC                      -1

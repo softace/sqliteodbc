@@ -215,6 +215,14 @@ Build instructions for MingW cross compiler for Win32 targets:
   final step is creating an NSIS installer.
 
 
+Build instructions for MingW cross compiler for Win64 targets:
+
+  A script named mingw64-cross-build.sh is provided which contains
+  all necessary information. It downloads the required SQLite
+  source tarballs and builds SQLite 3 and the ODBC driver. The
+  final step is creating an NSIS installer.
+
+
 Win32 install/remove/shell by RUNDLL32
 
   Each driver DLL provides entry points for ODBC driver installation
@@ -307,12 +315,21 @@ Build Instructions for Debian based systems
   ./configure && make deb
 
 
+Special build to use System.Data.SQLite on Win32/Win64
+
+  A variant of the SQLite3 ODBC driver can be build which uses
+  internal dynamic linking to System.Data.SQLite.dll or sqlite3.dll.
+  This feature is turned on when running the mingw*-cross-build.sh
+  scripts with SQLITE_DLLS=2.
+
+
+
 TODO:
 
 - improve documentation
 
 
-2011-09-21
+2011-11-15
 Christian Werner
 mailto:chw@ch-werner.de
 

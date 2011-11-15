@@ -142,6 +142,8 @@ BEGIN
     IDS_BADDSN              "%s cannot be used as a data source name."
     IDS_EXTTITLE            "SQLite3 ODBC Extension"
     IDS_EXTERR              "Extension '%s' did not load:\n%s"
+    IDS_DRVTITLE            "SQLite3 ODBC Driver"
+    IDS_DLLERR              "No usable SQLite3 DLL found."
 END
 
 /////////////////////////////////////////////////////////////////////////////

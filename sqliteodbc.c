@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.185 2011/09/20 14:15:30 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.191 2011/11/15 07:18:18 chw Exp chw $
  *
  * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -23,7 +23,7 @@
 
 #ifdef SQLITE_UTF8
 #if !defined(_WIN32) && !defined(_WIN64)
-#if !defined(WCHARSUPPORT) && defined(HAVE_SQLWCHAR) && HAVE_SQLWCHAR
+#if !defined(WCHARSUPPORT) && defined(HAVE_SQLWCHAR) && (HAVE_SQLWCHAR)
 #define WCHARSUPPORT
 #endif
 #endif
@@ -47,7 +47,7 @@
 #endif
 #endif
 
-#if __GNUC__ > 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ > 3))
+#if defined(__GNUC__) && ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ > 3)))
 #define	CANT_PASS_VALIST_AS_CHARPTR 1
 #endif
 
@@ -960,7 +960,7 @@ noconn(STMT *s)
  * @result double value
  */
 
-#if defined(HAVE_SQLITEATOF) && HAVE_SQLITEATOF
+#if defined(HAVE_SQLITEATOF) && (HAVE_SQLITEATOF)
 
 extern double sqliteAtoF(char *data, char **endp);
 
@@ -1006,7 +1006,7 @@ ln_strtod(const char *data, char **endp)
 
 #endif
 
-#if !defined(HAVE_SQLITEMPRINTF) || !HAVE_SQLITEMPRINTF
+#if !defined(HAVE_SQLITEMPRINTF) || !(HAVE_SQLITEMPRINTF)
 /**
  * Internal locale neutral sprintf("%g") function.
  * @param buf pointer to string
@@ -1294,7 +1294,7 @@ setsqliteopts(sqlite *x, DBC *d)
 	++step;
     }
     sqlite_busy_handler(x, busy_handler, (void *) d);
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     {
 	char *fname;
        
@@ -1438,7 +1438,8 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 #endif
 #ifdef SQL_LONGVARCHAR
     } else if (strncmp(p, "text", 4) == 0 ||
-	       strncmp(p, "memo", 4) == 0) {
+	       strncmp(p, "memo", 4) == 0 ||
+	       strncmp(p, "longvarchar", 11) == 0) {
 #ifdef WINTERFACE
 	result = nowchar ? SQL_LONGVARCHAR : SQL_WLONGVARCHAR;
 #else
@@ -1451,7 +1452,7 @@ mapsqltype(const char *typename, int *nosign, int ov3, int nowchar)
 	result = SQL_WLONGVARCHAR;
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     } else if (strncmp(p, "binary", 6) == 0 ||
 	       strncmp(p, "varbinary", 9) == 0 ||
 	       strncmp(p, "bytea", 5) == 0 ||
@@ -1528,7 +1529,7 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
     case SQL_WLONGVARCHAR: m = 65536; d = 0; break;
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     case SQL_VARBINARY: m = 255; d = 0; break;
     case SQL_LONGVARBINARY: m = 65536; d = 0; break;
 #endif
@@ -1626,7 +1627,7 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 	    type = nowchar ? SQL_C_CHAR : SQL_C_WCHAR;
 	    break;
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	case SQL_BINARY:
 	case SQL_VARBINARY:
 	case SQL_LONGVARBINARY:
@@ -1965,7 +1966,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 	    }
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	    if (s->dyncols[i].type == SQL_VARBINARY &&
 		s->dyncols[i].size > 255) {
 		s->dyncols[i].type = SQL_LONGVARBINARY;
@@ -2040,7 +2041,7 @@ fixupdyncols(STMT *s, sqlite *sqlite, const char **types)
 		    }
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 		    if (s->dyncols[i].type == SQL_VARBINARY &&
 			s->dyncols[i].size > 255) {
 			s->dyncols[i].type = SQL_LONGVARBINARY;
@@ -2619,7 +2620,7 @@ getbool(char *string)
     return 0;
 }
 
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
 /**
  * SQLite trace callback
  * @param arg DBC pointer
@@ -2702,7 +2703,7 @@ connfail:
 	sqlite_freemem(errp);
 	errp = NULL;
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     if (d->trace) {
 	sqlite_trace(d->sqlite, dbtrace, d);
     }
@@ -3189,7 +3190,7 @@ time_func(sqlite_func *context, int argc, const char **argv)
     sqlite_set_result_string(context, buf, -1);
 }
 
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 static const char hexdigits[] = "0123456789ABCDEFabcdef";
 
 /**
@@ -3404,7 +3405,7 @@ seqerr:
 #ifdef WCHARSUPPORT
 		       && type != SQL_C_WCHAR
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 		       && type != SQL_C_BINARY
 #endif
 		      ) {
@@ -3548,7 +3549,7 @@ seqerr:
 #endif
 		    *((char *) p->param + p->len) = '\0';
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 		    if ((p->stype == SQL_BINARY ||
 			 p->stype == SQL_VARBINARY ||
 			 p->stype == SQL_LONGVARBINARY) &&
@@ -3648,7 +3649,7 @@ substparam(STMT *s, int pnum, char **outp)
     int type, len, isnull = 0, needalloc = 0;
     BINDPARM *p;
     double dval;
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     int chkbin = 1;
 #endif
 
@@ -3678,7 +3679,7 @@ substparam(STMT *s, int pnum, char **outp)
 #ifdef WCHARSUPPORT
     case SQL_C_WCHAR:
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     case SQL_C_BINARY:
 #endif
 	break;
@@ -3712,7 +3713,7 @@ substparam(STMT *s, int pnum, char **outp)
     case SQL_C_DOUBLE:
 	dval = *((double *) p->param);
     dodouble:
-#if defined(HAVE_SQLITEMPRINTF) && HAVE_SQLITEMPRINTF
+#if defined(HAVE_SQLITEMPRINTF) && (HAVE_SQLITEMPRINTF)
 	{
 	    char *buf2 = sqlite_mprintf("%.16g", dval);
 
@@ -3809,7 +3810,7 @@ substparam(STMT *s, int pnum, char **outp)
 		needalloc = 1;
 	    }
 	}
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	else if (type == SQL_C_BINARY) {
 	    p->len = p->max = *p->lenp;
 	}
@@ -3835,7 +3836,7 @@ substparam(STMT *s, int pnum, char **outp)
 	outdata = p->param;
     } else
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     if (type == SQL_C_BINARY) {
 	int bsize;
 	char *dp;
@@ -3878,11 +3879,11 @@ substparam(STMT *s, int pnum, char **outp)
 	}
     } else {
 	outdata = p->param;
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	chkbin = 0;
 #endif
     }
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     if (chkbin) {
 	if (p->stype == SQL_BINARY ||
 	    p->stype == SQL_VARBINARY ||
@@ -4695,7 +4696,7 @@ doit:
 }
 
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Retrieve privileges on tables and/or views.
  * @param stmt statement handle
@@ -4724,7 +4725,7 @@ SQLTablePrivileges(SQLHSTMT stmt,
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Retrieve privileges on tables and/or views (UNICODE version).
@@ -4806,7 +4807,7 @@ static COL colPrivSpec3[] = {
     { "SYSTEM", "COLPRIV", "PRIVILEGE", SCOL_VARCHAR, 50 }
 };
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Retrieve privileges on columns.
  * @param stmt statement handle
@@ -4838,7 +4839,7 @@ SQLColumnPrivileges(SQLHSTMT stmt,
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Retrieve privileges on columns (UNICODE version).
@@ -5421,7 +5422,7 @@ nodata_but_rowid:
 				    }
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 				    if (sqltype == SQL_VARBINARY && mm > 255) {
 					sqltype = SQL_LONGVARBINARY;
 				    }
@@ -6747,7 +6748,7 @@ done:
     return ret;
 }
 
-#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC)
+#if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT).
  * @param htype handle type
@@ -6771,7 +6772,7 @@ SQLGetDiagRec(SQLSMALLINT htype, SQLHANDLE handle, SQLSMALLINT recno,
 }
 #endif
 
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 #ifdef WINTERFACE
 /**
  * Get error message given handle (HENV, HDBC, or HSTMT)
@@ -7160,7 +7161,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUSMALLINT **) val) = s->row_status;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROWS_FETCHED_PTR:
-	*((SQLUINTEGER **) val) = s->row_count;
+	*((SQLULEN **) val) = s->row_count;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS: {
 	STMT *s = (STMT *) stmt;
@@ -7169,7 +7170,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     }
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	*((SQLUINTEGER **) val) = s->parm_bind_offs;
+	*((SQLULEN **) val) = s->parm_bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
 	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
@@ -7181,7 +7182,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*((SQLUSMALLINT **) val) = s->parm_status;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMS_PROCESSED_PTR:
-	*((SQLUINTEGER **) val) = s->parm_proc;
+	*((SQLULEN **) val) = s->parm_proc;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
 	*((SQLUINTEGER *) val) = s->paramset_size;
@@ -7190,7 +7191,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	*(SQLUINTEGER *) val = s->bind_type;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-	*((SQLUINTEGER **) val) = s->bind_offs;
+	*((SQLULEN **) val) = s->bind_offs;
 	return SQL_SUCCESS;
     case SQL_ATTR_NOSCAN:
 	*((SQLUINTEGER **) val) = SQL_NOSCAN_OFF;
@@ -7203,7 +7204,7 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     return drvunimplstmt(stmt);
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(WINTERFACE)
+#if (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC)) || !defined(WINTERFACE)
 /**
  * Get option of HSTMT.
  * @param stmt statement handle
@@ -7265,7 +7266,15 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	       SQLINTEGER buflen)
 {
     STMT *s = (STMT *) stmt;
+#if defined(SQL_BIGINT) && defined(__WORDSIZE) && (__WORDSIZE == 64)
+    SQLBIGINT uval;
 
+    uval = (SQLBIGINT) val;
+#else
+    SQLULEN uval;
+
+    uval = (SQLULEN) val;
+#endif
     switch (attr) {
     case SQL_ATTR_CURSOR_TYPE:
 	if (val == (SQLPOINTER) SQL_CURSOR_FORWARD_ONLY) {
@@ -7311,18 +7320,18 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	    val != (SQLPOINTER) SQL_RD_OFF) {
 	    goto e01s02;
 	}
-	s->retr_data = (PTRDIFF_T) val;
+	s->retr_data = uval;
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
-	if ((PTRDIFF_T) val < 1) {
+	if (uval < 1) {
 	    setstat(s, -1, "invalid rowset size", "HY000");
 	    return SQL_ERROR;
 	} else {
 	    SQLUSMALLINT *rst = &s->row_status1;
 
-	    if ((PTRDIFF_T) val > 1) {
-		rst = xmalloc(sizeof (SQLUSMALLINT) * (PTRDIFF_T) val);
+	    if (uval > 1) {
+		rst = xmalloc(sizeof (SQLUSMALLINT) * uval);
 		if (!rst) {
 		    return nomem(s);
 		}
@@ -7331,20 +7340,20 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 		freep(&s->row_status0);
 	    }
 	    s->row_status0 = rst;
-	    s->rowset_size = (PTRDIFF_T) val;
+	    s->rowset_size = uval;
 	}
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_STATUS_PTR:
 	s->row_status = (SQLUSMALLINT *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROWS_FETCHED_PTR:
-	s->row_count = (SQLUINTEGER *) val;
+	s->row_count = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	s->parm_bind_offs = (SQLUINTEGER *) val;
+	s->parm_bind_offs = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	s->parm_bind_type = (PTRDIFF_T) val;
+	s->parm_bind_type = uval;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
 	s->parm_oper = (SQLUSMALLINT *) val;
@@ -7353,20 +7362,20 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	s->parm_status = (SQLUSMALLINT *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMS_PROCESSED_PTR:
-	s->parm_proc = (SQLUINTEGER *) val;
+	s->parm_proc = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
 	if ((PTRDIFF_T) val < 1) {
 	    goto e01s02;
 	}
-	s->paramset_size = (PTRDIFF_T) val;
+	s->paramset_size = uval;
 	s->paramset_count = 0;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
-	s->bind_type = (PTRDIFF_T) val;
+	s->bind_type = uval;
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-	s->bind_offs = (SQLUINTEGER *) val;
+	s->bind_offs = (SQLULEN *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS:
 	if (val != (SQLPOINTER) SQL_UB_OFF &&
@@ -8207,7 +8216,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     return SQL_SUCCESS;
 }
 
-#if (defined(HAVE_UNIXODBC) && HAVE_UNIXODBC) || !defined(WINTERFACE)
+#if (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC)) || !defined(WINTERFACE)
 /**
  * Return information about what this ODBC driver supports.
  * @param dbc database connection handle
@@ -8438,7 +8447,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	SET_EXISTS(SQL_API_SQLSETENVATTR);
 	SET_EXISTS(SQL_API_SQLCLOSECURSOR);
 	SET_EXISTS(SQL_API_SQLBINDPARAM);
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 	/*
 	 * Some unixODBC versions have problems with
 	 * SQLError() vs. SQLGetDiagRec() with loss
@@ -8463,7 +8472,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 	    case SQL_API_SQLSETENVATTR:
 	    case SQL_API_SQLCLOSECURSOR:
 	    case SQL_API_SQLBINDPARAM:
-#if !defined(HAVE_UNIXODBC) || !HAVE_UNIXODBC
+#if !defined(HAVE_UNIXODBC) || !(HAVE_UNIXODBC)
 	    /*
 	     * Some unixODBC versions have problems with
 	     * SQLError() vs. SQLGetDiagRec() with loss
@@ -8601,7 +8610,7 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
     }
     memset(d, 0, sizeof (DBC));
     d->curtype = SQL_CURSOR_STATIC;
-#if HAVE_LIBVERSION
+#if (HAVE_LIBVERSION)
     verstr = sqlite_libversion();
 #else
     verstr = sqlite_version;
@@ -8721,7 +8730,7 @@ drvfreeconnect(SQLHDBC dbc)
     }
     drvrelgpps(d);
     d->magic = DEAD_MAGIC;
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     if (d->trace) {
 	fclose(d->trace);
     }
@@ -9292,7 +9301,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char sflag[32], ntflag[32], nwflag[32], lnflag[32];
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     char tracef[SQL_MAX_MESSAGE_LENGTH];
 #endif
 
@@ -9352,7 +9361,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen)
     SQLGetPrivateProfileString(buf, "longnames", "",
 			       lnflag, sizeof (lnflag), ODBC_INI);
 #endif
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     tracef[0] = '\0';
 #ifdef WITHOUT_DRIVERMGR
     getdsnattr(buf, "tracefile", tracef, sizeof (tracef));
@@ -9511,7 +9520,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char buf[SQL_MAX_MESSAGE_LENGTH], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char sflag[32], ntflag[32], lnflag[32];
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     char tracef[SQL_MAX_MESSAGE_LENGTH];
 #endif
 
@@ -9598,7 +9607,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	strncpy(dbname, buf, sizeof (dbname));
 	dbname[sizeof (dbname) - 1] = '\0';
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     tracef[0] = '\0';
     getdsnattr(buf, "tracefile", tracef, sizeof (tracef));
 #ifndef WITHOUT_DRIVERMGR
@@ -9613,7 +9622,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 
 	buf[0] = '\0';
 	count = snprintf(buf, sizeof (buf),
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
 			 "DSN=%s;Database=%s;StepAPI=%s;NoTXN=%s;"
 			 "Timeout=%s;LongNames=%s;Tracefile=%s",
 			 dsn, dbname, sflag, ntflag, busy, lnflag, tracef
@@ -9635,7 +9644,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	    *connOutLen = len;
 	}
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     if (tracef[0] != '\0') {
 	d->trace = fopen(tracef, "a");
     }
@@ -10158,7 +10167,7 @@ freedyncols(STMT *s)
 static void
 freeresult(STMT *s, int clrcols)
 {
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     freep(&s->bincache);
     freep(&s->hexcache);
     s->bincell = NULL;
@@ -10300,7 +10309,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
     }
 #endif
 
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     if (type == SQL_C_CHAR) {
 	switch (s->cols[col].type) {
 	case SQL_BINARY:
@@ -10444,7 +10453,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    }
 	    break;
 	case SQL_C_BINARY:
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	{
 	    int dlen, offs = 0;
 	    char *bin;
@@ -10798,7 +10807,7 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	sz = sizeof (SQLCHAR);
 	break;
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     case SQL_C_BINARY:
 	break;
 #endif
@@ -11478,7 +11487,7 @@ drvcolumns(SQLHSTMT stmt,
 			}
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 			if (sqltype == SQL_VARBINARY && mm > 255) {
 			    sqltype = SQL_LONGVARBINARY;
 			}
@@ -11736,7 +11745,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 	quote = "'";
 	sign = NULL;
 	break;
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     case SQL_VARBINARY:
 	sign = NULL;
 	s->rows[offs + 2] = "255";
@@ -11849,7 +11858,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
     s->nrows = (sqltype == SQL_ALL_TYPES) ? 12 : 1;
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
     if (sqltype == SQL_ALL_TYPES) {
 	s->nrows += 2;
     }
@@ -11921,7 +11930,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 #endif
 	}
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	mktypeinfo(s, cc++, asize, "varbinary", SQL_VARBINARY, 0);
 	mktypeinfo(s, cc++, asize, "longvarbinary", SQL_LONGVARBINARY, 0);
 #endif
@@ -11999,7 +12008,7 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	    break;
 #endif
 #endif
-#if HAVE_ENCDEC
+#if (HAVE_ENCDEC)
 	case SQL_VARBINARY:
 	    mktypeinfo(s, 1, asize, "varbinary", SQL_VARBINARY, 30);
 	    break;
@@ -12636,8 +12645,6 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	}
     } else if (s->rows) {
-	int rowp;
-
 	switch (orient) {
 	case SQL_FETCH_NEXT:
 	    if (s->nrows < 1) {
@@ -12723,8 +12730,8 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    ret = SQL_ERROR;
 	    goto done;
 	}
-	rowp = ++s->rowp;
 	for (; i < s->rowset_size; i++) {
+	    ++s->rowp;
 	    if (s->rowp < 0 || s->rowp >= s->nrows) {
 		break;
 	    }
@@ -12734,9 +12741,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    } else if (ret == SQL_SUCCESS_WITH_INFO) {
 		withinfo = 1;
 	    }
-	    ++s->rowp;
 	}
-	s->rowp = rowp;
     }
 done:
     if (i == 0) {
@@ -13812,7 +13817,7 @@ checkLen:
 	return SQL_ERROR;
     }
     if (val2) {
-	*(int *) val2 = v;
+	*(SQLLEN *) val2 = v;
     }
     return SQL_SUCCESS;
 }
@@ -15644,7 +15649,7 @@ retry:
 	    *connOutLen = len;
 	}
     }
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
+#if defined(HAVE_SQLITETRACE) && (HAVE_SQLITETRACE)
     if (setupdlg->attr[KEY_DSN].attr[0]) {
 	char tracef[SQL_MAX_MESSAGE_LENGTH];
 
@@ -15854,7 +15859,7 @@ InUnError(char *name)
 	sqlret = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
 	if (SQL_SUCCEEDED(sqlret)) {
 	    MessageBox(NULL, errmsg, name,
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+		       MB_ICONSTOP | MB_OK | MB_TASKMODAL | MB_SETFOREGROUND);
 	    ret = TRUE;
 	}
 	err++;
@@ -15920,14 +15925,14 @@ InUn(int remove, char *cmdline)
 	sprintf(inst, "%s\\%s", path, dllname);
 	if (!remove && usecnt > 0) {
 	    /* first install try: copy over driver dll, keeping DSNs */
-	    if (GetFileAttributes(dllbuf) != 0xFFFFFFFF &&
+	    if (GetFileAttributesA(dllbuf) != INVALID_FILE_ATTRIBUTES &&
 		CopyFile(dllbuf, inst, 0)) {
 		if (!quiet) {
 		    char buf[512];
 
 		    sprintf(buf, "%s replaced.", drivername);
 		    MessageBox(NULL, buf, "Info",
-			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_ICONINFORMATION | MB_OK | MB_TASKMODAL |
 			       MB_SETFOREGROUND);
 		}
 		return TRUE;
@@ -15951,7 +15956,7 @@ InUn(int remove, char *cmdline)
 		if (!quiet) {
 		    sprintf(buf, "%s uninstalled.", drivername);
 		    MessageBox(NULL, buf, "Info",
-			       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+			       MB_ICONINFORMATION | MB_OK | MB_TASKMODAL |
 			       MB_SETFOREGROUND);
 		}
 	    }
@@ -15966,7 +15971,7 @@ InUn(int remove, char *cmdline)
 	    SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
 	    return TRUE;
 	}
-	if (GetFileAttributes(dllbuf) == 0xFFFFFFFF) {
+	if (GetFileAttributesA(dllbuf) == INVALID_FILE_ATTRIBUTES) {
 	    return FALSE;
 	}
 	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
@@ -15974,7 +15979,7 @@ InUn(int remove, char *cmdline)
 
 	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);
 	    MessageBox(NULL, buf, "CopyFile",
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+		       MB_ICONSTOP | MB_OK | MB_TASKMODAL | MB_SETFOREGROUND); 
 	    return FALSE;
 	}
 	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,
@@ -16000,7 +16005,7 @@ InUn(int remove, char *cmdline)
 
 	    sprintf(buf, "%s installed.", drivername);
 	    MessageBox(NULL, buf, "Info",
-		       MB_ICONINFORMATION|MB_OK|MB_TASKMODAL|
+		       MB_ICONINFORMATION | MB_OK | MB_TASKMODAL |
 		       MB_SETFOREGROUND);
 	}
     } else {
@@ -16186,7 +16191,7 @@ shell(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
 
 #endif /* _WIN32 || _WIN64 */
 
-#if defined(HAVE_ODBCINSTEXT_H) && HAVE_ODBCINSTEXT_H
+#if defined(HAVE_ODBCINSTEXT_H) && (HAVE_ODBCINSTEXT_H)
 
 /*
  * unixODBC property page for this driver,
