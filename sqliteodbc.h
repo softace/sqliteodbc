@@ -15,9 +15,9 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.56 2011/11/12 04:35:40 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.57 2012/01/24 07:47:12 chw Exp chw $
  *
- * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a

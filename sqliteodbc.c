@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.191 2011/11/15 07:18:18 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.192 2012/01/24 07:58:59 chw Exp chw $
  *
- * Copyright (c) 2001-2011 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -1793,30 +1793,61 @@ errout:
 	    *p++ = '%';
 	    break;
 	case '{':
-	    /* deal with {d 'YYYY-MM-DD'}, {t ...}, and {ts ...} */
+	    /*
+	     * Deal with escape sequences:
+	     * {d 'YYYY-MM-DD'}, {t ...}, {ts ...}
+	     * {oj ...}, {fn ...} etc.
+	     */
 	    if (!inq) {
-		char *end = q + 1;
+		int ojfn = 0;
+		char *inq2 = NULL, *end = q + 1;
 
-		while (*end && *end != '}') {
+		if (*end != 'd' && *end != 'D' &&
+		    *end != 't' && *end != 'T') {
+		    ojfn = 1;
+		}
+		while (*end) {
+		    if (inq2 && *end == *inq2) {
+			inq2 = NULL;
+		    } else if (inq2 == NULL && *end == '}') {
+			break;
+		    } else if (inq2 == NULL && (*end == '\'' || *end == '"')) {
+			inq2 = end;
+		    }
 		    ++end;
 		}
 		if (*end == '}') {
 		    char *start = q + 1;
 		    char *end2 = end - 1;
 
-		    while (start < end2 && *start != '\'') {
-			++start;
-		    }
-		    while (end2 > start && *end2 != '\'') {
-			--end2;
-		    }
-		    if (*start == '\'' && *end2 == '\'') {
-			while (start <= end2) {
+		    if (ojfn) {
+			while (start < end) {
+			    if (ISSPACE(*start)) {
+				break;
+			    }
+			    ++start;
+			}
+			while (start < end) {
 			    *p++ = *start;
 			    ++start;
 			}
 			q = end;
 			break;
+		    } else {
+			while (start < end2 && *start != '\'') {
+			    ++start;
+			}
+			while (end2 > start && *end2 != '\'') {
+			    --end2;
+			}
+			if (*start == '\'' && *end2 == '\'') {
+			    while (start <= end2) {
+				*p++ = *start;
+				++start;
+			    }
+			    q = end;
+			    break;
+			}
 		    }
 		}
 	    }
@@ -2356,7 +2387,7 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 		++m;
 	    }
 	    buf[m] = '\0';
-	    tss->fraction = strtol(buf, NULL, 0);
+	    tss->fraction = strtol(buf, NULL, 10);
 	}
 	m = 7;
 	goto done;
@@ -2501,7 +2532,7 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	    }
 	    p = q;
 	    q = NULL;
-	    nn = strtol(p, &q, 0);
+	    nn = strtol(p, &q, 10);
 	    tss->minute += nn * sign;
 	    if ((SQLSMALLINT) tss->minute < 0) {
 		tss->hour -= 1;
@@ -10783,7 +10814,7 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	break;
     case SQL_C_CHAR:
 	break;
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
     case SQL_C_WCHAR:
 	break;
 #endif
@@ -12659,7 +12690,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	    break;
 	case SQL_FETCH_PRIOR:
-	    if (s->nrows < 1) {
+	    if (s->nrows < 1 || s->rowp <= 0) {
 		s->rowp = -1;
 		return SQL_NO_DATA;
 	    }

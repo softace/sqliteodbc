@@ -6,7 +6,7 @@ diff -Nur tcc-0.9.25.orig/configure tcc-0.9.25/configure
    --enable-gprof) gprof="yes"
    ;;
 -  --enable-mingw32) mingw32="yes" ; cross_prefix="i386-mingw32-"
-+  --enable-mingw32) mingw32="yes" ; cross_prefix="i386-mingw32msvc-"
++  --enable-mingw32) mingw32="yes" ; cross_prefix="x86_64-w64-mingw32-"
    ;; 
    --enable-cross) build_cross="yes"
    ;;
@@ -18,8 +18,8 @@ diff -Nur tcc-0.9.25.orig/cross-configure.sh tcc-0.9.25/cross-configure.sh
 +
 +CONFIG_SHELL=/bin/sh
 +export CONFIG_SHELL
-+PREFIX=/opt/mingw
-+TARGET=i386-mingw32msvc
++PREFIX=/opt/mingw64
++TARGET=x86_64-w64-mingw32
 +PATH="$PREFIX/bin:$PREFIX/$TARGET/bin:$PATH"
 +export PATH
 +cache=cross-config.cache
@@ -35,8 +35,8 @@ diff -Nur tcc-0.9.25.orig/cross-make.sh tcc-0.9.25/cross-make.sh
 @@ -0,0 +1,7 @@
 +#!/bin/sh
 +
-+PREFIX=/opt/mingw
-+TARGET=i386-mingw32msvc
++PREFIX=/opt/mingw64
++TARGET=x86_64-w64-mingw32
 +PATH="$PREFIX/bin:$PREFIX/$TARGET/bin:$PATH"
 +export PATH
 +exec make "$@"
@@ -170,22 +170,25 @@ diff -Nur tcc-0.9.25.orig/Makefile tcc-0.9.25/Makefile
  # documentation and man page
 diff -Nur tcc-0.9.25.orig/mingw-cross-build.sh tcc-0.9.25/mingw-cross-build.sh
 --- tcc-0.9.25.orig/mingw-cross-build.sh	1970-01-01 01:00:00.000000000 +0100
-+++ tcc-0.9.25/mingw-cross-build.sh	2011-06-07 08:01:41.000000000 +0200
-@@ -0,0 +1,17 @@
++++ tcc-0.9.25/mingw-cross-build.sh	2012-01-21 08:01:41.000000000 +0200
+@@ -0,0 +1,20 @@
 +#!/bin/sh
 +#
 +# Build script for cross compiling TCC for Win32
 +# for integration into SQLite ODBC driver.
 +# Tested on Fedora Core 3 and 5.
 +#
-+# Cross toolchain and NSIS for Linux/i386 can be fetched from
-+#  http://www.ch-werner.de/xtools/cross-mingw32-3.1-4.i386.rpm
++# Cross toolchain and NSIS for Linux/i386/x86_64 can be fetched from
++#  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.i386.rpm
++#  http://www.ch-werner.de/xtools/crossmingw64-0.2.i386.tar.bz2
++#  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.x86_64.rpm
++#  http://www.ch-werner.de/xtools/crossmingw64-0.2.x86_64.tar.bz2
 +#  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
 +
 +set -e
 +
 +rm -rf ../TCC
-+sh cross-configure.sh --prefix=/TCC --enable-mingw32
++sh cross-configure.sh --prefix=/TCC --enable-mingw32 --extra-cflags=-m32
 +sh cross-make.sh clean all
 +sh cross-make.sh DESTDIR=.. install
 +sh cross-make.sh distclean
@@ -210,6 +213,21 @@ diff -Nur tcc-0.9.25.orig/tccgen.c tcc-0.9.25/tccgen.c
      } else
  #endif
      if (v == VT_JMP || v == VT_JMPI) {
+--- tcc-0.9.25.orig/tccpp.c	2009-05-18 16:27:06.000000000 +0200
++++ tcc-0.9.25/tccpp.c	2012-01-22 14:58:50.000000000 +0100
+@@ -129,7 +129,11 @@
+     case TOK_CLLONG:
+     case TOK_CULLONG:
+         /* XXX: not quite exact, but only useful for testing  */
+-        sprintf(p, "%Lu", cv->ull);
++#if defined(_WIN32) || defined(_WIN64)
++        sprintf(p, "%I64u", cv->ull);
++#else
++        sprintf(p, "%llu", cv->ull);
++#endif
+         break;
+     case TOK_LCHAR:
+         cstr_ccat(&cstr_buf, 'L');
 diff -Nur tcc-0.9.25.orig/win32/include/odbcinst.h tcc-0.9.25/win32/include/odbcinst.h
 --- tcc-0.9.25.orig/win32/include/odbcinst.h	1970-01-01 01:00:00.000000000 +0100
 +++ tcc-0.9.25/win32/include/odbcinst.h	2011-06-07 08:01:41.000000000 +0200

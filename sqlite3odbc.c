@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.136 2011/11/12 04:35:40 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.137 2012/01/24 07:59:30 chw Exp chw $
  *
- * Copyright (c) 2004-2011 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -2375,30 +2375,61 @@ errout:
 	    *p++ = *q;
 	    break;
 	case '{':
-	    /* deal with {d 'YYYY-MM-DD'}, {t ...}, and {ts ...} */
+	    /*
+	     * Deal with escape sequences:
+	     * {d 'YYYY-MM-DD'}, {t ...}, {ts ...}
+	     * {oj ...}, {fn ...} etc.
+	     */
 	    if (!inq) {
-		char *end = q + 1;
+		int ojfn = 0;
+		char *inq2 = NULL, *end = q + 1;
 
-		while (*end && *end != '}') {
+		if (*end != 'd' && *end != 'D' &&
+		    *end != 't' && *end != 'T') {
+		    ojfn = 1;
+		}
+		while (*end) {
+		    if (inq2 && *end == *inq2) {
+			inq2 = NULL;
+		    } else if (inq2 == NULL && *end == '}') {
+			break;
+		    } else if (inq2 == NULL && (*end == '\'' || *end == '"')) {
+			inq2 = end;
+		    }
 		    ++end;
 		}
 		if (*end == '}') {
 		    char *start = q + 1;
 		    char *end2 = end - 1;
 
-		    while (start < end2 && *start != '\'') {
-			++start;
-		    }
-		    while (end2 > start && *end2 != '\'') {
-			--end2;
-		    }
-		    if (*start == '\'' && *end2 == '\'') {
-			while (start <= end2) {
+		    if (ojfn) {
+			while (start < end) {
+			    if (ISSPACE(*start)) {
+				break;
+			    }
+			    ++start;
+			}
+			while (start < end) {
 			    *p++ = *start;
 			    ++start;
 			}
 			q = end;
 			break;
+		    } else {
+			while (start < end2 && *start != '\'') {
+			    ++start;
+			}
+			while (end2 > start && *end2 != '\'') {
+			    --end2;
+			}
+			if (*start == '\'' && *end2 == '\'') {
+			    while (start <= end2) {
+				*p++ = *start;
+				++start;
+			    }
+			    q = end;
+			    break;
+			}
 		    }
 		}
 	    }
@@ -2945,7 +2976,7 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 		++m;
 	    }
 	    buf[m] = '\0';
-	    tss->fraction = strtol(buf, NULL, 0);
+	    tss->fraction = strtol(buf, NULL, 10);
 	}
 	m = 7;
 	goto done;
@@ -3090,7 +3121,7 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 	    }
 	    p = q;
 	    q = NULL;
-	    nn = strtol(p, &q, 0);
+	    nn = strtol(p, &q, 10);
 	    tss->minute += nn * sign;
 	    if ((SQLSMALLINT) tss->minute < 0) {
 		tss->hour -= 1;
@@ -4660,41 +4691,41 @@ setupparam(STMT *s, char *sql, int pnum)
     case SQL_C_UTINYINT:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((unsigned char *) p->param);
+	p->s3ival = *((SQLCHAR *) p->param);
 	break;
     case SQL_C_TINYINT:
     case SQL_C_STINYINT:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((char *) p->param);
+	p->s3ival = *((SQLCHAR *) p->param);
 	break;
     case SQL_C_USHORT:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((unsigned short *) p->param);
+	p->s3ival = *((SQLUSMALLINT *) p->param);
 	break;
     case SQL_C_SHORT:
     case SQL_C_SSHORT:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((short *) p->param);
+	p->s3ival = *((SQLSMALLINT *) p->param);
 	break;
     case SQL_C_ULONG:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((unsigned int *) p->param);
+	p->s3ival = *((SQLUINTEGER *) p->param);
 	break;
     case SQL_C_LONG:
     case SQL_C_SLONG:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = *((int *) p->param);
+	p->s3ival = *((SQLINTEGER *) p->param);
 	break;
 #ifdef SQL_BIT
     case SQL_C_BIT:
 	p->s3type = SQLITE_INTEGER;
 	p->s3size = sizeof (int);
-	p->s3ival = (*((unsigned char *) p->param)) ? 1 : 0;
+	p->s3ival = (*((SQLCHAR *) p->param)) ? 1 : 0;
 	break;
 #endif
 #ifdef SQL_BIGINT
@@ -4860,17 +4891,17 @@ outofmem:
 #ifdef SQL_C_BIT
     case SQL_C_BIT:
 #endif
-	buflen = sizeof (char);
+	buflen = sizeof (SQLCHAR);
 	break;
     case SQL_C_SHORT:
     case SQL_C_USHORT:
     case SQL_C_SSHORT:
-	buflen = sizeof (short);
+	buflen = sizeof (SQLSMALLINT);
 	break;
     case SQL_C_SLONG:
     case SQL_C_ULONG:
     case SQL_C_LONG:
-	buflen = sizeof (long);
+	buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_C_FLOAT:
 	buflen = sizeof (float);
@@ -11812,12 +11843,12 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 #ifdef SQL_BIT
 	case SQL_C_BIT:
 #endif
-	    *((char *) val) = 0;
+	    *((SQLCHAR *) val) = 0;
 	    break;
 	case SQL_C_USHORT:
 	case SQL_C_SHORT:
 	case SQL_C_SSHORT:
-	    *((short *) val) = 0;
+	    *((SQLSMALLINT *) val) = 0;
 	    break;
 	case SQL_C_ULONG:
 	case SQL_C_LONG:
@@ -11838,7 +11869,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    break;
 	case SQL_C_BINARY:
 	case SQL_C_CHAR:
-	    *((char *) val) = '\0';
+	    *((SQLCHAR *) val) = '\0';
 	    break;
 #ifdef WCHARSUPPORT
 	case SQL_C_WCHAR:
@@ -11878,27 +11909,27 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	case SQL_C_UTINYINT:
 	case SQL_C_TINYINT:
 	case SQL_C_STINYINT:
-	    *((char *) val) = strtol(*data, &endp, 0);
+	    *((SQLCHAR *) val) = strtol(*data, &endp, 0);
 	    if (endp && endp == *data) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
-		*lenp = sizeof (char);
+		*lenp = sizeof (SQLCHAR);
 	    }
 	    break;
 #ifdef SQL_BIT
 	case SQL_C_BIT:
-	    *((char *) val) = getbool(*data);
-	    *lenp = sizeof (char);
+	    *((SQLCHAR *) val) = getbool(*data);
+	    *lenp = sizeof (SQLCHAR);
 	    break;
 #endif
 	case SQL_C_USHORT:
 	case SQL_C_SHORT:
 	case SQL_C_SSHORT:
-	    *((short *) val) = strtol(*data, &endp, 0);
+	    *((SQLSMALLINT *) val) = strtol(*data, &endp, 0);
 	    if (endp && endp == *data) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
-		*lenp = sizeof (short);
+		*lenp = sizeof (SQLSMALLINT);
 	    }
 	    break;
 	case SQL_C_ULONG:
@@ -11948,7 +11979,7 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    if (endp && endp == *data) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
-		*lenp = sizeof (int);
+		*lenp = sizeof (SQLBIGINT);
 	    }
 #endif
 	    break;
@@ -12343,7 +12374,7 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	break;
     case SQL_C_CHAR:
 	break;
-#ifdef WINTERFACE
+#ifdef WCHARSUPPORT
     case SQL_C_WCHAR:
 	break;
 #endif
@@ -14403,7 +14434,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    }
 	    break;
 	case SQL_FETCH_PRIOR:
-	    if (s->nrows < 1) {
+	    if (s->nrows < 1 || s->rowp <= 0) {
 		s->rowp = -1;
 		return SQL_NO_DATA;
 	    }

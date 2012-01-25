@@ -6,7 +6,7 @@
 #### C Compile and options for use in building executables that 
 #    will run on the target platform.
 #
-TCC = /opt/mingw/bin/i386-mingw32msvc-gcc -O2 -D_OFF_T_ -DNO_TCL
+TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -O2 -DNO_TCL
 
 # This is how we compile
 #
@@ -15,7 +15,7 @@ TCCX = $(TCC) $(OPTS) $(THREADSAFE) $(USLEEP) -I. -Isqlite3 -Isqlite3/src
 # MKSHLIB = gcc -shared
 # SO = so
 # SHPREFIX = lib
-MKSHLIB = /opt/mingw/bin/i386-mingw32msvc-ar -shared
+MKSHLIB = /opt/mingw64/bin/x86_64-w64-mingw32-ar -shared
 SO = dll
 
 # This is the default Makefile target.  The objects listed here

@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Wed Jan 25 2012 version 0.94 released
+
+	* update to SQLite 3.7.10
+	* use new MinGW cross compiler for Win32/Win64 binaries
+	* fixed strtol issues regarding timestamp fractional parts
+	* filter out ODBC escape sequences {oj ...} etc.
+
 Tue Nov 15 2011 version 0.93 released
 
 	* update to SQLite 3.7.9
