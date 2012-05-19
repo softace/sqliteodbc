@@ -2,7 +2,7 @@
 #
 # Build script for cross compiling and packaging SQLite 3
 # ODBC drivers and tools for Win32 using MinGW and NSIS.
-# Tested on Fedora Core 3/5/8, Debian Etch, RHEL 5.
+# Tested on Fedora Core 3/5/8, Debian Etch, RHEL 5/6.
 #
 # Cross toolchain and NSIS for Linux/i386/x86_64 can be fetched from
 #  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.i386.rpm
@@ -13,17 +13,24 @@
 #  http://www.ch-werner.de/xtools/crossmingw64-0.2.x86_64.tar.bz2
 #  http://www.ch-werner.de/xtools/nsis-2.37-1_i386.tar.gz
 
-#
 # Some aspects of the build process can be controlled by shell variables:
 #
+# NO_SQLITE2=1      omit building SQLite 2 and drivers for it
 # SQLITE_DLLS=1     build and package driver with sqlite3.dll
 # SQLITE_DLLS=2     build driver with refs to sqlite3.dll
 #                   driver can use System.Data.SQLite.dll instead
 
 set -e
 
-VER3=3.7.10
-VER3X=3071000
+VER2=2.8.17
+VER3=3.7.12
+VER3X=3071200
+
+nov2=false
+if test -n "$NO_SQLITE2" ; then
+    nov2=true
+    ADD_NSIS="-DWITHOUT_SQLITE2"
+fi
 
 if test -f "$WITH_SEE" ; then
     export SEEEXT=see
@@ -50,6 +57,193 @@ fi
 if test -n "$WITH_SOURCES" ; then
     ADD_NSIS="$ADD_NSIS -DWITH_SOURCES"
 fi
+
+echo "===================="
+echo "Preparing sqlite ..."
+echo "===================="
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || test -r sqlite-${VER2}.tar.gz || \
+    wget -c http://www.sqlite.org/sqlite-${VER2}.tar.gz
+$nov2 || test -r sqlite-${VER2}.tar.gz || exit 1
+
+$nov2 || rm -f sqlite
+$nov2 || tar xzf sqlite-${VER2}.tar.gz
+$nov2 || ln -sf sqlite-${VER2} sqlite
+
+# enable sqlite_encode_binary et.al.
+$nov2 || patch sqlite/main.mk <<'EOD'
+--- sqlite.orig/main.mk	2005-04-24 00:43:23.000000000 +0200
++++ sqlite/main.mk	2006-03-16 14:29:55.000000000 +0100
+@@ -55,7 +55,7 @@
+ # Object files for the SQLite library.
+ #
+ LIBOBJ = attach.o auth.o btree.o btree_rb.o build.o copy.o date.o delete.o \
+-         expr.o func.o hash.o insert.o \
++         expr.o func.o hash.o insert.o encode.o \
+          main.o opcodes.o os.o pager.o parse.o pragma.o printf.o random.o \
+          select.o table.o tokenize.o trigger.o update.o util.o \
+          vacuum.o vdbe.o vdbeaux.o where.o tclsqlite.o
+EOD
+
+# display encoding
+$nov2 || patch sqlite/src/shell.c <<'EOD'
+--- sqlite.orig/src/shell.c	2005-04-24 00:43:22.000000000 +0200
++++ sqlite/src/shell.c	2006-05-23 08:22:01.000000000 +0200
+@@ -1180,6 +1180,7 @@
+   "   -separator 'x'       set output field separator (|)\n"
+   "   -nullvalue 'text'    set text string for NULL values\n"
+   "   -version             show SQLite version\n"
++  "   -encoding            show SQLite encoding\n"
+   "   -help                show this text, also show dot-commands\n"
+ ;
+ static void usage(int showDetail){
+@@ -1297,7 +1298,10 @@
+     }else if( strcmp(z,"-echo")==0 ){
+       data.echoOn = 1;
+     }else if( strcmp(z,"-version")==0 ){
+-      printf("%s\n", sqlite_version);
++      printf("%s\n", sqlite_libversion());
++      return 1;
++    }else if( strcmp(z,"-encoding")==0 ){
++      printf("%s\n", sqlite_libencoding());
+       return 1;
+     }else if( strcmp(z,"-help")==0 ){
+       usage(1);
+@@ -1330,9 +1334,9 @@
+       char *zHome;
+       char *zHistory = 0;
+       printf(
+-        "SQLite version %s\n"
++        "SQLite version %s encoding %s\n"
+         "Enter \".help\" for instructions\n",
+-        sqlite_version
++        sqlite_libversion(), sqlite_libencoding()
+       );
+       zHome = find_home_dir();
+       if( zHome && (zHistory = malloc(strlen(zHome)+20))!=0 ){
+EOD
+
+# use open file dialog when no database name given
+# need to link with -lcomdlg32 when enabled
+true || patch sqlite/src/shell.c <<'EOD'
+--- sqlite.orig/src/shell.c        2006-07-23 11:18:13.000000000 +0200
++++ sqlite/src/shell.c     2006-07-23 11:30:26.000000000 +0200
+@@ -20,6 +20,10 @@
+ #include "sqlite.h"
+ #include <ctype.h>
+ 
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++# include <windows.h>
++#endif
++
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__)
+ # include <signal.h>
+ # include <pwd.h>
+@@ -1246,6 +1250,17 @@
+   if( i<argc ){
+     data.zDbFilename = argv[i++];
+   }else{
++#if defined(_WIN32) && defined(DRIVER_VER_INFO)
++    static OPENFILENAME ofn;
++    static char zDbFn[1024];
++    ofn.lStructSize = sizeof(ofn);
++    ofn.lpstrFile = (LPTSTR) zDbFn;
++    ofn.nMaxFile = sizeof(zDbFn);
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
++    if( GetOpenFileName(&ofn) ){
++      data.zDbFilename = zDbFn;
++    } else
++#endif
+     data.zDbFilename = ":memory:";
+   }
+   if( i<argc ){
+EOD
+
+# same but new module libshell.c
+$nov2 || patch sqlite/main.mk <<'EOD'
+--- sqlite.orig/main.mk        2007-01-10 19:30:52.000000000 +0100
++++ sqlite/main.mk     2007-01-10 19:33:39.000000000 +0100
+@@ -54,7 +54,7 @@
+ 
+ # Object files for the SQLite library.
+ #
+-LIBOBJ = attach.o auth.o btree.o btree_rb.o build.o copy.o date.o delete.o \
++LIBOBJ += attach.o auth.o btree.o btree_rb.o build.o copy.o date.o delete.o \
+          expr.o func.o hash.o insert.o encode.o \
+          main.o opcodes.o os.o pager.o parse.o pragma.o printf.o random.o \
+          select.o table.o tokenize.o trigger.o update.o util.o \
+EOD
+$nov2 || cp -p sqlite/src/shell.c sqlite/src/libshell.c
+$nov2 || patch sqlite/src/libshell.c <<'EOD'
+--- sqlite.orig/src/libshell.c  2007-01-10 19:13:01.000000000 +0100
++++ sqlite/src/libshell.c  2007-01-10 19:25:56.000000000 +0100
+@@ -20,6 +20,10 @@
+ #include "sqlite.h"
+ #include <ctype.h>
+ 
++#ifdef _WIN32
++# include <windows.h>
++#endif
++
+ #if !defined(_WIN32) && !defined(WIN32) && !defined(__MACOS__)
+ # include <signal.h>
+ # include <pwd.h>
+@@ -1205,7 +1209,7 @@
+   strcpy(continuePrompt,"   ...> ");
+ }
+ 
+-int main(int argc, char **argv){
++int sqlite_main(int argc, char **argv){
+   char *zErrMsg = 0;
+   struct callback_data data;
+   const char *zInitFile = 0;
+@@ -1246,6 +1250,17 @@
+   if( i<argc ){
+     data.zDbFilename = argv[i++];
+   }else{
++#if defined(_WIN32) && !defined(__TINYC__)
++    static OPENFILENAME ofn;
++    static char zDbFn[1024];
++    ofn.lStructSize = sizeof(ofn);
++    ofn.lpstrFile = (LPTSTR) zDbFn;
++    ofn.nMaxFile = sizeof(zDbFn);
++    ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
++    if( GetOpenFileName(&ofn) ){
++      data.zDbFilename = zDbFn;
++    } else
++#endif
+     data.zDbFilename = ":memory:";
+   }
+   if( i<argc ){
+EOD
+
+$nov2 || rm -f sqlite/src/minshell.c
+$nov2 || touch sqlite/src/minshell.c
+$nov2 || patch sqlite/src/minshell.c <<'EOD'
+--- sqlite.orig/src/minshell.c  2007-01-10 18:46:47.000000000 +0100
++++ sqlite/src/minshell.c  2007-01-10 18:46:47.000000000 +0100
+@@ -0,0 +1,20 @@
++/*
++** 2001 September 15
++**
++** The author disclaims copyright to this source code.  In place of
++** a legal notice, here is a blessing:
++**
++**    May you do good and not evil.
++**    May you find forgiveness for yourself and forgive others.
++**    May you share freely, never taking more than you give.
++**
++*************************************************************************
++** This file contains code to implement the "sqlite" command line
++** utility for accessing SQLite databases.
++*/
++
++int sqlite_main(int argc, char **argv);
++
++int main(int argc, char **argv){
++  return sqlite_main(argc, argv);
++}
+EOD
 
 echo "====================="
 echo "Preparing sqlite3 ..."
@@ -256,7 +450,8 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
-  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
+  -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -321,7 +516,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.25 2012/01/24 07:51:07 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.27 2012/05/19 07:00:06 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -474,7 +669,8 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
-  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
+  -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -613,6 +809,7 @@ patch -d sqlite3 -p1 <<'EOD'
  typedef struct simple_tokenizer {
 EOD
 test "$VER3" != "3.7.8" -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.11" -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
@@ -971,7 +1168,8 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -998,7 +1196,8 @@ EOD
 # patch: .read shell command
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1014,7 +1213,8 @@ EOD
 
 # patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
@@ -1056,6 +1256,7 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
    char **pzErrMsg,
 EOD
 test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c	2011-09-19 20:46:52.000000000 +0200
 +++ sqlite3/ext/fts3/fts3.c	2011-09-20 09:47:40.000000000 +0200
@@ -1081,7 +1282,8 @@ test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
  */
 EOD
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
@@ -1199,15 +1401,67 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
  
  /*
 EOD
+test "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/sqlite3ext.h     2012-03-22 20:13:33.000000000 +0100
++++ sqlite3/src/sqlite3ext.h  2012-03-22 20:13:57.000000000 +0100
+@@ -236,6 +236,7 @@
+   int (*blob_reopen)(sqlite3_blob*,sqlite3_int64);
+   int (*vtab_config)(sqlite3*,int op,...);
+   int (*vtab_on_conflict)(sqlite3*);
++  int (*stricmp)(const char*,const char*);
+ };
+ 
+ /*
+@@ -439,6 +440,7 @@
+ #define sqlite3_blob_reopen            sqlite3_api->blob_reopen
+ #define sqlite3_vtab_config            sqlite3_api->vtab_config
+ #define sqlite3_vtab_on_conflict       sqlite3_api->vtab_on_conflict
++#define sqlite3_stricmp                sqlite3_api->stricmp
+ #endif /* SQLITE_CORE */
+ 
+ #define SQLITE_EXTENSION_INIT1     const sqlite3_api_routines *sqlite3_api = 0;
+--- sqlite3.orig/src/loadext.c        2012-03-20 15:20:13.000000000 +0100
++++ sqlite3/src/loadext.c     2012-03-22 20:16:24.000000000 +0100
+@@ -378,6 +378,7 @@
+   sqlite3_blob_reopen,
+   sqlite3_vtab_config,
+   sqlite3_vtab_on_conflict,
++  sqlite3_stricmp,
+ };
+ 
+ /*
+EOD
 
 echo "========================"
 echo "Cleanup before build ..."
 echo "========================"
 make -f Makefile.mingw64-cross clean
+$notv2 || make -C sqlite -f ../mf-sqlite.mingw64-cross clean
 make -C sqlite3 -f ../mf-sqlite3.mingw64-cross clean
 make -C sqlite3 -f ../mf-sqlite3fts.mingw64-cross clean
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw64-cross clean
 make -f mf-sqlite3extfunc.mingw64-cross clean
+
+echo "============================="
+echo "Building SQLite 2 ... ISO8859"
+echo "============================="
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw64-cross all
+if test -n "$SQLITE_DLLS" ; then
+    $nov2 || make -C sqlite -f ../mf-sqlite.mingw64-cross sqlite.dll
+fi
+
+echo "=========================="
+echo "Building SQLite 2 ... UTF8"
+echo "=========================="
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw64-cross clean
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw64-cross ENCODING=UTF8 all
+if test -n "$SQLITE_DLLS" ; then
+    $nov2 || \
+       make -C sqlite -f ../mf-sqlite.mingw64-cross ENCODING=UTF8 sqliteu.dll
+fi
 
 echo "====================="
 echo "Building SQLite 3 ..."
@@ -1239,7 +1493,11 @@ fi
 echo "==============================="
 echo "Building ODBC drivers and utils"
 echo "==============================="
-make -f Makefile.mingw64-cross
+if $nov2 ; then
+    make -f Makefile.mingw64-cross all_no2
+else
+    make -f Makefile.mingw64-cross
+fi
 make -f Makefile.mingw64-cross sqlite3odbc${SEEEXT}nw.dll
 
 echo "==================================="
@@ -1259,9 +1517,17 @@ echo "Building SQLite3 extension functions ..."
 echo "========================================"
 make -f mf-sqlite3extfunc.mingw64-cross clean all
 
+echo "========================="
+echo "Building drivers ... UTF8"
+echo "========================="
+( $nov2 && echo '*** skipped (NO_SQLITE2)' ) || true
+$nov2 || make -f Makefile.mingw64-cross sqliteodbcu.dll sqliteu.exe
+
 echo "======================="
 echo "Cleanup after build ..."
 echo "======================="
+$nov2 || make -C sqlite -f ../mf-sqlite.mingw64-cross clean
+$nov2 || rm -f sqlite/sqlite.exe
 make -C sqlite3 -f ../mf-sqlite3.mingw64-cross clean
 make -C sqlite3 -f ../mf-sqlite3fts.mingw64-cross clean
 make -C sqlite3 -f ../mf-sqlite3rtree.mingw64-cross clean

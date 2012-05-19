@@ -22,11 +22,11 @@ Name "SQLite3 ODBC Driver for Win64"
 !endif
 
 !ifdef WITH_SEE
-!define PROD_NAME  "SQLite3 ODBC Driver (SEE) for Win64"
-!define PROD_NAME0 "SQLite3 ODBC Driver (SEE) for Win64"
+!define PROD_NAME  "SQLite ODBC Driver (SEE) for Win64"
+!define PROD_NAME0 "SQLite ODBC Driver (SEE) for Win64"
 !else
-!define PROD_NAME  "SQLite3 ODBC Driver for Win64"
-!define PROD_NAME0 "SQLite3 ODBC Driver for Win64"
+!define PROD_NAME  "SQLite ODBC Driver for Win64"
+!define PROD_NAME0 "SQLite ODBC Driver for Win64"
 !endif
 CRCCheck On
 !include "MUI.nsh"
@@ -47,15 +47,18 @@ InstallDir "$PROGRAMFILES64\${PROD_NAME0}"
 
 !define MUI_ICON "sqliteodbc.ico"
 !define MUI_UNICON "sqliteodbc.ico" 
-!define MUI_WELCOMEPAGE_TITLE "SQLite3 ODBC for Win64 Installation"
+!define MUI_WELCOMEPAGE_TITLE "SQLite ODBC for Win64 Installation"
 !define MUI_WELCOMEPAGE_TEXT "This program will guide you through the \
 installation of SQLite ODBC Driver.\r\n\r\n$_CLICK"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license.txt"
 !insertmacro MUI_PAGE_DIRECTORY
+!ifndef WITHOUT_SQLITE2
+!insertmacro MUI_PAGE_COMPONENTS
+!endif
 !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_TITLE "SQLite3 ODBC for Win64 Installation"  
+!define MUI_FINISHPAGE_TITLE "SQLite ODBC for Win64 Installation"  
 !define MUI_FINISHPAGE_TEXT "The installation of SQLite ODBC Driver is complete.\
 \r\n\r\n$_CLICK"
 
@@ -141,6 +144,27 @@ Section "-Main (required)" InstallationInfo
  ExecWait '"$INSTDIR\instq.exe"'
 
 SectionEnd
+
+!ifndef WITHOUT_SQLITE2
+Section /o "SQLite 2 Drivers" Sqlite2Install
+ SetOutPath "$INSTDIR"
+ File "sqliteodbc.dll"
+ File "sqliteodbcu.dll"
+ File "sqlite.exe"
+ File "sqliteu.exe"
+!ifdef WITH_SQLITE_DLLS
+ File "sqlite.dll"
+ File "sqliteu.dll"
+!endif
+
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2.lnk" \
+   "$INSTDIR\sqlite.exe"
+ CreateShortCut "$SMPROGRAMS\${PROD_NAME0}\Shells\SQLite 2 (UTF-8).lnk" \
+   "$INSTDIR\sqliteu.exe"
+
+ ExecWait '"$INSTDIR\instq.exe"'
+SectionEnd
+!endif
 
 ;--------------------------------
 ; Uninstaller Section

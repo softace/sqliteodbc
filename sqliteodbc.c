@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.192 2012/01/24 07:58:59 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.193 2012/04/06 14:46:00 chw Exp chw $
  *
  * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -52,7 +52,8 @@
 #endif
 
 #ifdef _WIN64
-#define CANT_PASS_VALIST_AS_CHARPTR
+#undef  CANT_PASS_VALIST_AS_CHARPTR
+#define CANT_PASS_VALIST_AS_CHARPTR 1
 #endif
 
 #ifdef CANT_PASS_VALIST_AS_CHARPTR
@@ -2466,9 +2467,8 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 		if (*q == ' ') {
 		    if ((m & 1) == 0) {
 			char *e = NULL;
-			int dummy;
 
-			dummy = strtol(q + 1, &e, 10);
+			(void) strtol(q + 1, &e, 10);
 			if (e && *e == '-') {
 			    goto skip;
 			}
@@ -8385,14 +8385,12 @@ SQLRETURN SQL_API
 SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 		SQLUSMALLINT *flags)
 {
-    DBC *d;
     int i;
     SQLUSMALLINT exists[100];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
     }
-    d = (DBC *) dbc;
     for (i = 0; i < array_size(exists); i++) {
 	exists[i] = SQL_FALSE;
     }
@@ -11854,7 +11852,6 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 {
     SQLRETURN ret;
     STMT *s;
-    DBC *d;
     int asize;
 
     ret = mkresultset(stmt, typeSpec2, array_size(typeSpec2),
@@ -11863,7 +11860,6 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	return ret;
     }
     s = (STMT *) stmt;
-    d = (DBC *) s->dbc;
 #ifdef WINTERFACE
 #ifdef SQL_LONGVARCHAR
 #ifdef SQL_WLONGVARCHAR

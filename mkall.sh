@@ -28,7 +28,7 @@ mv sqliteodbc.exe dist/sqliteodbc_dl-$VER32.exe
 CC=$CC32 $SH32 mingw-cross-build.sh
 mv sqliteodbc.exe dist/sqliteodbc-$VER32.exe
 
-SQLITE_DLLS=2 sh mingw64-cross-build.sh
+NO_SQLITE2=1 SQLITE_DLLS=2 sh mingw64-cross-build.sh
 mv sqliteodbc_w64.exe dist/sqliteodbc_w64_dl-$VER32.exe
 
 sh mingw64-cross-build.sh

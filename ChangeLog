@@ -1,6 +1,12 @@
 SQLite ODBC Driver
 ------------------
 
+Sat May 19 2012 version 0.95 released
+
+	* update to SQLite 3.7.12
+	* fixed compiler warnings
+	* now build SQLite 2 driver for Win64, too
+
 Wed Jan 25 2012 version 0.94 released
 
 	* update to SQLite 3.7.10

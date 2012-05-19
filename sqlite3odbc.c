@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.137 2012/01/24 07:59:30 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.138 2012/04/06 14:46:00 chw Exp chw $
  *
  * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
  *
@@ -3055,9 +3055,8 @@ str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
 		if (*q == ' ') {
 		    if ((m & 1) == 0) {
 			char *e = NULL;
-			int dummy;
 
-			dummy = strtol(q + 1, &e, 10);
+			(void) strtol(q + 1, &e, 10);
 			if (e && *e == '-') {
 			    goto skip;
 			}
@@ -9622,14 +9621,12 @@ SQLRETURN SQL_API
 SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
 		SQLUSMALLINT *flags)
 {
-    DBC *d;
     int i;
     SQLUSMALLINT exists[100];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
     }
-    d = (DBC *) dbc;
     for (i = 0; i < array_size(exists); i++) {
 	exists[i] = SQL_FALSE;
     }
@@ -13548,7 +13545,6 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 {
     SQLRETURN ret;
     STMT *s;
-    DBC *d;
     int asize;
 
     ret = mkresultset(stmt, typeSpec2, array_size(typeSpec2),
@@ -13557,7 +13553,6 @@ drvgettypeinfo(SQLHSTMT stmt, SQLSMALLINT sqltype)
 	return ret;
     }
     s = (STMT *) stmt;
-    d = (DBC *) s->dbc;
 #ifdef SQL_LONGVARCHAR
     s->nrows = (sqltype == SQL_ALL_TYPES) ? 13 : 1;
 #else

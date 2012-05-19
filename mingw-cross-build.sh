@@ -2,7 +2,7 @@
 #
 # Build script for cross compiling and packaging SQLite
 # ODBC drivers and tools for Win32 using MinGW and NSIS.
-# Tested on Fedora Core 3/5/8, Debian Etch, RHEL 5.
+# Tested on Fedora Core 3/5/8, Debian Etch, RHEL 5/6
 #
 # Cross toolchain and NSIS for Linux/i386/x86_64 can be fetched from
 #  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.i386.rpm
@@ -25,8 +25,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.7.10
-VER3X=3071000
+VER3=3.7.12
+VER3X=3071200
 TCCVER=0.9.25
 
 nov2=false
@@ -461,7 +461,8 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
-  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
+  -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -526,7 +527,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.64 2012/01/24 07:51:07 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.66 2012/05/19 07:00:06 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -679,7 +680,8 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.4" -a "$VER3" != "3.7.5" -a "$VER3" != "3.7.6" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
-  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
+  -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -764,6 +766,7 @@ patch -d sqlite3 -p1 <<'EOD'
  typedef struct simple_tokenizer {
 EOD
 test "$VER3" != "3.7.8" -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
+  -a "$VER3" != "3.7.11" -a "$VER3" != "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
@@ -1121,7 +1124,8 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1148,7 +1152,8 @@ EOD
 # patch: .read shell command
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1164,7 +1169,8 @@ EOD
 
 # patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
@@ -1206,6 +1212,7 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
    char **pzErrMsg,
 EOD
 test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c	2011-09-19 20:46:52.000000000 +0200
 +++ sqlite3/ext/fts3/fts3.c	2011-09-20 09:47:40.000000000 +0200
@@ -1231,7 +1238,8 @@ test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
  */
 EOD
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
-  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
+  -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
+  -o "$VER3" = "3.7.12" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
@@ -1345,6 +1353,37 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
 +  0,
 +  0,
 +#endif
+ };
+ 
+ /*
+EOD
+test "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
+  && patch -d sqlite3 -p1 <<'EOD'
+--- sqlite3.orig/src/sqlite3ext.h	2012-03-22 20:13:33.000000000 +0100
++++ sqlite3/src/sqlite3ext.h	2012-03-22 20:13:57.000000000 +0100
+@@ -236,6 +236,7 @@
+   int (*blob_reopen)(sqlite3_blob*,sqlite3_int64);
+   int (*vtab_config)(sqlite3*,int op,...);
+   int (*vtab_on_conflict)(sqlite3*);
++  int (*stricmp)(const char*,const char*);
+ };
+ 
+ /*
+@@ -439,6 +440,7 @@
+ #define sqlite3_blob_reopen            sqlite3_api->blob_reopen
+ #define sqlite3_vtab_config            sqlite3_api->vtab_config
+ #define sqlite3_vtab_on_conflict       sqlite3_api->vtab_on_conflict
++#define sqlite3_stricmp                sqlite3_api->stricmp
+ #endif /* SQLITE_CORE */
+ 
+ #define SQLITE_EXTENSION_INIT1     const sqlite3_api_routines *sqlite3_api = 0;
+--- sqlite3.orig/src/loadext.c	2012-03-20 15:20:13.000000000 +0100
++++ sqlite3/src/loadext.c	2012-03-22 20:16:24.000000000 +0100
+@@ -378,6 +378,7 @@
+   sqlite3_blob_reopen,
+   sqlite3_vtab_config,
+   sqlite3_vtab_on_conflict,
++  sqlite3_stricmp,
  };
  
  /*
