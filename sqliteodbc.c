@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.193 2012/04/06 14:46:00 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.194 2012/06/24 09:35:38 chw Exp chw $
  *
  * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -537,16 +537,16 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 		    (str[3] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x03) << 18) |
 			((str[1] & 0x3f) << 12) | ((str[2] & 0x3f) << 6) |
-			(str[4] & 0x3f);
+			(str[3] & 0x3f);
 
 		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
 			t >= 0x10000) {
 			t -= 0x10000;
-			uc[i++] = 0xd800 | (t & 0x3ff);
+			uc[i++] = 0xd800 | ((t >> 10) & 0x3ff);
 			if (i >= ucLen) {
 			    break;
 			}
-			t = 0xdc00 | ((t >> 10) & 0x3ff);
+			t = 0xdc00 | (t & 0x3ff);
 		    }
 		    uc[i++] = t;
 		    str += 4;
@@ -559,16 +559,16 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 		    (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x01) << 24) |
 			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
-			((str[4] & 0x3f) << 6) | (str[5] & 0x3f);
+			((str[3] & 0x3f) << 6) | (str[4] & 0x3f);
 
 		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
 			t >= 0x10000) {
 			t -= 0x10000;
-			uc[i++] = 0xd800 | (t & 0x3ff);
+			uc[i++] = 0xd800 | ((t >> 10) & 0x3ff);
 			if (i >= ucLen) {
 			    break;
 			}
-			t = 0xdc00 | ((t >> 10) & 0x3ff);
+			t = 0xdc00 | (t & 0x3ff);
 		    }
 		    uc[i++] = t;
 		    str += 5;
@@ -655,8 +655,8 @@ uc_to_utf(SQLWCHAR *str, int len)
 		c >= 0xd800 && c <= 0xdbff && i + 1 < len) {
 		unsigned long c2 = str[i + 1] & 0xffff;
 
-		if (c2 >= 0xdc00 && c <= 0xdfff) {
-		    c = ((c & 0x3ff) | ((c2 & 0x3ff) << 10)) + 0x10000;
+		if (c2 >= 0xdc00 && c2 <= 0xdfff) {
+		    c = (((c & 0x3ff) << 10) | (c2 & 0x3ff)) + 0x10000;
 		    *cp++ = 0xf0 | ((c >> 18) & 0x07);
 		    *cp++ = 0x80 | ((c >> 12) & 0x3f);
 		    *cp++ = 0x80 | ((c >> 6) & 0x3f);
@@ -1898,7 +1898,9 @@ errout:
 		++p;
 	    }
 	    size = strlen(p);
-	    *isselect = (size >= 6) && (strncasecmp(p, "select", 6) == 0);
+	    *isselect = (size >= 6) &&
+		((strncasecmp(p, "select", 6) == 0) ||
+		 (strncasecmp(p, "pragma", 6) == 0));
 	}
     }
     if (namepp) {
@@ -2751,15 +2753,15 @@ connfail:
 	busyto = 1000000;
     }
     d->timeout = busyto;
+    freep(&d->dbname);
+    d->dbname = xstrdup(name);
+    freep(&d->dsn);
+    d->dsn = xstrdup(dsn);
     if (setsqliteopts(d->sqlite, d) != SQLITE_OK) {
 	sqlite_close(d->sqlite);
 	d->sqlite = NULL;
 	goto connfail;
     }
-    freep(&d->dbname);
-    d->dbname = xstrdup(name);
-    freep(&d->dsn);
-    d->dsn = xstrdup(dsn);
 #if defined(_WIN32) || defined(_WIN64)
     {
 	char pname[MAX_PATH];

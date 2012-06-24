@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.138 2012/04/06 14:46:00 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.139 2012/06/24 09:35:38 chw Exp chw $
  *
  * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
  *
@@ -701,16 +701,16 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 		    (str[3] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x03) << 18) |
 			((str[1] & 0x3f) << 12) | ((str[2] & 0x3f) << 6) |
-			(str[4] & 0x3f);
+			(str[3] & 0x3f);
 
 		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
 			t >= 0x10000) {
 			t -= 0x10000;
-			uc[i++] = 0xd800 | (t & 0x3ff);
+			uc[i++] = 0xd800 | ((t >> 10) & 0x3ff);
 			if (i >= ucLen) {
 			    break;
 			}
-			t = 0xdc00 | ((t >> 10) & 0x3ff);
+			t = 0xdc00 | (t & 0x3ff);
 		    }
 		    uc[i++] = t;
 		    str += 4;
@@ -723,16 +723,16 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 		    (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80) {
 		    unsigned long t = ((c & 0x01) << 24) |
 			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
-			((str[4] & 0x3f) << 6) | (str[5] & 0x3f);
+			((str[3] & 0x3f) << 6) | (str[4] & 0x3f);
 
 		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
 			t >= 0x10000) {
 			t -= 0x10000;
-			uc[i++] = 0xd800 | (t & 0x3ff);
+			uc[i++] = 0xd800 | ((t >> 10) & 0x3ff);
 			if (i >= ucLen) {
 			    break;
 			}
-			t = 0xdc00 | ((t >> 10) & 0x3ff);
+			t = 0xdc00 | (t & 0x3ff);
 		    }
 		    uc[i++] = t;
 		    str += 5;
@@ -819,8 +819,8 @@ uc_to_utf(SQLWCHAR *str, int len)
 		c >= 0xd800 && c <= 0xdbff && i + 1 < len) {
 		unsigned long c2 = str[i + 1] & 0xffff;
 
-		if (c2 >= 0xdc00 && c <= 0xdfff) {
-		    c = ((c & 0x3ff) | ((c2 & 0x3ff) << 10)) + 0x10000;
+		if (c2 >= 0xdc00 && c2 <= 0xdfff) {
+		    c = (((c & 0x3ff) << 10) | (c2 & 0x3ff)) + 0x10000;
 		    *cp++ = 0xf0 | ((c >> 18) & 0x07);
 		    *cp++ = 0x80 | ((c >> 12) & 0x3f);
 		    *cp++ = 0x80 | ((c >> 6) & 0x3f);
@@ -1204,22 +1204,23 @@ s3bind(DBC *d, sqlite3_stmt *stmt, int nparams, BINDPARM *p)
     }
 }
 
-/*
+/**
+ * @typedef TBLRES
+ * @struct tblres
  * Internal structure for managing driver's
  * sqlite3_get_table() implementation.
  */
 
 typedef struct tblres {
-    char **resarr;
-    char *errmsg;
-    sqlite3_stmt *stmt;
-    STMT *s;
-    int nres;
-    int nalloc;
-    int nrow;
-    int ncol;
-    PTRDIFF_T ndata;
-    int rc;
+    char **resarr;	/**< result array */
+    char *errmsg;	/**< error message or NULL */
+    sqlite3_stmt *stmt;	/**< SQLite3 statement pointer */
+    STMT *s;		/**< Driver statement pointer */
+    int nalloc;		/**< alloc'ed size of result array */
+    int nrow;		/**< number of rows in result array */
+    int ncol;		/**< number of columns in result array */
+    PTRDIFF_T ndata;	/**< index into result array */
+    int rc;		/**< SQLite return code */
 } TBLRES;
 
 /*
@@ -1340,7 +1341,6 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	*ncolp = 0;
     }
     tres.errmsg = NULL;
-    tres.nres = 0;
     tres.nrow = 0;
     tres.ncol = 0;
     tres.ndata = 1;
@@ -2479,7 +2479,9 @@ errout:
 		p++;
 	    }
 	    size = strlen(p);
-	    *isselect = (size >= 6) && (strncasecmp(p, "select", 6) == 0);
+	    *isselect = (size >= 6) &&
+		((strncasecmp(p, "select", 6) == 0) ||
+		 (strncasecmp(p, "pragma", 6) == 0));
 	}
     }
     return out;
@@ -3584,6 +3586,10 @@ connfail:
 	busyto = 1000000;
     }
     d->timeout = busyto;
+    freep(&d->dbname);
+    d->dbname = xstrdup(name);
+    freep(&d->dsn);
+    d->dsn = xstrdup(dsn);
     if ((rc = setsqliteopts(d->sqlite, d)) != SQLITE_OK) {
 	if (d->trace) {
 	    fprintf(d->trace, "-- sqlite3_close: '%s'\n",
@@ -3609,10 +3615,6 @@ connfail:
 	sprintf(jourp, "PRAGMA journal_mode = %16.16s;", jmode);
 	sqlite3_exec(d->sqlite, jourp, NULL, NULL, NULL);
     }
-    freep(&d->dbname);
-    d->dbname = xstrdup(name);
-    freep(&d->dsn);
-    d->dsn = xstrdup(dsn);
     if (d->trace) {
 	fprintf(d->trace, "-- sqlite3_open: '%s'\n", d->dbname);
 	fflush(d->trace);

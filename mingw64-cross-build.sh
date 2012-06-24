@@ -23,8 +23,8 @@
 set -e
 
 VER2=2.8.17
-VER3=3.7.12
-VER3X=3071200
+VER3=3.7.13
+VER3X=3071300
 
 nov2=false
 if test -n "$NO_SQLITE2" ; then
@@ -451,7 +451,7 @@ test "$VER3" != "3.6.15" -a "$VER3" != "3.6.16" -a "$VER3" != "3.6.17" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
   -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
-  -a "$VER3" != "3.7.12" \
+  -a "$VER3" != "3.7.12" -a "$VER3" != "3.7.12.1" -a "$VER3" != "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 diff -u sqlite3.orig/src/build.c sqlite3/src/build.c
 --- sqlite3.orig/src/build.c	2007-01-09 14:53:04.000000000 +0100
@@ -516,7 +516,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw64-cross-build.sh,v 1.27 2012/05/19 07:00:06 chw Exp chw $
+ ** $Id: mingw64-cross-build.sh,v 1.28 2012/06/24 09:36:50 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"
@@ -670,7 +670,7 @@ test "$VER3" != "3.6.21" -a "$VER3" != "3.6.22" -a "$VER3" != "3.6.23" \
   -a "$VER3" != "3.7.6.1" -a "$VER3" != "3.7.6.2" -a "$VER3" != "3.7.6.3" \
   -a "$VER3" != "3.7.7" -a "$VER3" != "3.7.7.1" -a "$VER3" != "3.7.8" \
   -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" -a "$VER3" != "3.7.11" \
-  -a "$VER3" != "3.7.12" \
+  -a "$VER3" != "3.7.12" -a "$VER3" != "3.7.12.1" -a "$VER3" != "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c 2008-02-02 17:24:34.000000000 +0100
 +++ sqlite3/ext/fts3/fts3.c      2008-03-16 11:29:02.000000000 +0100
@@ -809,7 +809,8 @@ patch -d sqlite3 -p1 <<'EOD'
  typedef struct simple_tokenizer {
 EOD
 test "$VER3" != "3.7.8" -a "$VER3" != "3.7.9" -a "$VER3" != "3.7.10" \
-  -a "$VER3" != "3.7.11" -a "$VER3" != "3.7.12" \
+  -a "$VER3" != "3.7.11" -a "$VER3" != "3.7.12" -a "$VER3" != "3.7.12.1" \
+  -a "$VER3" != "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_hash.c    2007-11-24 01:41:52.000000000 +0100
 +++ sqlite3/ext/fts3/fts3_hash.c 2008-03-16 11:39:57.000000000 +0100
@@ -1169,7 +1170,7 @@ test "$VER3" = "3.7.3" -o "$VER3" = "3.7.4" -o "$VER3" = "3.7.5" \
   -o "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
-  -o "$VER3" = "3.7.12" \
+  -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/rtree/rtree.c	2010-10-16 10:53:54.000000000 +0200
 +++ sqlite3/ext/rtree/rtree.c	2010-10-16 11:12:32.000000000 +0200
@@ -1197,7 +1198,7 @@ EOD
 test "$VER3" = "3.7.6.1" -o "$VER3" = "3.7.6.2" -o "$VER3" = "3.7.6.3" \
   -o "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
-  -o "$VER3" = "3.7.12" \
+  -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/shell.c	2011-05-19 15:34:57.000000000 +0200
 +++ sqlite3/src/shell.c	2011-06-09 13:36:13.000000000 +0200
@@ -1214,7 +1215,7 @@ EOD
 # patch: FTS3 for 3.7.7 plus missing APIs in sqlite3ext.h/loadext.c
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
-  -o "$VER3" = "3.7.12" \
+  -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_aux.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_aux.c	2011-06-25 06:44:08.000000000 +0200
@@ -1256,7 +1257,8 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
    char **pzErrMsg,
 EOD
 test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
-  -o "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
+  -o "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" \
+  -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3.c	2011-09-19 20:46:52.000000000 +0200
 +++ sqlite3/ext/fts3/fts3.c	2011-09-20 09:47:40.000000000 +0200
@@ -1283,7 +1285,7 @@ test "$VER3" = "3.7.8" -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" \
 EOD
 test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" -o "$VER3" = "3.7.8" \
   -o "$VER3" = "3.7.9" -o "$VER3" = "3.7.10" -o "$VER3" = "3.7.11" \
-  -o "$VER3" = "3.7.12" \
+  -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/ext/fts3/fts3_expr.c	2011-06-24 09:06:08.000000000 +0200
 +++ sqlite3/ext/fts3/fts3_expr.c	2011-06-25 06:47:00.000000000 +0200
@@ -1401,7 +1403,8 @@ test "$VER3" = "3.7.7" -o "$VER3" = "3.7.7.1" \
  
  /*
 EOD
-test "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" \
+test "$VER3" = "3.7.11" -o "$VER3" = "3.7.12" -o "$VER3" = "3.7.12.1" \
+  -o "$VER3" = "3.7.13" \
   && patch -d sqlite3 -p1 <<'EOD'
 --- sqlite3.orig/src/sqlite3ext.h     2012-03-22 20:13:33.000000000 +0100
 +++ sqlite3/src/sqlite3ext.h  2012-03-22 20:13:57.000000000 +0100

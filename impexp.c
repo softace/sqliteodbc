@@ -1967,12 +1967,14 @@ json_pstrq(const char *string, json_pfs *pfs)
 		}
 		if (uc < 0x10000) {
 		    sprintf(buf, "\\u%04lx", uc);
-		} else {
+		} else if (uc < 0x100000) {
 		    uc -= 0x10000;
 
-		    sprintf(buf, "\\u%04lx", 0xd800 | (uc & 0x3ff));
+		    sprintf(buf, "\\u%04lx", 0xd800 | ((uc >> 10) & 0x3ff));
 		    json_pstr(buf, pfs);
-		    sprintf(buf, "\\u%04lx", 0xdc00 | ((uc >> 10) & 0x3ff));
+		    sprintf(buf, "\\u%04lx", 0xdc00 | (uc & 0x3ff));
+		} else {
+		    strcpy(buf, "\\ufffd");
 		}
 		json_pstr(buf, pfs);
 	    } else {

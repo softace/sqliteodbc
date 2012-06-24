@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jun 24 2012 version 0.96 released
+
+	* update to SQLite 3.7.13
+	* allow "PRAGMA" SQL command to return result set
+	* fixed UCS-2 surrogate sequences and UTF-8 translation,
+	  thanks KamLeong Lai for fix and testing
+
 Sat May 19 2012 version 0.95 released
 
 	* update to SQLite 3.7.12
