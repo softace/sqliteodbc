@@ -48,6 +48,7 @@ all:		sqliteodbc.dll sqlite.exe \
 		sqlite3odbc$(SEEEXT).dll \
 		sqlite3_mod_blobtoxy.dll \
 		sqlite3_mod_impexp.dll \
+		sqlite3_mod_csvtable.dll \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
 		addsysdsn.exe remsysdsn.exe $(SQLITE3_EXE)
@@ -56,6 +57,7 @@ all:		sqliteodbc.dll sqlite.exe \
 all_no2:	sqlite3odbc$(SEEEXT).dll \
 		sqlite3_mod_blobtoxy.dll \
 		sqlite3_mod_impexp.dll \
+		sqlite3_mod_csvtable.dll \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
 		addsysdsn.exe remsysdsn.exe $(SQLITE3_EXE)
@@ -216,10 +218,20 @@ sqlite3_mod_impexp.dll:	impexp.o
 		    -Wl,--strip-all -o sqlite3_mod_impexp.dll \
 		    impexp.o -lcomdlg32
 
+csvtable.o:	csvtable.c
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
+		    csvtable.c
+
+sqlite3_mod_csvtable.dll:	csvtable.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--strip-all -o sqlite3_mod_csvtable.dll \
+		    csvtable.o
+
 clean:
 		rm -f *.o sqliteodbc*.dll sqlite3odbc$(SEEEXT).dll \
 		    sqlite3_mod_blobtoxy.dll \
 		    sqlite3_mod_impexp.dll \
+		    sqlite3_mod_csvtable.dll \
 		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ \
 		    core core.*
 		rm -f resource.h resource3.h

@@ -101,7 +101,7 @@ Section "-Main (required)" InstallationInfo
  File "remdsn.exe"
  File "addsysdsn.exe"
  File "remsysdsn.exe"
- File "SQLiteODBCInstaller.exe"
+; File "SQLiteODBCInstaller.exe"
 ; SQLite 3.4.*
 ; File "sqlite3_mod_fts1.dll"
 ; File "sqlite3_mod_fts2.dll"
@@ -109,6 +109,7 @@ Section "-Main (required)" InstallationInfo
  File "sqlite3_mod_fts3.dll"
  File "sqlite3_mod_blobtoxy.dll"
  File "sqlite3_mod_impexp.dll"
+ File "sqlite3_mod_csvtable.dll"
 ; SQLite 3.6.*
  File "sqlite3_mod_rtree.dll"
  File "sqlite3_mod_extfunc.dll"
@@ -228,7 +229,7 @@ Section /o "Source Code" SourceInstall
  File "source\mf-sqlite3rtree.mingw-cross"
  File "source\mingw-cross-build.sh"
  File "source\sqliteodbc.nsi"
- File "source\SQLiteODBCInstaller.c"
+; File "source\SQLiteODBCInstaller.c"
  File "source\blobtoxy.c"
  File "source\blobtoxy.rc"
  File "source\impexp.c"

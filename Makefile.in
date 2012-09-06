@@ -57,6 +57,11 @@ libsqlite3_mod_impexp.la:	impexp.lo
 		    -o libsqlite3_mod_impexp.la \
 		    impexp.lo -rpath $(drvdir) -release $(VER_INFO)
 
+libsqlite3_mod_csvtable.la:	csvtable.lo
+		$(LIBTOOL) --mode=link $(CC) $(CFLAGS) \
+		    -o libsqlite3_mod_csvtable.la \
+		    csvtable.lo -rpath $(drvdir) -release $(VER_INFO)
+
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
 		    -I$(SQLITE_INC) $(ODBC_FLAGS) \
@@ -79,6 +84,11 @@ impexp.lo:	impexp.c
 		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
 		    -I$(SQLITE3_INC) \
 		    $(SQLITE3_FLAGS) impexp.c
+
+csvtable.lo:	csvtable.c
+		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
+		    -I$(SQLITE3_INC) \
+		    $(SQLITE3_FLAGS) csvtable.c
 
 install-2:	libsqliteodbc.la
 		$(LIBTOOL) --mode=install $(INSTALL) \

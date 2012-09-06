@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.139 2012/06/24 09:35:38 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.140 2012/09/05 10:04:45 chw Exp chw $
  *
  * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
  *
@@ -601,7 +601,7 @@ strdup_(const char *str)
 /**
  * Return length of UNICODE string.
  * @param str UNICODE string
- * @result length of string
+ * @result length of string in characters
  */
 
 static int
@@ -622,7 +622,7 @@ uc_strlen(SQLWCHAR *str)
  * Copy UNICODE string like strncpy().
  * @param dest destination area
  * @param src source area
- * @param len length of source area
+ * @param len length of source area in characters
  * @return pointer to destination area
  */
 
@@ -647,7 +647,7 @@ uc_strncpy(SQLWCHAR *dest, SQLWCHAR *src, int len)
 /**
  * Make UNICODE string from UTF8 string into buffer.
  * @param str UTF8 string to be converted
- * @param len length of str or -1
+ * @param len length in characters of str or -1
  * @param uc destination area to receive UNICODE string
  * @param ucLen byte length of destination area
  */
@@ -4310,7 +4310,7 @@ seqerr:
 	setstat(s, -1, "sequence error", "HY010");
 	return SQL_ERROR;
     }
-    for (i = 0; i < s->nparams; i++) {
+    for (i = (s->pdcount < 0) ? 0 : s->pdcount; i < s->nparams; i++) {
 	p = &s->bindparms[i];
 	if (p->need > 0) {
 	    int type = mapdeftype(p->type, p->stype, -1, s->nowchar[0]);
@@ -4470,7 +4470,10 @@ seqerr:
 		    p->need = (type == SQL_C_CHAR) ? -1 : 0;
 #endif
 #if defined(_WIN32) || defined(_WIN64)
-		    if (type == SQL_C_CHAR && *s->oemcp) {
+		    if (type == SQL_C_CHAR && *s->oemcp &&
+			!(p->stype == SQL_BINARY ||
+			  p->stype == SQL_VARBINARY ||
+			  p->stype == SQL_LONGVARBINARY)) {
 			char *dp = wmb_to_utf(p->param, p->len);
 
 			if (!dp) {
@@ -4577,6 +4580,12 @@ setupparam(STMT *s, char *sql, int pnum)
 	p->s3size = 0;
 	return SQL_SUCCESS;
     }
+    if (type == SQL_C_CHAR &&
+	(p->stype == SQL_BINARY ||
+	 p->stype == SQL_VARBINARY ||
+	 p->stype == SQL_LONGVARBINARY)) {
+	type = SQL_C_BINARY;
+    }
     switch (type) {
     case SQL_C_BINARY:
 	p->s3type = SQLITE_BLOB;
@@ -4586,6 +4595,8 @@ setupparam(STMT *s, char *sql, int pnum)
 	    break;
 	}
 	if (!p->lenp) {
+	    len = p->len;
+	} else if (*p->lenp == SQL_DATA_AT_EXEC) {
 	    len = p->len;
 	} else {
 	    len = *p->lenp;
@@ -5059,14 +5070,18 @@ static SQLRETURN
 setupparbuf(STMT *s, BINDPARM *p)
 {
     if (!p->parbuf) {
-	p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
+	if (*p->lenp == SQL_DATA_AT_EXEC) {
+	    p->len = p->max;
+	} else {
+	    p->len = SQL_LEN_DATA_AT_EXEC(*p->lenp);
+	}
 	if (p->len < 0 && p->len != SQL_NTS &&
 	    p->len != SQL_NULL_DATA) {
 	    setstat(s, -1, "invalid length", "HY009");
 	    return SQL_ERROR;
 	}
 	if (p->len >= 0) {
-	    p->parbuf = xmalloc(p->len + 1);
+	    p->parbuf = xmalloc(p->len + 2);
 	    if (!p->parbuf) {
 		return nomem(s);
 	    }
@@ -5092,6 +5107,7 @@ SQLParamData(SQLHSTMT stmt, SQLPOINTER *pind)
     int i;
     SQLPOINTER dummy;
     SQLRETURN ret;
+    BINDPARM *p;
 
     HSTMT_LOCK(stmt);
     if (stmt == SQL_NULL_HSTMT) {
@@ -5101,12 +5117,23 @@ SQLParamData(SQLHSTMT stmt, SQLPOINTER *pind)
     if (!pind) {
 	pind = &dummy;
     }
-    for (i = 0; i < s->nparams; i++) {
-	BINDPARM *p = &s->bindparms[i];
+    if (s->pdcount < s->nparams) {
+	s->pdcount++;
+    }
+    for (i = 0; i < s->pdcount; i++) {
+	p = &s->bindparms[i];
+	if (p->need > 0) {
+	    int type = mapdeftype(p->type, p->stype, -1, s->nowchar[0]);
 
+	    p->need = (type == SQL_C_CHAR || type == SQL_C_WCHAR) ? -1 : 0;
+	}
+    }
+    for (; i < s->nparams; i++) {
+	p = &s->bindparms[i];
 	if (p->need > 0) {
 	    *pind = (SQLPOINTER) p->param0;
 	    ret = setupparbuf(s, p);
+	    s->pdcount = i;
 	    goto done;
 	}
     }
@@ -10898,7 +10925,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     DBC *d;
     int len;
     SQLRETURN ret;
-    char buf[SQL_MAX_MESSAGE_LENGTH * 2], dbname[SQL_MAX_MESSAGE_LENGTH / 4];
+    char buf[SQL_MAX_MESSAGE_LENGTH * 6], dbname[SQL_MAX_MESSAGE_LENGTH];
     char dsn[SQL_MAX_MESSAGE_LENGTH / 4], busy[SQL_MAX_MESSAGE_LENGTH / 4];
     char tracef[SQL_MAX_MESSAGE_LENGTH], loadext[SQL_MAX_MESSAGE_LENGTH];
     char pwd[SQL_MAX_MESSAGE_LENGTH];
@@ -16356,11 +16383,13 @@ unbound:
 	    SQLLEN *lenp = p->lenp;
 
 	    if (lenp && *lenp < 0 && *lenp > SQL_LEN_DATA_AT_EXEC_OFFSET &&
-		*lenp != SQL_NTS && *lenp != SQL_NULL_DATA) {
+		*lenp != SQL_NTS && *lenp != SQL_NULL_DATA &&
+		*lenp != SQL_DATA_AT_EXEC) {
 		setstat(s, -1, "invalid length reference", "HY009");
 		return SQL_ERROR;
 	    }
-	    if (lenp && *lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+	    if (lenp && (*lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET ||
+			 *lenp == SQL_DATA_AT_EXEC)) {
 		p->need = 1;
 		p->offs = 0;
 		p->len = 0;
@@ -16376,6 +16405,7 @@ again:
     s3stmt_end(s);
     if (initial) {
 	/* fixup data-at-execution parameters and alloc'ed blobs */
+	s->pdcount = -1;
 	for (i = 0; i < s->nparams; i++) {
 	    BINDPARM *p = &s->bindparms[i];
 
@@ -16384,7 +16414,8 @@ again:
 	    }
 	    freep(&p->parbuf);
 	    if (p->need <= 0 &&
-		p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		p->lenp && (*p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET ||
+			    *p->lenp == SQL_DATA_AT_EXEC)) {
 		p->need = 1;
 		p->offs = 0;
 		p->len = 0;
@@ -16425,7 +16456,8 @@ again:
 		    p->param = NULL;
 		}
 		freep(&p->parbuf);
-		if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
+		if (!p->lenp || (*p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET &&
+				 *p->lenp != SQL_DATA_AT_EXEC)) {
 		    p->param = p->param0;
 		}
 		p->lenp = p->lenp0;
@@ -16489,7 +16521,8 @@ done2:
 	    } else if (p->lenp0 && p->inc > 0) {
 		p->lenp = p->lenp0 + s->paramset_count;
 	    }
-	    if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
+	    if (!p->lenp || (*p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET &&
+			     *p->lenp != SQL_DATA_AT_EXEC)) {
 		if (p->param0 &&
 		    s->parm_bind_type != SQL_PARAM_BIND_BY_COLUMN) {
 		    p->param = (char *) p->param0 + 
@@ -16498,7 +16531,8 @@ done2:
 		    p->param = (char *) p->param0 + 
 			s->paramset_count * p->inc;
 		}
-	    } else if (p->lenp && *p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET) {
+	    } else if (p->lenp && (*p->lenp <= SQL_LEN_DATA_AT_EXEC_OFFSET ||
+				   *p->lenp == SQL_DATA_AT_EXEC)) {
 		p->need = 1;
 		p->offs = 0;
 		p->len = 0;
@@ -16515,7 +16549,8 @@ cleanup:
 		p->param = NULL;
 	    }
 	    freep(&p->parbuf);
-	    if (!p->lenp || *p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET) {
+	    if (!p->lenp || (*p->lenp > SQL_LEN_DATA_AT_EXEC_OFFSET &&
+			     *p->lenp != SQL_DATA_AT_EXEC)) {
 		p->param = p->param0;
 	    }
 	    p->lenp = p->lenp0;
@@ -16710,12 +16745,12 @@ done:
 #include <windowsx.h>
 #include <winuser.h>
 
-#define MAXPATHLEN      (255+1)           /* Max path length */
+#define MAXPATHLEN      (259+1)           /* Max path length */
 #define MAXKEYLEN       (15+1)            /* Max keyword length */
 #define MAXDESC         (255+1)           /* Max description length */
 #define MAXDSNAME       (32+1)            /* Max data source name length */
 #define MAXTONAME       (32+1)            /* Max timeout length */
-#define MAXDBNAME	(255+1)
+#define MAXDBNAME       MAXPATHLEN
 
 /* Attribute key indexes into an array of Attr structs, see below */
 
@@ -17516,7 +17551,7 @@ retry:
     driver = setupdlg->attr[KEY_DRIVER].attr;
     dbname = setupdlg->attr[KEY_DBNAME].attr;
     if (connOut || connOutLen) {
-	char buf[2048];
+	char buf[SQL_MAX_MESSAGE_LENGTH * 4];
 	int len, count;
 	char dsn_0 = dsn ? dsn[0] : '\0';
 	char drv_0 = driver ? driver[0] : '\0';
@@ -17664,6 +17699,9 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
     HDBC_LOCK(dbc);
     if (connIn) {
 #if defined(_WIN32) || defined(_WIN64)
+	if (connInLen == SQL_NTS) {
+	    connInLen = -1;
+	}
 	ci = uc_to_wmb(connIn, connInLen);
 #else
 	ci = uc_to_utf(connIn, connInLen);
@@ -17691,9 +17729,8 @@ SQLDriverConnectW(SQLHDBC dbc, SQLHWND hwnd,
 		co = uc_from_utf((SQLCHAR *) connOut, len);
 #endif
 		if (co) {
-		    uc_strncpy(connOut, co, connOutMax);
-		    co[len] = 0;
-		    len = min(connOutMax, uc_strlen(co));
+		    uc_strncpy(connOut, co, connOutMax / sizeof (SQLWCHAR));
+		    len = min(connOutMax / sizeof (SQLWCHAR), uc_strlen(co));
 		    uc_free(co);
 		} else {
 		    len = 0;

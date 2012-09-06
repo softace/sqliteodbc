@@ -188,7 +188,7 @@ diff -Nur tcc-0.9.25.orig/mingw-cross-build.sh tcc-0.9.25/mingw-cross-build.sh
 +set -e
 +
 +rm -rf ../TCC
-+sh cross-configure.sh --prefix=/TCC --enable-mingw32 --extra-cflags=-m32
++sh cross-configure.sh --prefix=/TCC --enable-mingw32 --extra-cflags="-m32 -march=i386 -mtune=generic"
 +sh cross-make.sh clean all
 +sh cross-make.sh DESTDIR=.. install
 +sh cross-make.sh distclean

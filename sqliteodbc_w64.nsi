@@ -104,6 +104,7 @@ Section "-Main (required)" InstallationInfo
  File "sqlite3_mod_fts3.dll"
  File "sqlite3_mod_blobtoxy.dll"
  File "sqlite3_mod_impexp.dll"
+ File "sqlite3_mod_csvtable.dll"
  File "sqlite3_mod_rtree.dll"
  File "sqlite3_mod_extfunc.dll"
  File "license.terms"

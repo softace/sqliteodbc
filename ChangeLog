@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Thu Sep 06 2012 version 0.97 released
+
+	* update to SQLite 3.7.14
+	* added CSV table extension module
+	* added handling of SQL_DATA_AT_EXEC for parameter binding
+	* increased file name buffers for Win32
+	* length fixes in Win32 version of SQLDriverConnectW()
+
 Sun Jun 24 2012 version 0.96 released
 
 	* update to SQLite 3.7.13
