@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.140 2012/09/05 10:04:45 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.142 2012/09/26 04:49:58 chw Exp chw $
  *
  * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
  *
@@ -1307,6 +1307,33 @@ nomem:
 		}
 		*qp++ = '\'';
 		*qp = '\0';
+#ifdef _MSC_VER
+	    } else if (coltype == SQLITE_FLOAT) {
+		static struct lconv *lc = 0;
+		double val = sqlite3_column_double(t->stmt, i);
+		char buffer[128];
+
+		/*
+		 * This avoids floating point rounding
+		 * and formatting problems of some SQLite
+		 * versions in conjunction with MSVC 2010.
+		 */
+		snprintf(buffer, sizeof (buffer), "%.15g", val);
+		if (!lc) {
+		    lc = localeconv();
+		}
+		if (lc && lc->decimal_point && lc->decimal_point[0] &&
+		    lc->decimal_point[0] != '.') {
+		    p = strchr(buffer, lc->decimal_point[0]);
+		    if (p) {
+			*p = '.';
+		    }
+		}
+		p = xstrdup(buffer);
+		if (!p) {
+		    goto nomem;
+		}
+#endif
 	    } else if (coltype != SQLITE_NULL) {
 		p = xstrdup((char *) sqlite3_column_text(t->stmt, i));
 		if (!p) {
@@ -1655,11 +1682,13 @@ noconn(STMT *s)
 static double
 ln_strtod(const char *data, char **endp)
 {
-    struct lconv *lc;
+    static struct lconv *lc = 0;
     char buf[128], *p, *end;
     double value;
 
-    lc = localeconv();
+    if (!lc) {
+	lc = localeconv();
+    }
     if (lc && lc->decimal_point && lc->decimal_point[0] &&
 	lc->decimal_point[0] != '.') {
 	strncpy(buf, data, sizeof (buf) - 1);
@@ -1750,7 +1779,7 @@ unescpat(char *str)
  * SQL LIKE string match with optional backslash escape handling.
  * @param str string
  * @param pat pattern
- * @param esc when true, treat literally "\\" as "\", "\?" as "?", "\_" as "_"
+ * @param esc when true, treat literally "\\" as "\", "\%" as "%", "\_" as "_"
  * @result true when pattern matched
  */
 
@@ -3987,6 +4016,30 @@ s3stmt_step(STMT *s)
 			*qp++ = '\'';
 			*qp = '\0';
 		    }
+#ifdef _MSC_VER
+		} else if (coltype == SQLITE_FLOAT) {
+		    static struct lconv *lc = 0;
+		    double d = sqlite3_column_double(s->s3stmt, i);
+		    char *p, buffer[128];
+
+		    /*
+		     * This avoids floating point rounding
+		     * and formatting problems of some SQLite
+		     * versions in conjunction with MSVC 2010.
+		     */
+		    snprintf(buffer, sizeof (buffer), "%.15g", d);
+		    if (!lc) {
+			lc = localeconv();
+		    }
+		    if (lc && lc->decimal_point && lc->decimal_point[0] &&
+			lc->decimal_point[0] != '.') {
+			p = strchr(buffer, lc->decimal_point[0]);
+			if (p) {
+			    *p = '.';
+			}
+		    }
+		    rowd[i + ncols] = xstrdup(buffer);
+#endif
 		} else if (coltype != SQLITE_NULL) {
 		    value = sqlite3_column_text(s->s3stmt, i);
 		    rowd[i + ncols] = xstrdup((char *) value);
@@ -9051,7 +9104,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     char dummyc[16];
     SQLSMALLINT dummy;
 #if defined(_WIN32) || defined(_WIN64)
-    char drvname[301];
+    char pathbuf[301], *drvname;
 #else
     static char drvname[] = "sqlite3odbc.so";
 #endif
@@ -9140,7 +9193,16 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_DRIVER_NAME:
 #if defined(_WIN32) || defined(_WIN64)
-	GetModuleFileName(hModule, drvname, sizeof (drvname));
+	GetModuleFileName(hModule, pathbuf, sizeof (pathbuf));
+	drvname = strrchr(pathbuf, '\\');
+	if (drvname == NULL) {
+	    drvname = strrchr(pathbuf, '/');
+	}
+	if (drvname == NULL) {
+	    drvname = pathbuf;
+	} else {
+	    drvname++;
+	}
 #endif
 	strmak(val, drvname, valMax, valLen);
 	break;
@@ -9626,7 +9688,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 		    }
 		}
 	    } else {
-		len = 0;
+		len *= sizeof (SQLWCHAR);
 	    }
 	    break;
 	}
@@ -17496,7 +17558,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 		 SQLCHAR *connOut, SQLSMALLINT connOutMax,
 		 SQLSMALLINT *connOutLen, SQLUSMALLINT drvcompl)
 {
-    BOOL maybeprompt, prompt = FALSE;
+    BOOL maybeprompt, prompt = FALSE, defaultdsn = FALSE;
     DBC *d;
     SETUPDLG *setupdlg;
     SQLRETURN ret;
@@ -17525,6 +17587,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	if (!setupdlg->attr[KEY_DSN].attr[0] &&
 	    drvcompl == SQL_DRIVER_COMPLETE_REQUIRED) {
 	    strcpy(setupdlg->attr[KEY_DSN].attr, "DEFAULT");
+	    defaultdsn = TRUE;
 	}
 	GetAttributes(setupdlg);
 	if (drvcompl == SQL_DRIVER_PROMPT ||
@@ -17553,7 +17616,7 @@ retry:
     if (connOut || connOutLen) {
 	char buf[SQL_MAX_MESSAGE_LENGTH * 4];
 	int len, count;
-	char dsn_0 = dsn ? dsn[0] : '\0';
+	char dsn_0 = (dsn && !defaultdsn) ? dsn[0] : '\0';
 	char drv_0 = driver ? driver[0] : '\0';
 
 	buf[0] = '\0';

@@ -404,6 +404,13 @@ process_col(sqlite3_context *ctx, sqlite3_stmt *stmt, int idx,
 	if (utf) {
 	    p = utf;
 	    while ((c = *data) != '\0') {
+		if (((conv & 10) == 10) && (c == '\\')) {
+		    if (data[1] == 'q') {
+			*p++ = '\'';
+			data += 2;
+			continue;
+		    }
+		}
 		if ((conv & 2) && (c == '\\')) {
 		    char c2 = data[1];
 
@@ -444,6 +451,7 @@ process_col(sqlite3_context *ctx, sqlite3_stmt *stmt, int idx,
 			*p = '\\';
 			break;
 		    default:
+			*p++ = c;
 			*p = c2;
 			break;
 		    }
@@ -948,9 +956,10 @@ csv_guess(csv_file *csv)
  *
  * Translation flags:
  *
- * 1 - convert ISO-8859-1 to UTF-8<br>
- * 2 - perform backslash substitution<br>
- * 4 - convert and collapse white-space in column names to underscore<br>
+ * 1  - convert ISO-8859-1 to UTF-8<br>
+ * 2  - perform backslash substitution<br>
+ * 4  - convert and collapse white-space in column names to underscore<br>
+ * 10 - convert \q to single quote, in addition to backslash substitution<br>
  */
 
 static int
@@ -1131,8 +1140,7 @@ csv_vtab_destroy(sqlite3_vtab *vtab)
 }
 
 /**
- * Determines information for filter function
- * according to constraints.
+ * Determines information for filter function according to constraints.
  * @param vtab virtual table
  * @param info index/constraint iinformation
  * @result SQLite error code
@@ -1200,10 +1208,10 @@ csv_vtab_next(sqlite3_vtab_cursor *cursor)
 /**
  * Filter function for virtual table.
  * @param cursor virtual table cursor
- * @param idxNum used for expression (<, =, >, etc.)
- * @param idxStr optional order by clause
- * @param argc number arguments (0 or 1)
- * @param argv argument (nothing or RHS of filter expression)
+ * @param idxNum unused (always 0)
+ * @param idxStr unused
+ * @param argc number arguments (unused, 0)
+ * @param argv argument (nothing)
  * @result SQLite error code
  */
 
@@ -1333,9 +1341,10 @@ static const sqlite3_module csv_vtab_mod = {
  *
  * Translation flags:
  *
- * 1 - convert ISO-8859-1 to UTF-8<br>
- * 2 - perform backslash substitution<br>
- * 4 - convert and collapse white-space in column names to underscore<br>
+ * 1  - convert ISO-8859-1 to UTF-8<br>
+ * 2  - perform backslash substitution<br>
+ * 4  - convert and collapse white-space in column names to underscore<br>
+ * 10 - convert \q to single quote, in addition to backslash substitution<br>
  */
 
 static void

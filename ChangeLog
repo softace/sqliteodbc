@@ -1,10 +1,20 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Oct 06 2012 version 0.98 released
+
+	* update to SQLite 3.7.14.1
+	* fixes in floating point retrieval for MSVC, thanks
+	  Ben van der Merwe for reporting and test
+	* added ZIP read-only extension module (zipfile)
+	* fixes in CSV table extension module
+	* fixes in handling default DSNs for Win32, thanks Zac Vawter
+	  for patch
+
 Thu Sep 06 2012 version 0.97 released
 
 	* update to SQLite 3.7.14
-	* added CSV table extension module
+	* added CSV table extension module (csvtable)
 	* added handling of SQL_DATA_AT_EXEC for parameter binding
 	* increased file name buffers for Win32
 	* length fixes in Win32 version of SQLDriverConnectW()

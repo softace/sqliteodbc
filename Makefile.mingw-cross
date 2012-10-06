@@ -50,6 +50,7 @@ all:		sqliteodbc.dll sqlite3odbc$(SEEEXT).dll \
 		sqlite3_mod_blobtoxy.dll \
 		sqlite3_mod_impexp.dll \
 		sqlite3_mod_csvtable.dll \
+		sqlite3_mod_zipfile.dll \
 		sqlite.exe \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
@@ -60,6 +61,7 @@ all_no2:	sqlite3odbc$(SEEEXT).dll \
 		sqlite3_mod_blobtoxy.dll \
 		sqlite3_mod_impexp.dll \
 		sqlite3_mod_csvtable.dll \
+		sqlite3_mod_zipfile.dll \
 		inst.exe instq.exe uninst.exe uninstq.exe \
 		adddsn.exe remdsn.exe \
 		addsysdsn.exe remsysdsn.exe \
@@ -234,6 +236,15 @@ sqlite3_mod_csvtable.dll:	csvtable.o
 		    -Wl,--strip-all -o sqlite3_mod_csvtable.dll \
 		    csvtable.o
 
+zipfile.o:	zipfile.c
+		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
+		    -Izlib zipfile.c
+
+sqlite3_mod_zipfile.dll:	zipfile.o
+		$(CC) $(CFLAGS) -shared -Wl,--kill-at \
+		    -Wl,--strip-all -o sqlite3_mod_zipfile.dll \
+		    zipfile.o -Lzlib -lz
+
 sqlite+tcc.o:	sqlite+tcc.c
 		$(CC) $(CFLAGS) -mdll -c -I$(SQLITE3_INC) -I$(SQLITE3_SRC) \
 		    -I$(TCC_INC) sqlite+tcc.c
@@ -248,6 +259,7 @@ clean:
 		    sqlite3_mod_blobtoxy.dll \
 		    sqlite3_mod_impexp.dll \
 		    sqlite3_mod_csvtable.dll \
+		    sqlite3_mod_zipfile.dll \
 		    sqlite+tcc.dll \
 		    *inst.exe *dsn.exe sqlite*.exe sqliteres.rc *~ \
 		    core core.*

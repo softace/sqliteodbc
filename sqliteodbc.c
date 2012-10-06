@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.195 2012/09/05 10:04:45 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.196 2012/09/25 05:51:12 chw Exp chw $
  *
  * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -974,11 +974,13 @@ extern double sqliteAtoF(char *data, char **endp);
 static double
 ln_strtod(const char *data, char **endp)
 {
-    struct lconv *lc;
+    static struct lconv *lc = 0;
     char buf[128], *p, *end;
     double value;
 
-    lc = localeconv();
+    if (!lc) {
+	lc = localeconv();
+    }
     if (lc && lc->decimal_point && lc->decimal_point[0] &&
 	lc->decimal_point[0] != '.') {
 	strncpy(buf, data, sizeof (buf) - 1);
@@ -1018,11 +1020,13 @@ static void
 ln_sprintfg(char *buf, double value)
 {
 #if defined(HAVE_LOCALECONV) || defined(_WIN32) || defined(_WIN64)
-    struct lconv *lc;
+    static struct lconv *lc = 0;
     char *p;
 
     sprintf(buf, "%.16g", value);
-    lc = localeconv();
+    if (!lc) {
+	lc = localeconv();
+    }
     if (lc && lc->decimal_point && lc->decimal_point[0] &&
 	lc->decimal_point[0] != '.') {
 	p = strchr(buf, lc->decimal_point[0]);
@@ -1100,7 +1104,7 @@ unescpat(char *str)
  * SQL LIKE string match with optional backslash escape handling.
  * @param str string
  * @param pat pattern
- * @param esc when true, treat literally "\\" as "\", "\?" as "?", "\_" as "_"
+ * @param esc when true, treat literally "\\" as "\", "\%" as "%", "\_" as "_"
  * @result true when pattern matched
  */
 
@@ -7805,7 +7809,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     char dummyc[16];
     SQLSMALLINT dummy;
 #if defined(_WIN32) || defined(_WIN64)
-    char drvname[301];
+    char pathbuf[301], *drvname;
 #else
     static char drvname[] =
 #ifdef __OS2__
@@ -7899,7 +7903,16 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_DRIVER_NAME:
 #if defined(_WIN32) || defined(_WIN64)
-	GetModuleFileName(hModule, drvname, sizeof (drvname));
+	GetModuleFileName(hModule, pathbuf, sizeof (pathbuf));
+	drvname = strrchr(pathbuf, '\\');
+	if (drvname == NULL) {
+	    drvname = strrchr(pathbuf, '/');
+	}
+	if (drvname == NULL) {
+	    drvname = pathbuf;
+	} else {
+	    drvname++;
+	}
 #endif
 	strmak(val, drvname, valMax, valLen);
 	break;
@@ -8385,7 +8398,7 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 		    }
 		}
 	    } else {
-		len = 0;
+		len *= sizeof (SQLWCHAR);
 	    }
 	    break;
 	}
@@ -15614,7 +15627,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 		 SQLCHAR *connOut, SQLSMALLINT connOutMax,
 		 SQLSMALLINT *connOutLen, SQLUSMALLINT drvcompl)
 {
-    BOOL maybeprompt, prompt = FALSE;
+    BOOL maybeprompt, prompt = FALSE, defaultdsn = FALSE;
     DBC *d;
     SETUPDLG *setupdlg;
     SQLRETURN ret;
@@ -15642,6 +15655,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 	if (!setupdlg->attr[KEY_DSN].attr[0] &&
 	    drvcompl == SQL_DRIVER_COMPLETE_REQUIRED) {
 	    strcpy(setupdlg->attr[KEY_DSN].attr, "DEFAULT");
+	    defaultdsn = TRUE;
 	}
 	GetAttributes(setupdlg);
 	if (drvcompl == SQL_DRIVER_PROMPT ||
@@ -15676,7 +15690,8 @@ retry:
     if (connOut || connOutLen) {
 	char buf[SQL_MAX_MESSAGE_LENGTH * 4];
 	int len, count;
-	char dsn_0 = setupdlg->attr[KEY_DSN].attr[0];
+	char dsn_0 = (setupdlg->attr[KEY_DSN].attr[0] && !defaultdsn) ?
+	    setupdlg->attr[KEY_DSN].attr[0] : '\0';
 	char drv_0 = setupdlg->attr[KEY_DRIVER].attr[0];
 
 	buf[0] = '\0';
