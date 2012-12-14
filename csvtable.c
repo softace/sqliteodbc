@@ -1267,7 +1267,7 @@ csv_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
  */
 
 static int
-csv_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite3_int64 *rowidp)
+csv_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite_int64 *rowidp)
 {
     csv_cursor *cur = (csv_cursor *) cursor;
 

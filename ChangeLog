@@ -1,6 +1,22 @@
 SQLite ODBC Driver
 ------------------
 
+Fri Dec 14 2012 version 0.99 released
+
+	* update to SQLite 3.7.15
+	* added read-only support for embedded SQLite3 databases
+	  in zipfile extension, and on Linux r/w support using
+	  mremap() system call
+	* fixed missing fclose() in blob_export SQLite function
+	* added proper handling for SQL_DIAG_CURSOR_ROW_COUNT and
+	  SQL_DIAG_ROW_COUNT in SQLGetDiagField()
+	* fixed return code for CREATE/DROP stmts in SQLPrepare()
+	  and SQLExecDirect() thanks Peter Harvey for reporting
+	* fixed missing SQL_DIAG_DYNAMIC_FUNCTION case in
+	  SQLGetDiagField(), thans Peter Harvey for reporting
+	* SQLGetData fixes for JDK1.7 on x86_64
+	* added UN*X build of ZIP read-only extension module
+
 Sat Oct 06 2012 version 0.98 released
 
 	* update to SQLite 3.7.14.1

@@ -58,7 +58,7 @@ for i in $SQLITE_DIR ; do
 done
 if test "$SQLITE_INC" = "UNKNOWN" -o "$SQLITE_LIB" = "UNKNOWN" ; then
    AC_MSG_RESULT(no)
-   AC_MSG_WARN(SQLite header files and/or library not found)
+   AC_MSG_WARN([SQLite header files and/or library not found])
 else
    AC_MSG_RESULT(yes)
 fi
@@ -90,7 +90,7 @@ AC_SUBST(SQLITE_ATOF)
 AC_SUBST(SQLITE_MPRINTF)
 AC_SUBST(SQLITE_TRACE)
 if test "$SQLITE_COMPILE" = "0" ; then
-   AC_MSG_WARN(SQLite library too old, need 2.8.0 or later)
+   AC_MSG_WARN([SQLite library too old, need 2.8.0 or later])
 else
    LIB_TARGETS="$LIB_TARGETS libsqliteodbc.la"
    INST_TARGETS="$INST_TARGETS install-2"
@@ -106,7 +106,7 @@ AC_ARG_WITH(sqlite3,[  --with-sqlite3=DIR      use SQLite3 hdr/lib from DIR],
    SQLITE3_DIR=$withval)
 if test -n "$SQLITE3_DIR" ; then
    if test ! -d "$SQLITE3_DIR" ; then
-      AC_MSG_WARN(SQLite3 directory $SQLITE3_DIR does not exist)
+      AC_MSG_WARN([SQLite3 directory $SQLITE3_DIR does not exist])
    fi
 fi
 
@@ -155,7 +155,7 @@ for i in $SQLITE3_DIR ; do
 done
 if test "$SQLITE3_INC" = "UNKNOWN" -o "$SQLITE3_LIB" = "UNKNOWN" ; then
    AC_MSG_RESULT(no)
-   AC_MSG_WARN(SQLite3 header files and/or library not found)
+   AC_MSG_WARN([SQLite3 header files and/or library not found])
 else
    AC_MSG_RESULT(yes)
    LIB_TARGETS="$LIB_TARGETS libsqlite3odbc.la"
@@ -241,13 +241,32 @@ else
    CFLAGS=$saved_CFLAGS
 fi
 
+#########
+# Find zlib for zipfile module
+#
+LIBZ_OK=no
+if test "$SQLITE3_LOADEXTENSION" = "1" ; then
+   AC_SEARCH_LIBS(zlibVersion,z,[ AC_CHECK_HEADERS(zlib.h,[LIBZ_OK=yes]) ])
+fi
+
+#########
+# Add extensions to build
+#
 if test "$SQLITE3_LOADEXTENSION" = "1" ; then
    EXT_BLOBTOXY=libsqlite3_mod_blobtoxy.la
    EXT_IMPEXP=libsqlite3_mod_impexp.la
-   LIB_TARGETS="$LIB_TARGETS $EXT_BLOBTOXY $EXT_IMPEXP"
+   EXT_CSVTABLE=libsqlite3_mod_csvtable.la
+   EXT_ZIPFILE=""
+   LIB_TARGETS="$LIB_TARGETS $EXT_BLOBTOXY $EXT_IMPEXP $EXT_CSVTABLE"
+   if test "$LIBZ_OK" = "yes" ; then
+      EXT_ZIPFILE=libsqlite3_mod_zipfile.la
+      LIB_TARGETS="$LIB_TARGETS $EXT_ZIPFILE"
+   fi
 else
    EXT_BLOBTOXY=""
    EXT_IMPEXP=""
+   EXT_CSVTABLE=""
+   EXT_ZIPFILE=""
 fi
 
 AC_SUBST(SQLITE3_COLUMNTABLENAME)
@@ -262,12 +281,14 @@ AC_SUBST(SQLITE3_PROFILE)
 AC_SUBST(SQLITE3_STRNICMP)
 AC_SUBST(EXT_BLOBTOXY)
 AC_SUBST(EXT_IMPEXP)
+AC_SUBST(EXT_CSVTABLE)
+AC_SUBST(EXT_ZIPFILE)
 
 #########
 # Any SQLite to be done ?
 
 if test "X$LIB_TARGETS" = "X" ; then
-   AC_MSG_ERROR(No usable SQLite header/library on this system)
+   AC_MSG_ERROR([No usable SQLite header/library on this system])
 fi
 AC_SUBST(LIB_TARGETS)
 AC_SUBST(INST_TARGETS)
@@ -282,7 +303,7 @@ AC_ARG_WITH(odbc, [  --with-odbc=DIR         use ODBC header/libs from DIR],
    ODBC_DIR=$withval)
 if test -n "$ODBC_DIR" ; then
    if test ! -d "$ODBC_DIR" ; then
-      AC_MSG_ERROR(ODBC directory $ODBC_DIR does not exist)
+      AC_MSG_ERROR([ODBC directory $ODBC_DIR does not exist])
    fi
 fi
 
@@ -349,7 +370,7 @@ for i in $ODBC_DIR ; do
 done
 if test "$ODBC_FLAGS" = "UNKNOWN" -o "$ODBC_LIB" = "UNKNOWN" ; then
    AC_MSG_RESULT(no)
-   AC_MSG_ERROR(ODBC header files and/or libraries not found)
+   AC_MSG_ERROR([ODBC header files and/or libraries not found])
 else
    AC_MSG_RESULT(yes)
 fi

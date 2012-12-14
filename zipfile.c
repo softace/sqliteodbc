@@ -15,6 +15,10 @@
  ********************************************************************
  */
 
+#ifdef linux
+#define _GNU_SOURCE
+#endif
+
 #ifdef STANDALONE
 #include <sqlite3.h>
 #else
@@ -22,12 +26,13 @@
 static SQLITE_EXTENSION_INIT1
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #else
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #endif
 
 #include <stdio.h>
@@ -80,9 +85,9 @@ static SQLITE_EXTENSION_INIT1
 typedef struct zip_file {
     off_t length;		/**< length of ZIP file */
     unsigned char *data;	/**< mmap()'ed ZIP file */
-#ifdef _WIN32
-    HANDLE h;			/**< Win32 file handle */
-    HANDLE mh;			/**< Win32 file mapping */
+#if defined(_WIN32) || defined(_WIN64)
+    HANDLE h;			/**< Windows file handle */
+    HANDLE mh;			/**< Windows file mapping */
 #endif
     int nentries;		/**< Number of directory entries */
     unsigned char *entries[1];	/**< Pointer to first entry */
@@ -115,6 +120,54 @@ typedef struct {
     int *matches;			/**< For filter EQ */
 } zip_cursor;
 
+#ifdef SQLITE_OPEN_URI
+
+/**
+ * @typedef mem_blk
+ * @struct mem_blk
+ * Structure to describe in-core SQLite database read from BLOB.
+ */
+
+typedef struct mem_blk {
+#define MEM_MAGIC "MVFS"
+    char magic[4];			/**< magic number */
+    int opened;				/**< open counter */
+#if defined(_WIN32) || defined(_WIN64)
+    HANDLE mh;				/**< handle for memory mapping */
+#else
+    long psize;				/**< page size */
+#ifdef linux
+    sqlite3_mutex *mutex;		/**< mutex to protect mapping */
+    int lcnt;				/**< lock counter */
+#endif
+#endif
+    unsigned long size;			/**< size of memory mapped area */
+    unsigned long length;		/**< real length of data area */
+    unsigned char *data;		/**< data area */
+} mem_blk;
+
+/**
+ * @typedef mem_file
+ * @struct mem_file
+ * SQLite3 file structure enhanced by mem_blk.
+ */
+
+typedef struct mem_file {
+    sqlite3_file base;			/**< sqlite3_file base structure */
+#ifdef linux
+    int lock;				/**< lock state */
+#endif
+    mem_blk *mb;			/**< pointer to memory block */
+} mem_file;
+
+/*
+ * Private VFS name
+ */
+
+static char mem_vfs_name[64];
+
+#endif /* SQLITE_OPEN_URI */
+
 /**
  * Memory map ZIP file for reading and return handle to it.
  * @param filename name of ZIP file
@@ -124,7 +177,7 @@ typedef struct {
 static zip_file *
 zip_open(const char *filename)
 {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     HANDLE h, mh = INVALID_HANDLE_VALUE;
     DWORD n, length;
     unsigned char *data = 0;
@@ -140,7 +193,7 @@ zip_open(const char *filename)
     if (!filename) {
 	return 0;
     }
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     h = CreateFile(filename, GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
     if (h == INVALID_HANDLE_VALUE) {
 	goto error;
@@ -226,7 +279,7 @@ zip_open(const char *filename)
     if (!zip) {
 	goto error;
     }
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     zip->h = zip->mh = INVALID_HANDLE_VALUE;
 #endif
     zip->length = length;
@@ -249,7 +302,7 @@ zip_open(const char *filename)
 	q += pathlen + comlen + extra + ZIP_CENTRAL_HEADER_LEN;
     }
     zip->entries[i] = 0;
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     zip->h = h;
     zip->mh = mh;
 #endif
@@ -258,7 +311,7 @@ error:
     if (zip) {
 	sqlite3_free(zip);
     }
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     if (data) {
 	UnmapViewOfFile(data);
     }
@@ -288,7 +341,7 @@ static void
 zip_close(zip_file *zip)
 {
     if (zip) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
 	if (zip->data) {
 	    UnmapViewOfFile(zip->data);
 	}
@@ -864,7 +917,7 @@ zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
  */
 
 static int
-zip_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite3_int64 *rowidp)
+zip_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite_int64 *rowidp)
 {
     zip_cursor *cur = (zip_cursor *) cursor;
 
@@ -876,6 +929,63 @@ zip_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite3_int64 *rowidp)
 	*rowidp = cur->pos;
     }
     return SQLITE_OK;
+}
+
+/**
+ * Internal MATCH function for virtual table.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ */
+
+static void
+zip_vtab_matchfunc(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    int ret = 0;
+
+    if (argc == 2) {
+	unsigned char *q = (unsigned char *) sqlite3_value_text(argv[0]);
+	unsigned char *p = (unsigned char *) sqlite3_value_text(argv[1]);
+
+	if (p && q) {
+	    unsigned char *eq = (unsigned char *) strrchr((char *) q, '*');
+	    int lenq, lenp;
+
+	    if (eq && (eq[1] == '\0')) {
+		lenq = eq - q;
+		if (lenq) {
+		    lenp = strlen((char *) p);
+		    if ((lenp >= lenq) && !memcmp(p, q, lenq)) {
+			ret = 1;
+		    }
+		}
+	    }
+	}
+    }
+    sqlite3_result_int(ctx, ret);
+}
+
+/**
+ * Find overloaded function on virtual table.
+ * @param vtab virtual table
+ * @param narg number arguments
+ * @param name function name
+ * @param pfunc pointer to function (value return)
+ * @param parg pointer to function's argument (value return)
+ * @result 0 or 1
+ */
+
+static int
+zip_vtab_findfunc(sqlite3_vtab *vtab, int narg, const char *name,
+		  void (**pfunc)(sqlite3_context *, int, sqlite3_value **),
+		  void **parg)
+{
+    if ((narg == 2) && !strcmp(name, "match")) {
+	*pfunc = zip_vtab_matchfunc;
+	*parg = 0;
+	return 1;
+    }
+    return 0;
 }
 
 #if (SQLITE_VERSION_NUMBER > 3004000)
@@ -917,7 +1027,7 @@ static const sqlite3_module zip_vtab_mod = {
     0,                   /* xSync */
     0,                   /* xCommit */
     0,                   /* xRollback */
-    0,                   /* xFindFunction */
+    zip_vtab_findfunc,   /* xFindFunction */
 #if (SQLITE_VERSION_NUMBER > 3004000)
     zip_vtab_rename,     /* xRename */
 #endif
@@ -1130,6 +1240,952 @@ zip_compress_func(sqlite3_context *ctx, int argc, sqlite3_value **argv)
     sqlite3_free(dest);
 }
 
+#ifdef SQLITE_OPEN_URI
+
+/**
+ * Create mem_blk from given data buffer and length.
+ * @param data data buffer
+ * @param length length of buffer
+ * @result pointer to mem_blk or NULL
+ */
+
+static mem_blk *
+mem_createmb(const unsigned char *data, unsigned long length)
+{
+    mem_blk *mb;
+#if defined(_WIN32) || defined(_WIN64)
+    HANDLE mh;
+#else
+    long psize;
+#endif
+    unsigned long size;
+
+#if defined(_WIN32) || defined(_WIN64)
+    size = sizeof (mem_blk) + length;
+    mh = CreateFileMapping(INVALID_HANDLE_VALUE, 0, PAGE_READWRITE,
+			   0, size, 0);
+    if (mh == INVALID_HANDLE_VALUE) {
+	return 0;
+    }
+    mb = (mem_blk *) MapViewOfFile(mh, FILE_MAP_ALL_ACCESS, 0, 0, length);
+    if (!mb) {
+	return 0;
+    }
+#else
+    psize = sysconf(_SC_PAGESIZE);
+#ifdef linux
+    mb = (mem_blk *) sqlite3_malloc(sizeof (mem_blk));
+    if (!mb) {
+	return 0;
+    }
+    size = length + 1;
+    mb->data = (unsigned char *) mmap(0, size, PROT_READ | PROT_WRITE,
+				      MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (mb->data == MAP_FAILED) {
+	sqlite3_free(mb);
+	return 0;
+    }
+#else
+    size = sizeof (mem_blk) + psize + length + 1;
+    mb = (mem_blk *) mmap(0, size, PROT_READ | PROT_WRITE,
+			  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (mb == MAP_FAILED) {
+	return 0;
+    }
+#endif
+#endif
+    if (mb) {
+	memcpy(mb->magic, MEM_MAGIC, 4);
+	mb->opened = 1;
+	mb->size = size;
+	mb->length = length;
+#if defined(_WIN32) || defined(_WIN64)
+	mb->mh = mh;
+	mb->data = (unsigned char *) (mb + 1);
+	memcpy(mb->data, data, length);
+#else
+	mb->psize = psize;
+#ifdef linux
+	mb->mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
+	sqlite3_mutex_enter(mb->mutex);
+	mb->lcnt = 0;
+	memcpy(mb->data, data, length);
+#else
+	if (psize >= sizeof (mem_blk)) {
+	    mb->data = (unsigned char *) mb + psize;
+	    memcpy(mb->data, data, length);
+#ifndef linux
+	    mprotect(mb->data, length, PROT_READ);
+#endif
+	} else {
+	    mb->data = (unsigned char *) (mb + 1);
+	    memcpy(mb->data, data, length);
+	}
+#endif
+#endif
+    }
+    return mb;
+}
+
+/**
+ * Destroy given mem_blk.
+ * @param mb mem_blk pointer
+ */
+
+static void
+mem_destroymb(mem_blk *mb)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    HANDLE mh;
+#endif
+
+    if (mb) {
+	memset(mb->magic, 0, 4);
+#if defined(_WIN32) || defined(_WIN64)
+	mh = mb->mh;
+	UnmapViewOfFile(mb);
+	CloseHandle(mh);
+#else
+#ifdef linux
+	munmap(mb->data, mb->size);
+	sqlite3_mutex_leave(mb->mutex);
+	sqlite3_mutex_free(mb->mutex);
+	sqlite3_free(mb);
+#else
+	munmap(mb, mb->size);
+#endif
+#endif
+    }
+}
+
+/**
+ * Close mem_file and release associated mem_blk if open count drops to zero.
+ * @param file SQLite3 file pointer
+ * @result SQLite error code
+ */
+
+static int
+mem_close(sqlite3_file *file)
+{
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+
+    if (mb) {
+#ifdef linux
+	sqlite3_mutex_enter(mb->mutex);
+	if (mf->lock > 0) {
+	    mb->lcnt = 0;
+	}
+#endif
+	mb->opened--;
+	if (mb->opened <= 0) {
+	    mem_destroymb(mb);
+	} 
+#ifdef linux
+	else {
+	    sqlite3_mutex_leave(mb->mutex);
+	}
+#endif
+	mf->mb = 0;
+    }
+    return SQLITE_OK;
+}
+
+/**
+ * Read data from mem_file.
+ * @param file SQLite3 file pointer
+ * @param buf where to read data to
+ * @param len length to be read
+ * @param offs file offset
+ * @result SQLite error code
+ */
+
+static int
+mem_read(sqlite3_file *file, void *buf, int len, sqlite_int64 offs)
+{
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    int rc = SQLITE_IOERR_READ;
+
+#ifdef linux
+    if (mb) {
+	sqlite3_mutex_enter(mb->mutex);
+    }
+#endif
+    if (mb && (offs <= mb->length)) {
+	rc = SQLITE_OK;
+	if (offs + len > mb->length) {
+	    rc = SQLITE_IOERR_SHORT_READ;
+	    len = mb->length - offs;
+	}
+	memcpy(buf, mb->data + offs, len);
+    }
+#ifdef linux
+    if (mb) {
+	sqlite3_mutex_leave(mb->mutex);
+    }
+#endif
+    return rc;
+}
+
+/**
+ * Truncate mem_file.
+ * @param file SQLite3 file pointer
+ * @param offs file size
+ * @result SQLite error code
+ */
+
+static int
+#ifdef linux
+mem_truncate_unlocked(sqlite3_file *file, sqlite_int64 offs)
+#else
+mem_truncate(sqlite3_file *file, sqlite_int64 offs)
+#endif
+{
+#ifdef linux
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    unsigned char *p;
+    long psize = mb->psize;
+    unsigned long length = offs;
+    unsigned long size;
+    
+    size = length + 1;
+    if ((psize > 0) && (size / psize == mb->size / psize)) {
+	p = mb->data;
+    } else {
+	p = mremap(mb->data, mb->size, size, MREMAP_MAYMOVE);
+    }
+    if (p == MAP_FAILED) {
+	return SQLITE_IOERR_TRUNCATE;
+    }
+    mb->size = size;
+    mb->length = length;
+    mb->data = p;
+    return SQLITE_OK;
+#else
+    return SQLITE_IOERR_TRUNCATE;
+#endif
+}
+
+#ifdef linux
+static int
+mem_truncate(sqlite3_file *file, sqlite_int64 offs)
+{
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    int rc = SQLITE_IOERR_TRUNCATE;
+
+    if (mb) {
+	sqlite3_mutex_enter(mb->mutex);
+	rc = mem_truncate_unlocked(file, offs);
+	sqlite3_mutex_leave(mb->mutex);
+    }
+    return rc;
+}
+#endif
+
+/**
+ * Write data to mem_file.
+ * @param file SQLite3 file pointer
+ * @param buf what to write
+ * @param len length to be written
+ * @param offs file offset
+ * @result SQLite error code
+ */
+
+static int
+mem_write(sqlite3_file *file, const void *buf, int len, sqlite_int64 offs)
+{
+#ifdef linux
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+
+    sqlite3_mutex_enter(mb->mutex);
+    if (offs + len > mb->length) {
+	if (mem_truncate_unlocked(file, offs + len) != SQLITE_OK) {
+	    sqlite3_mutex_leave(mb->mutex);
+	    return SQLITE_IOERR_WRITE;
+	}
+    }
+    memcpy(mb->data + offs, buf, len);
+    sqlite3_mutex_leave(mb->mutex);
+    return SQLITE_OK;
+#else
+    return SQLITE_IOERR_WRITE;
+#endif
+}
+
+/**
+ * Sync mem_file.
+ * @param file SQLite3 file pointer
+ * @param flags sync flags
+ * @result SQLite error code
+ */
+
+static int
+mem_sync(sqlite3_file *file, int flags)
+{
+#ifdef linux
+    return SQLITE_OK;
+#else
+    return SQLITE_IOERR_FSYNC;
+#endif
+}
+
+/**
+ * Report file size of mem_file.
+ * @param file SQLite3 file pointer
+ * @param size value return
+ * @result SQLite error code
+ */
+
+static int
+mem_filesize(sqlite3_file *file, sqlite_int64 *size)
+{
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+
+    if (mb) {
+#ifdef linux
+	sqlite3_mutex_enter(mb->mutex);
+#endif
+	*size = mb->length;
+#ifdef linux
+	sqlite3_mutex_leave(mb->mutex);
+#endif
+	return SQLITE_OK;
+    }
+    return SQLITE_IOERR_FSTAT;
+}
+
+/**
+ * Lock mem_file.
+ * @param file SQLite3 file pointer
+ * @param lck new lock status
+ * @result SQLite error code, always SQLITE_OK
+ */
+
+static int
+mem_lock(sqlite3_file *file, int lck)
+{
+#ifdef linux
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    int rc = SQLITE_IOERR_LOCK;
+
+    if (mb) {
+	sqlite3_mutex_enter(mb->mutex);
+	if (lck > 0) {
+	    rc = SQLITE_BUSY;
+	    if ((mf->lock == 0) && (mb->lcnt == 0)) {
+		mb->lcnt = 1;
+		mf->lock = lck;
+		rc = SQLITE_OK;
+	    } else if ((mf->lock > 0) && (mb->lcnt == 1)) {
+		mf->lock = lck;
+		rc = SQLITE_OK;
+	    }
+	}
+	sqlite3_mutex_leave(mb->mutex);
+    }
+    return rc;
+#else
+    return SQLITE_OK;
+#endif
+}
+
+/**
+ * Unlock mem_file.
+ * @param file SQLite3 file pointer
+ * @param lck new lock status
+ * @result SQLite error code, always SQLITE_OK
+ */
+
+static int
+mem_unlock(sqlite3_file *file, int lck)
+{
+#ifdef linux
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    int rc = SQLITE_IOERR_UNLOCK;
+
+    if (mb) {
+	sqlite3_mutex_enter(mb->mutex);
+	if (mf->lock == lck) {
+	    rc = SQLITE_OK;
+	} else if (lck == 0) {
+	    if (mf->lock) {
+		mb->lcnt = 0;
+		mf->lock = 0;
+	    }
+	    rc = SQLITE_OK;
+	} else if ((lck < mf->lock) && (mb->lcnt != 0)) {
+	    mf->lock = lck;
+	    rc = SQLITE_OK;
+	}
+	sqlite3_mutex_leave(mb->mutex);
+    }
+    return rc;
+#else
+    return SQLITE_OK;
+#endif
+}
+
+/**
+ * Check lock state of mem_file.
+ * @param file SQLite3 file pointer
+ * @param out current lock status
+ * @result SQLite error code, always SQLITE_OK
+ */
+
+static int
+mem_checkreservedlock(sqlite3_file *file, int *out)
+{
+#ifdef linux
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = mf->mb;
+    int rc = SQLITE_IOERR_CHECKRESERVEDLOCK;
+
+    if (mb) {
+	sqlite3_mutex_enter(mb->mutex);
+	*out = mf->lock >= 2;
+	sqlite3_mutex_leave(mb->mutex);
+	rc = SQLITE_OK;
+    } else {
+	*out = 0;
+    }
+    return rc;
+#else
+    *out = 0;
+    return SQLITE_OK;
+#endif
+}
+
+/**
+ * File control operation on mem_file.
+ * @param file SQLite3 file pointer
+ * @param op operation code
+ * @param arg argument for operation
+ * @result SQLite error code, always SQLITE_OK
+ */
+
+static int
+mem_filecontrol(sqlite3_file *file, int op, void *arg)
+{
+#ifdef SQLITE_FCNTL_PRAGMA
+    if (op == SQLITE_FCNTL_PRAGMA) {
+	return SQLITE_NOTFOUND;
+    }
+#endif
+    return SQLITE_OK;
+}
+
+/**
+ * Report sector size of mem_file.
+ * @param file SQLite3 file pointer
+ * @result always 4096
+ */
+
+static int
+mem_sectorsize(sqlite3_file *file)
+{
+    return 4096;
+}
+
+/**
+ * Device characteristics of mem_file.
+ * @param file SQLite3 file pointer
+ * @result always 0
+ */
+
+static int
+mem_devicecharacteristics(sqlite3_file *file)
+{
+    return 0;
+}
+
+/**
+ * I/O method structure of mem_file.
+ */
+
+static sqlite3_io_methods mem_methods = {
+    1,				/* iVersion */
+    mem_close,			/* xClose */
+    mem_read,			/* xRead */
+    mem_write,			/* xWrite */
+    mem_truncate,		/* xTruncate */
+    mem_sync,			/* xSync */
+    mem_filesize,		/* xFileSize */
+    mem_lock,			/* xLock */
+    mem_unlock,			/* xUnlock */
+    mem_checkreservedlock,	/* xCheckReservedLock */
+    mem_filecontrol,		/* xFileControl */
+    mem_sectorsize,		/* xSectorSize */
+    mem_devicecharacteristics	/* xDeviceCharacteristics */
+};
+
+/**
+ * Open mem_file given file name in mem_vfs.
+ * @param vfs SQLite VFS
+ * @param name file name
+ * @param file SQLite3 file pointer to be filled
+ * @param flags open flags
+ * @param outflags value return of open flags
+ * @result SQLite error code
+ */
+
+static int
+mem_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
+	 int flags, int *outflags)
+{
+    mem_file *mf = (mem_file *) file;
+    mem_blk *mb = 0;
+#ifdef _WIN64
+    unsigned long long t = 0;
+#else
+    unsigned long t = 0;
+#endif
+#if !defined(_WIN32) && !defined(_WIN64)
+    int pfd[2];
+    int n;
+#endif
+
+    if (!name) {
+	return SQLITE_IOERR;
+    }
+    if (flags & (SQLITE_OPEN_MAIN_JOURNAL |
+		 SQLITE_OPEN_WAL |
+#ifndef linux
+		 SQLITE_OPEN_READWRITE |
+#endif
+		 SQLITE_OPEN_CREATE)) {
+	return SQLITE_CANTOPEN;
+    }
+#ifdef _WIN64
+    sscanf(name + 1, "%I64x", &t);
+#else
+    t = strtoul(name + 1, 0, 16);
+#endif
+    mb = (mem_blk *) t;
+    if (!mb) {
+	return SQLITE_CANTOPEN;
+    }
+#if !defined(_WIN32) && !defined(_WIN64)
+    if (pipe(pfd) < 0) {
+	return SQLITE_CANTOPEN;
+    }
+    n = (write(pfd[1], (char *) mb, 1) < 0) ? errno : 0;
+    close(pfd[0]);
+    close(pfd[1]);
+    if (n == EFAULT) {
+	return SQLITE_CANTOPEN;
+    }
+#endif
+    if (memcmp(mb->magic, MEM_MAGIC, 4) == 0) {
+#ifdef linux
+	sqlite3_mutex_enter(mb->mutex);
+#endif
+	mb->opened++;
+#ifdef linux
+	sqlite3_mutex_leave(mb->mutex);
+#endif
+    } else {
+	return SQLITE_CANTOPEN;
+    }
+    memset(mf, 0, sizeof (mem_file));
+    mf->mb = mb;
+    mf->base.pMethods = &mem_methods;
+    if (outflags) {
+	*outflags = flags;
+    }
+    return SQLITE_OK;
+}
+
+/**
+ * Delete mem_vfs file given name.
+ * @param vfs SQLite VFS
+ * @param name file name
+ * @param sync perform sync before deletion
+ * @result SQLite error code, always SQLITE_IOERR_DELETE
+ */
+
+static int
+mem_delete(sqlite3_vfs *vfs, const char *name, int sync)
+{
+    return SQLITE_IOERR_DELETE;
+}
+
+/**
+ * Test mem_vfs file access given name and flags
+ * @param vfs SQLite VFS
+ * @param name file name
+ * @param flags access to be tested
+ * @param outflags value return of tested access modes
+ * @result SQLite error code
+ */
+
+static int
+mem_access(sqlite3_vfs *vfs, const char *name, int flags, int *outflags)
+{
+    char *endp = 0;
+    unsigned long t;
+
+    t = strtol(name + 1, &endp, 16);
+    if ((t == 0) ||
+#ifndef linux
+	(flags == SQLITE_ACCESS_READWRITE) ||
+#endif
+	!endp || endp[0]) {
+	*outflags = 0;
+    } else {
+	*outflags = 1;
+    }
+    return SQLITE_OK;
+}
+
+/**
+ * Return full pathname on mem_vfs given name.
+ * @param vfs SQLite VFS
+ * @param name file name
+ * @param len length of output buffer
+ * @param out output buffer
+ * @result SQLite error code, always SQLITE_OK
+ */
+
+static int
+mem_fullpathname(sqlite3_vfs *vfs, const char *name, int len, char *out)
+{
+    sqlite3_snprintf(len, out, "%s", name);
+    out[len - 1] = '\0';
+    return SQLITE_OK;
+}
+
+/**
+ * Open shared library on mem_vfs given name.
+ * @param vfs SQLite VFS
+ * @param name file name
+ * @result handle, always 0
+ */
+
+static void *
+mem_dlopen(sqlite3_vfs *vfs, const char *name)
+{
+    return 0;
+}
+
+/**
+ * Report last error of shared library operation on mem_vfs.
+ * @param vfs SQLite VFS
+ * @param len length of output buffer
+ * @param out output buffer
+ */
+
+static void
+mem_dlerror(sqlite3_vfs *vfs, int len, char *out)
+{
+    sqlite3_snprintf(len, out, "Loadable extensions are not supported");
+    out[len - 1] = '\0';
+}
+
+/**
+ * Lookup symbol in shared library on mem_vfs given name.
+ * @param vfs SQLite VFS
+ * @param handle shared library handle
+ * @param sym symbol name
+ * @result symbol address, always 0
+ */
+
+static void
+(*mem_dlsym(sqlite3_vfs *vfs, void *handle, const char *sym))(void)
+{
+    return 0;
+}
+
+/**
+ * Close shared library on mem_vfs given handle.
+ * @param vfs SQLite VFS
+ * @param handle shared library handle
+ */
+
+static void
+mem_dlclose(sqlite3_vfs *vfs, void *handle)
+{
+}
+
+/**
+ * Return buffer filled with random bytes
+ * @param vfs SQLite VFS
+ * @param len length of output buffer
+ * @param out output buffer
+ * @result SQLite error code
+ */
+
+static int
+mem_randomness(sqlite3_vfs *vfs, int len, char *out)
+{
+    sqlite3_vfs *ovfs = (sqlite3_vfs *) vfs->pAppData;
+
+    return ovfs->xRandomness(ovfs, len, out);
+}
+
+/**
+ * Sleep for given number of microseconds.
+ * @param vfs SQLite VFS
+ * @param micro microseconds to sleep
+ * @result SQLite error code
+ */
+
+static int
+mem_sleep(sqlite3_vfs *vfs, int micro)
+{
+    sqlite3_vfs *ovfs = (sqlite3_vfs *) vfs->pAppData;
+
+    return ovfs->xSleep(ovfs, micro);
+}
+
+/**
+ * Return current time.
+ * @param vfs SQLite VFS
+ * @param out output buffer
+ * @result SQLite error code
+ */
+
+static int
+mem_currenttime(sqlite3_vfs *vfs, double *out)
+{
+    sqlite3_vfs *ovfs = (sqlite3_vfs *) vfs->pAppData;
+
+    return ovfs->xCurrentTime(ovfs, out);
+}
+
+/**
+ * VFS structure of mem_vfs
+ */
+
+static sqlite3_vfs mem_vfs = {
+    1,			/* iVersion */
+    sizeof (mem_file),	/* szOsFile */
+    256,		/* mxPathname */
+    0,			/* pNext */
+    mem_vfs_name,	/* zName */
+    0,			/* pAppData */
+    mem_open,		/* xOpen */
+    mem_delete,		/* xDelete */
+    mem_access,		/* xAccess */
+    mem_fullpathname,	/* xFullPathname */
+    mem_dlopen,		/* xDlOpen */
+    mem_dlerror,	/* xDlError */
+    mem_dlsym,		/* xDlSym */
+    mem_dlclose,	/* xDlClose */
+    mem_randomness,	/* xDlError */
+    mem_sleep,		/* xDlSym */
+    mem_currenttime	/* xDlClose */
+};
+
+/**
+ * Attach (read-only) embedded SQLite database given blob.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ *
+ * Arguments:
+ *
+ *   BLOB   -  the BLOB containing the embedded SQLite database<br>
+ *   dbname -  the name of the attached database<br>
+ *
+ * Function result:
+ *
+ *   NULL - attached r/o database<br>
+ *   URI string - attached database<br>
+ *   all else - error occurred<br>
+ *
+ * Example:
+ *
+ *   CREATE VIRTUAL TABLE Z USING ZIPFILE('zipfile.zip');<br>
+ *   SELECT blob_attach(data, 'ZDB') FROM Z WHERE PATH = 'embedded.db';<br>
+ *   DROP VIRTUAL TABLE Z;<br>
+ */
+
+static void
+blob_attach_func(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    unsigned long length;
+    const unsigned char *data;
+    mem_blk *mb = 0;
+    char *sql = 0;
+    int sqllen = 0;
+#ifdef linux
+    int isrw = 0;
+#endif
+
+    if (argc != 2) {
+	sqlite3_result_error(ctx, "need two arguments", -1);
+	return;
+    }
+    data = (const unsigned char *) sqlite3_value_blob(argv[0]);
+    length = sqlite3_value_bytes(argv[0]);
+    if (!data || !length) {
+	sqlite3_result_error(ctx, "empty blob", -1);
+	return;
+    }
+    mb = mem_createmb(data, length);
+    if (!mb) {
+	sqlite3_result_error(ctx, "cannot map blob", -1);
+	return;
+    }
+    sql = sqlite3_mprintf("ATTACH "
+#ifdef _WIN64
+			  "'file:/%llX"
+#else
+			  "'file:/%lX"
+#endif
+			  "?vfs=%s&"
+#ifdef linux
+			  "mode=rw&"
+#else
+			  "mode=ro&"
+#endif
+			  "cache=private' AS %Q",
+#ifdef _WIN64
+			  (unsigned long long) mb,
+#else
+			  (unsigned long) mb,
+#endif
+			  mem_vfs_name,
+			  (char *) sqlite3_value_text(argv[1]));
+    if (!sql) {
+	sqlite3_result_error(ctx, "cannot map blob", -1);
+	mem_destroymb(mb);
+	return;
+    }
+#ifdef linux
+    sqlite3_mutex_leave(mb->mutex);
+#endif
+    if (sqlite3_exec(sqlite3_context_db_handle(ctx), sql, 0, 0, 0)
+	!= SQLITE_OK) {
+	sqlite3_free(sql);
+	sqlite3_result_error(ctx, "cannot attach blob", -1);
+#ifdef linux
+	sqlite3_mutex_enter(mb->mutex);
+#endif
+	mem_destroymb(mb);
+	return;
+    }
+    sqllen = strlen(sql);
+    sqlite3_snprintf(sqllen, sql, "PRAGMA %Q.synchronous = OFF",
+		     (char *) sqlite3_value_text(argv[1]));
+    sqlite3_exec(sqlite3_context_db_handle(ctx), sql, 0, 0, 0);
+#ifdef linux
+    sqlite3_snprintf(sqllen, sql, "PRAGMA %Q.journal_mode = OFF",
+		     (char *) sqlite3_value_text(argv[1]));
+    if (sqlite3_exec(sqlite3_context_db_handle(ctx), sql, 0, 0, 0)
+	== SQLITE_OK) {
+	isrw = 1;
+    }
+#endif
+#ifdef linux
+    sqlite3_mutex_enter(mb->mutex);
+#endif
+    if (--mb->opened < 1) {
+	sqlite3_snprintf(sqllen, sql, "DETACH %Q",
+			 (char *) sqlite3_value_text(argv[1]));
+	sqlite3_exec(sqlite3_context_db_handle(ctx), sql, 0, 0, 0);
+	sqlite3_free(sql);
+	sqlite3_result_error(ctx, "cannot attach blob", -1);
+	mem_destroymb(mb);
+	return;
+    }
+#ifdef linux
+    sqlite3_mutex_leave(mb->mutex);
+    if (isrw) {
+	sqlite3_snprintf(sqllen, sql, 
+			 "file:/%lX?vfs=%s&mode=rw&cache=private",
+			 (unsigned long) mb, mem_vfs_name);
+	sqlite3_result_text(ctx, sql, -1, sqlite3_free);
+	return;
+    }
+#endif
+    sqlite3_free(sql);
+    sqlite3_result_null(ctx);
+}
+
+/**
+ * Dump memory mapped (writable) database to blob.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ *
+ * Arguments:
+ *
+ *   ADDR   -  the memory mapped database<br>
+ *
+ * Function result:
+ *
+ *   blob - success<br>
+ *   all else - error occurred<br>
+ *
+ */
+
+static void
+blob_dump_func(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    char *uri, vfs[64];
+#ifdef _WIN64
+    unsigned long long addr = 0;
+#else
+    unsigned long addr = 0;
+#endif
+#ifdef linux
+    int pfd[2], n;
+    mem_blk *mb;
+#endif
+
+    if (argc != 1) {
+	sqlite3_result_error(ctx, "need one argument", -1);
+	return;
+    }
+    uri = (char *) sqlite3_value_text(argv[0]);
+    vfs[0] = '\0';
+    if (!uri || (sscanf(uri,
+#ifdef _WIN64
+			"file:/%I64X?vfs=%63[^&]",
+#else
+			"file:/%lX?vfs=%63[^&]",
+#endif
+			&addr, vfs) != 2)) {
+inval:
+	sqlite3_result_error(ctx, "invalid object", -1);
+	return;
+    }
+    vfs[63] = '\0';
+    if ((strcmp(mem_vfs_name, vfs) != 0) || (addr == 0)) {
+	goto inval;
+    }
+#ifdef linux
+    if (pipe(pfd) < 0) {
+	goto inval;
+    }
+    n = (write(pfd[1], (char *) addr, 1) < 0) ? errno : 0;
+    close(pfd[0]);
+    close(pfd[1]);
+    if (n == EFAULT) {
+	goto inval;
+    }
+    mb = (mem_blk *) addr;
+    if (memcmp(mb->magic, MEM_MAGIC, 4) != 0) {
+	goto inval;
+    }
+    sqlite3_mutex_enter(mb->mutex);
+    sqlite3_result_blob(ctx, mb->data, mb->length, SQLITE_STATIC);
+    sqlite3_mutex_leave(mb->mutex);
+#else
+    sqlite3_result_error(ctx, "unsupported function", -1);
+#endif
+}
+
+#endif /* SQLITE_OPEN_URI */
+
 /**
  * Module initializer creating SQLite module and functions.
  * @param db database pointer
@@ -1152,6 +2208,30 @@ zip_vtab_init(sqlite3 *db)
 			    (void *) db, zip_inflate_func, 0, 0);
     sqlite3_create_function(db, "compress", -1, SQLITE_UTF8,
 			    (void *) db, zip_compress_func, 0, 0);
+#ifdef SQLITE_OPEN_URI
+    if (!mem_vfs.pAppData) {
+	sqlite3_vfs *parent = sqlite3_vfs_find(0);
+
+	if (parent) {
+	    sqlite3_snprintf(sizeof (mem_vfs_name), mem_vfs_name,
+#ifdef _WIN64
+			     "mem_vfs_%llX", (unsigned long long) &mem_vfs
+#else
+			     "mem_vfs_%lX", (unsigned long) &mem_vfs
+#endif
+			    );
+	    if (sqlite3_vfs_register(&mem_vfs, 0) == SQLITE_OK) {
+		mem_vfs.pAppData = (void *) parent;
+	    }
+	}
+    }
+    if (mem_vfs.pAppData) {
+	sqlite3_create_function(db, "blob_attach", 2, SQLITE_UTF8,
+				(void *) db, blob_attach_func, 0, 0);
+	sqlite3_create_function(db, "blob_dump", 1, SQLITE_UTF8,
+				(void *) db, blob_dump_func, 0, 0);
+    }
+#endif
     return sqlite3_create_module(db, "zipfile", &zip_vtab_mod, 0);
 }
 

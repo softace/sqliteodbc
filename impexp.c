@@ -439,7 +439,7 @@ quote_func(sqlite3_context *context, int argc, sqlite3_value **argv)
     }
     case SQLITE_BLOB: {
 	char *text = 0;
-	char const *blob = sqlite3_value_blob(argv[0]);
+	unsigned char *blob = (unsigned char *) sqlite3_value_blob(argv[0]);
 	int nblob = sqlite3_value_bytes(argv[0]);
 
 	if (2 * nblob + 4 > 1000000000) {
@@ -554,7 +554,7 @@ quote_csv_func(sqlite3_context *context, int argc, sqlite3_value **argv)
     }
     case SQLITE_BLOB: {
 	char *text = 0;
-	char const *blob = sqlite3_value_blob(argv[0]);
+	unsigned char *blob = (unsigned char *) sqlite3_value_blob(argv[0]);
 	int nblob = sqlite3_value_bytes(argv[0]);
 
 	if (2 * nblob + 4 > 1000000000) {
@@ -695,7 +695,7 @@ quote_xml_func(sqlite3_context *context, int argc, sqlite3_value **argv)
     }
     case SQLITE_BLOB: {
 	char *text = 0;
-	char const *blob = sqlite3_value_blob(argv[0]);
+	unsigned char *blob = (unsigned char *) sqlite3_value_blob(argv[0]);
 	int nblob = sqlite3_value_bytes(argv[0]);
 	int i, k = 0;
 
@@ -951,7 +951,7 @@ indent(DUMP_DATA *dd)
 static int
 table_dump(DUMP_DATA *dd, char **errp, int fmt, const char *query, ...)
 {
-    sqlite3_stmt *select;
+    sqlite3_stmt *select = 0;
     int rc;
     const char *rest, *q = query;
     va_list ap;

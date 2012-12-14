@@ -62,6 +62,11 @@ libsqlite3_mod_csvtable.la:	csvtable.lo
 		    -o libsqlite3_mod_csvtable.la \
 		    csvtable.lo -rpath $(drvdir) -release $(VER_INFO)
 
+libsqlite3_mod_zipfile.la:	zipfile.lo
+		$(LIBTOOL) --mode=link $(CC) $(CFLAGS) \
+		    -o libsqlite3_mod_zipfile.la \
+		    zipfile.lo -rpath $(drvdir) -release $(VER_INFO) -lz
+
 sqliteodbc.lo:	sqliteodbc.c sqliteodbc.h
 		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
 		    -I$(SQLITE_INC) $(ODBC_FLAGS) \
@@ -90,6 +95,11 @@ csvtable.lo:	csvtable.c
 		    -I$(SQLITE3_INC) \
 		    $(SQLITE3_FLAGS) csvtable.c
 
+zipfile.lo:	zipfile.c
+		$(LIBTOOL) --mode=compile $(CC) $(CFLAGS) -c \
+		    -I$(SQLITE3_INC) \
+		    $(SQLITE3_FLAGS) zipfile.c
+
 install-2:	libsqliteodbc.la
 		$(LIBTOOL) --mode=install $(INSTALL) \
 		    libsqliteodbc.la $(DESTDIR)$(drvdir)
@@ -105,7 +115,8 @@ uninstall-2:
 		$(LIBTOOL) --mode=uninstall \
 		    $(RM) $(DESTDIR)$(drvdir)/libsqliteodbc.la
 
-install-3:	libsqlite3odbc.la @EXT_BLOBTOXY@ @EXT_IMPEXP@
+install-3:	libsqlite3odbc.la @EXT_BLOBTOXY@ @EXT_IMPEXP@ \
+		@EXT_CSVTABLE@ @EXT_ZIPFILE@
 		$(LIBTOOL) --mode=install $(INSTALL) \
 		    libsqlite3odbc.la $(DESTDIR)$(drvdir)
 		test -z "@EXT_BLOBTOXY@" || \
@@ -114,6 +125,12 @@ install-3:	libsqlite3odbc.la @EXT_BLOBTOXY@ @EXT_IMPEXP@
 		test -z "@EXT_IMPEXP@" || \
 		    $(LIBTOOL) --mode=install $(INSTALL) \
 		    @EXT_IMPEXP@ $(DESTDIR)$(drvdir)
+		test -z "@EXT_CSVTABLE@" || \
+		    $(LIBTOOL) --mode=install $(INSTALL) \
+		    @EXT_CSVTABLE@ $(DESTDIR)$(drvdir)
+		test -z "@EXT_ZIPFILE@" || \
+		    $(LIBTOOL) --mode=install $(INSTALL) \
+		    @EXT_ZIPFILE@ $(DESTDIR)$(drvdir)
 
 uninstall-3:
 		$(LIBTOOL) --mode=uninstall \
@@ -124,6 +141,12 @@ uninstall-3:
 		test -z "@EXT_IMPEXP@" || \
 		    $(LIBTOOL) --mode=uninstall \
 		        $(RM) $(DESTDIR)$(drvdir)/@EXT_IMPEXP@
+		test -z "@EXT_CSVTABLE@" || \
+		    $(LIBTOOL) --mode=uninstall \
+		        $(RM) $(DESTDIR)$(drvdir)/@EXT_CSVTABLE@
+		test -z "@EXT_ZIPFILE@" || \
+		    $(LIBTOOL) --mode=uninstall \
+		        $(RM) $(DESTDIR)$(drvdir)/@EXT_ZIPFILE@
 
 drvinst-3:	install-3
 		sh drvdsninst.sh SQLITE3 "SQLite3 Datasource" \
