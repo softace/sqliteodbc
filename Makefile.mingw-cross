@@ -2,7 +2,7 @@
 # using MinGW cross compiler
 
 MINGW =		/opt/mingw64/bin/x86_64-w64-mingw32-
-CC =		$(MINGW)gcc -m32 -march=i386 -mtune=generic
+CC =		$(MINGW)gcc -m32 -march=i386 -mtune=i386
 STRIP =		$(MINGW)strip
 RC =		$(MINGW)windres -F pe-i386
 MAKENSIS =	makensis
@@ -171,9 +171,12 @@ sqliteres.rc:
 sqliteres.o:	sqliteres.rc
 		$(RC) -o sqliteres.o sqliteres.rc
 
-inst.exe:	inst.c sqliteres.o
+instres.o:	inst.rc
+		$(RC) -o instres.o -I$(SQLITE3_INC) inst.rc
+
+inst.exe:	inst.c instres.o
 		$(CC) $(CFLAGS) $(ADD_CFLAGS) -mwindows -o inst.exe \
-		    inst.c sqliteres.o -lodbc32 -lodbccp32 -lkernel32 \
+		    inst.c instres.o -lodbc32 -lodbccp32 -lkernel32 \
 		    -luser32
 		$(STRIP) inst.exe
 
@@ -186,9 +189,12 @@ uninst.exe:	inst.exe
 uninstq.exe:	inst.exe
 		cp -p inst.exe uninstq.exe
 
-adddsn.exe:	adddsn.c sqliteres.o
+adddsnres.o:	adddsn.rc
+		$(RC) -o adddsnres.o -I$(SQLITE3_INC) adddsn.rc
+
+adddsn.exe:	adddsn.c adddsnres.o
 		$(CC) $(CFLAGS) $(ADD_CFLAGS) -mwindows -o adddsn.exe \
-		    adddsn.c sqliteres.o -lodbc32 -lodbccp32 -lkernel32 \
+		    adddsn.c adddsnres.o -lodbc32 -lodbccp32 -lkernel32 \
 		    -luser32
 		$(STRIP) adddsn.exe
 

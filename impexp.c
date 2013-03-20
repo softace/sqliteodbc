@@ -1190,6 +1190,9 @@ dump_cb(void *udata, int nargs, char **args, char **cols)
 	    append_free(&table_info);
 	    if ((rc != SQLITE_OK) || !stmt) {
 bailout0:
+		if (stmt) {
+		    sqlite3_finalize(stmt);
+		}
 		append_free(&creat);
 		return 1;
 	    }
@@ -1222,10 +1225,10 @@ bailout0:
 		    append(&creat, ",", 0);
 		}
 	    }
-	    rc = sqlite3_finalize(stmt);
-	    if (rc != SQLITE_OK) {
+	    if (rc != SQLITE_DONE) {
 		goto bailout0;
 	    }
+	    sqlite3_finalize(stmt);
 	    append(&creat, ")", 0);
 	    if (creat && fprintf(dd->out, "CREATE TABLE %s;\n", creat) > 0) {
 		dd->nlines++;
@@ -1256,6 +1259,9 @@ bailout0:
 	append_free(&table_info);
 	if ((rc != SQLITE_OK) || !stmt) {
 bailout1:
+	    if (stmt) {
+		sqlite3_finalize(stmt);
+	    }
 	    append_free(&hdr);
 	    append_free(&select);
 	    return 1;
@@ -1314,10 +1320,10 @@ bailout1:
 		    append(&select, " || ',' || ", 0);
 		}
 	    }
-	    rc = sqlite3_reset(stmt);
-	    if (rc != SQLITE_OK) {
+	    if (rc != SQLITE_DONE) {
 		goto bailout1;
 	    }
+	    sqlite3_reset(stmt);
 	    append(&select, "|| ')'", 0);
 	}
 	if ((dd->quote_mode == -1) && dd->indent) {
@@ -1334,10 +1340,10 @@ bailout1:
 		    append(&hdr, ")", 0);
 		}
 	    }
-	    rc = sqlite3_reset(stmt);
-	    if (rc != SQLITE_OK) {
+	    if (rc != SQLITE_DONE) {
 		goto bailout1;
 	    }
+	    sqlite3_reset(stmt);
 	}
 	if (dd->quote_mode >= 0) {
 	    append(&select, " || ' VALUES(' || ", 0);
@@ -1398,10 +1404,11 @@ bailout1:
 		}
 	    }
 	}
-	rc = sqlite3_finalize(stmt);
-	if (rc != SQLITE_OK) {
+	if (rc != SQLITE_DONE) {
 	    goto bailout1;
 	}
+	sqlite3_finalize(stmt);
+	stmt = 0;
 	if (dd->quote_mode >= 0) {
 	    append(&select, "|| ')' FROM ", 0);
 	} else {
@@ -1422,7 +1429,7 @@ bailout1:
 	}
 	if (hdr) {
 	    rc = table_dump(dd, 0, 0, hdr);
-	    sqlite3_free(hdr);
+	    append_free(&hdr);
 	    hdr = 0;
 	}
 	rc = table_dump(dd, 0, 0, select);

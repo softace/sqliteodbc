@@ -172,7 +172,6 @@ else
 fi
 AC_SUBST(SQLITE3_INC)
 AC_SUBST(SQLITE3_A10N_C)
-AC_SUBST(SQLITE3_A10N_O)
 AC_SUBST(SQLITE3_A10N_FLAGS)
 
 # test for availability of some sqlite3_*() funcs
@@ -182,14 +181,15 @@ if test -n "$SQLITE3_LIBDIR" ; then
 fi
 
 if test -n "$SQLITE3_A10N_C" ; then
-   SQLITE3_LOADEXTENSTION=1
+   SQLITE3_LOADEXTENSION=1
    SQLITE3_COLUMNTABLENAME=1
    SQLITE3_OVERLOADFUNCTION=1
    SQLITE3_PREPARE_V2=1
    SQLITE3_CLEARBINDINGS=1
    SQLITE3_CREATEMODULE_V2=1
-   SQLITE3_TABLECOLUMNMETADATA=1
    SQLITE3_VFS=1
+   SQLITE3_TABLECOLUMNMETADATA=1
+   SQLITE3_PROFILE=1
    SQLITE3_STRNICMP=1
 else
    saved_CFLAGS=$CFLAGS
@@ -283,6 +283,72 @@ AC_SUBST(EXT_BLOBTOXY)
 AC_SUBST(EXT_IMPEXP)
 AC_SUBST(EXT_CSVTABLE)
 AC_SUBST(EXT_ZIPFILE)
+
+##########
+# Find SQLite4 header file and library
+#
+AC_ARG_WITH(sqlite4,[  --with-sqlite4=DIR      use SQLite4 hdr/src from DIR],
+   SQLITE4_DIR=$withval)
+if test -n "$SQLITE4_DIR" ; then
+   if test ! -d "$SQLITE4_DIR" ; then
+      AC_MSG_WARN([SQLite4 directory $SQLITE4_DIR does not exist])
+   fi
+fi
+
+SQLITE4_INC=UNKNOWN
+
+if test -n "$SQLITE4_DIR" ; then
+   AC_MSG_CHECKING([for SQLite4 header and library])
+   for i in $SQLITE4_DIR ; do
+      if test -r "$i/sqlite4.h" ; then
+         if test -r "$i/sqlite4.c" ; then
+            SQLITE4_INC="$i"
+            SQLITE4_A10N_C="$i/sqlite4.c"
+            SQLITE4_A10N_O="sqlite4.lo"
+            break
+         fi
+      fi
+   done
+fi
+if test "$SQLITE4_INC" = "UNKNOWN" ; then
+   AC_MSG_RESULT(no)
+   AC_MSG_WARN([SQLite4 header file and source not found])
+else
+   AC_MSG_RESULT(yes)
+   LIB_TARGETS="$LIB_TARGETS libsqlite4odbc.la"
+   INST_TARGETS="$INST_TARGETS install-4"
+   UNINST_TARGETS="$UNINST_TARGETS uninstall-4"
+   DRVINST_TARGETS="$DRVINST_TARGETS drvinst-4"
+   DRVUNINST_TARGETS="$DRVUNINST_TARGETS drvuninst-4"
+   SQLITE4_A10N_FLAGS="$SQLITE4_A10N_FLAGS -DSQLITE4_ENABLE_COLUMN_METADATA=1"
+   SQLITE4_A10N_FLAGS="$SQLITE4_A10N_FLAGS -DSQLITE4_SOUNDEX=1"
+   SQLITE4_A10N_FLAGS="$SQLITE4_A10N_FLAGS -DSQLITE4_THREADSAFE=1"
+fi
+AC_SUBST(SQLITE4_INC)
+AC_SUBST(SQLITE4_A10N_C)
+AC_SUBST(SQLITE4_A10N_FLAGS)
+
+#########
+# libxml2 support for XPath virtual table module
+XML2_FLAGS=""
+XML2_LIBS=""
+EXT_XPATH=""
+if test "$SQLITE3_LOADEXTENSION" = "1" ; then
+   AC_MSG_CHECKING([for libxml2 header and library])
+   XML2_CONFIG="`which xml2-config 2>/dev/null`"
+   if test -n "$XML2_CONFIG" ; then
+      XML2_FLAGS="`xml2-config --cflags`"
+      XML2_LIBS="`xml2-config --libs`"
+      EXT_XPATH=libsqlite3_mod_xpath.la
+      LIB_TARGETS="$LIB_TARGETS $EXT_XPATH"
+      AC_MSG_RESULT(yes)
+   else
+      AC_MSG_RESULT(no)
+   fi
+fi
+AC_SUBST(XML2_FLAGS)
+AC_SUBST(XML2_LIBS)
+AC_SUBST(EXT_XPATH)
 
 #########
 # Any SQLite to be done ?
@@ -628,20 +694,24 @@ fi
 AC_SUBST(DRVDIR)
 
 ##########
-# Experimental: dlopen for resolving SQLite3 symbols
+# Experimental: dlopen for resolving SQLite3/SQLite4 symbols
 #
-AC_ARG_WITH(dls,[  --with-dls              dlopen SQLite3 lib],
+AC_ARG_WITH(dls,[  --with-dls              dlopen SQLite3/SQLite4 lib],
    WITH_DLS=1,WITH_DLS=0)
 if test "$DLOPENFORGPPS" = "1" ; then
    if test "$WITH_DLS" = "1" ; then
       DL_OPTS="-DSQLITE_DYNLOAD=1"
       SQLITE3_LIB=""
+      SQLITE3_A10N_O=""
+      SQLITE4_A10N_O=""
       DL_INITFINI="-Wl,-init,dls_init -Wl,-fini,dls_fini"
    fi
 fi
 AC_SUBST(DL_OPTS)
 AC_SUBST(DL_INITFINI)
 AC_SUBST(SQLITE3_LIB)
+AC_SUBST(SQLITE3_A10N_O)
+AC_SUBST(SQLITE4_A10N_O)
 
 #########
 # Generate the output files.

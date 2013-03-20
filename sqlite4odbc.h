@@ -1,5 +1,5 @@
-#ifndef _SQLITEODBC_H
-#define _SQLITEODBC_H
+#ifndef _SQLITE4ODBC_H
+#define _SQLITE4ODBC_H
 
 /**
  * @mainpage
@@ -12,37 +12,22 @@
  */
 
 /**
- * @file sqliteodbc.h
- * Header file for SQLite ODBC driver.
+ * @file sqlite4odbc.h
+ * Header file for SQLite4 ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.59 2013/01/11 12:20:56 chw Exp chw $
+ * $Id: sqlite4odbc.h,v 1.1 2013/01/22 08:23:54 chw Exp chw $
  *
- * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2013 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
  * DISCLAIMER OF ALL WARRANTIES.
  */
 
-#ifdef __OS2__
-#define INCL_WIN
-#define INCL_PM
-#define INCL_DOSMODULEMGR
-#define INCL_DOSERRORS
-#define INCL_WINSTDFILE
-#define ALLREADY_HAVE_OS2_TYPES
-#define DONT_TD_VOID
-#include <os2.h>
-#include <stdlib.h>
-#define ODBCVER 0x0300
-#include "resourceos2.h"
-#endif
-
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
 #include <stdio.h>
-#endif
+#include <io.h>
 #else
 #include <sys/time.h>
 #include <sys/types.h>
@@ -61,7 +46,7 @@
 #include <sqlext.h>
 #include <time.h>
 
-#include "sqlite.h"
+#include "sqlite4.h"
 #ifdef HAVE_IODBC
 #include <iodbcinst.h>
 #endif
@@ -128,7 +113,7 @@ typedef struct dbc {
     int magic;			/**< Magic cookie */
     ENV *env;			/**< Pointer to environment */
     struct dbc *next;		/**< Pointer to next DBC */
-    sqlite *sqlite;		/**< SQLITE database handle */
+    sqlite4 *sqlite;		/**< SQLITE database handle */
     int version;		/**< SQLITE version number */
     char *dbname;		/**< SQLITE database name */
     char *dsn;			/**< ODBC data source name */
@@ -144,15 +129,20 @@ typedef struct dbc {
     char sqlstate[6];		/**< SQL state for SQLError() */
     SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar;		/**< Don't try to use WCHAR */
+    int dobigint;		/**< Force SQL_BIGINT for INTEGER columns */
+    int shortnames;		/**< Always use short column names */
     int longnames;		/**< Don't shorten column names */
+    int nocreat;		/**< Don't auto create database file */
+    int fksupport;		/**< Foreign keys on or off */
     int curtype;		/**< Default cursor type */
     int step_enable;		/**< True for sqlite_compile/step/finalize */
     int trans_disable;		/**< True for no transaction support */
-    struct stmt *vm_stmt;	/**< Current STMT executing VM */
-    int vm_rownum;		/**< Current row number */
-#if defined(HAVE_SQLITETRACE) && HAVE_SQLITETRACE
-    FILE *trace;		/**< sqlite_trace() file pointer or NULL */
-#endif
+    int oemcp;			/**< True for Win32 OEM CP translation */
+    struct stmt *cur_s4stmt;	/**< Current STMT executing sqlite statement */
+    int s4stmt_needmeta;	/**< True to get meta data in s4stmt_step(). */
+    FILE *trace;		/**< sqlite4_trace() file pointer or NULL */
+    char *pwd;			/**< Password or NULL */
+    int pwdLen;			/**< Length of password */
 #ifdef USE_DLOPEN_FOR_GPPS
     void *instlib;
     int (*gpps)();
@@ -219,6 +209,12 @@ typedef struct {
     int offs, len;	/**< Offset/length for SQLParamData()/SQLPutData() */
     void *parbuf;	/**< Buffer for SQL_LEN_DATA_AT_EXEC etc. */
     char strbuf[64];	/**< String buffer for scalar data */
+    int s4type;		/**< SQLite4 type */
+    int s4size;		/**< SQLite4 size */
+    void *s4val;	/**< SQLite4 value buffer */
+    int s4ival;		/**< SQLite4 integer value */
+    sqlite4_int64 s4lival;	/**< SQLite4 64bit integer value */
+    double s4dval;	/**< SQLite4 float value */
 } BINDPARM;
 
 /**
@@ -232,8 +228,8 @@ typedef struct stmt {
     HDBC dbc;			/**< Pointer to DBC */
     SQLCHAR cursorname[32];	/**< Cursor name */
     SQLCHAR *query;		/**< Current query, raw string */
-    char **parmnames;		/**< Parameter names from current query */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
+    int *oemcp;			/**< True for Win32 OEM CP translation */
     int isselect;		/**< > 0 if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
     COL *cols;			/**< Result column array */
@@ -253,8 +249,9 @@ typedef struct stmt {
     void (*rowfree)();		/**< Free function for rows */
     int naterr;			/**< Native error code */
     char sqlstate[6];		/**< SQL state for SQLError() */
-    SQLCHAR logmsg[1024];	/**< Message for SQLError() */ 
+    SQLCHAR logmsg[1024];	/**< Message for SQLError() */
     int nowchar[2];		/**< Don't try to use WCHAR */
+    int dobigint;		/**< Force SQL_BIGINT for INTEGER columns */
     int longnames;		/**< Don't shorten column names */
     SQLULEN retr_data;		/**< SQL_ATTR_RETRIEVE_DATA */
     SQLULEN rowset_size;	/**< Size of rowset */
@@ -266,6 +263,7 @@ typedef struct stmt {
     SQLULEN paramset_size;	/**< SQL_ATTR_PARAMSET_SIZE */
     SQLULEN paramset_count;	/**< Internal for paramset */
     SQLUINTEGER paramset_nrows;	/**< Row count for paramset handling */
+    SQLULEN max_rows;		/**< SQL_ATTR_MAX_ROWS */
     SQLULEN bind_type;		/**< SQL_ATTR_ROW_BIND_TYPE */
     SQLULEN *bind_offs;		/**< SQL_ATTR_ROW_BIND_OFFSET_PTR */
     /* Dummies to make ADO happy */
@@ -275,13 +273,13 @@ typedef struct stmt {
     SQLULEN *parm_proc;		/**< SQL_ATTR_PARAMS_PROCESSED_PTR */
     SQLULEN parm_bind_type;	/**< SQL_ATTR_PARAM_BIND_TYPE */
     int curtype;		/**< Cursor type */
-    sqlite_vm *vm;		/**< SQLite VM or NULL */
-#if HAVE_ENCDEC
-    char *bincell;		/**< Undecoded string */
-    char *bincache;		/**< Cached decoded binary data */
-    int binlen;			/**< Length of decoded binary data */
-    char *hexcache;		/**< Cached decoded binary in hex */
-#endif
+    sqlite4_stmt *s4stmt;	/**< SQLite statement handle or NULL */
+    int s4stmt_noreset;		/**< False when sqlite4_reset() needed. */
+    int s4stmt_rownum;		/**< Current row number */
+    char *bincell;		/**< Cache for blob data */
+    char *bincache;		/**< Cache for blob data */
+    int binlen;			/**< Length of blob data */
+    int guessed_types;		/**< Flag for drvprepare()/drvexecute() */
 } STMT;
 
 #endif

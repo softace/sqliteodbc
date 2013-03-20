@@ -179,16 +179,16 @@ diff -Nur tcc-0.9.25.orig/mingw-cross-build.sh tcc-0.9.25/mingw-cross-build.sh
 +# Tested on Fedora Core 3 and 5.
 +#
 +# Cross toolchain and NSIS for Linux/i386/x86_64 can be fetched from
-+#  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.i386.rpm
-+#  http://www.ch-werner.de/xtools/crossmingw64-0.2.i386.tar.bz2
-+#  http://www.ch-werner.de/xtools/crossmingw64-0.2-1.x86_64.rpm
-+#  http://www.ch-werner.de/xtools/crossmingw64-0.2.x86_64.tar.bz2
-+#  http://www.ch-werner.de/xtools/nsis-2.11-1.i386.rpm
++#  http://www.ch-werner.de/xtools/crossmingw64-0.3-1.i386.rpm
++#  http://www.ch-werner.de/xtools/crossmingw64-0.3.i386.tar.bz2
++#  http://www.ch-werner.de/xtools/crossmingw64-0.3-1.x86_64.rpm
++#  http://www.ch-werner.de/xtools/crossmingw64-0.3.x86_64.tar.bz2
++#  http://www.ch-werner.de/xtools/nsis-2.37-1.i386.rpm
 +
 +set -e
 +
 +rm -rf ../TCC
-+sh cross-configure.sh --prefix=/TCC --enable-mingw32 --extra-cflags="-m32 -march=i386 -mtune=generic"
++sh cross-configure.sh --prefix=/TCC --enable-mingw32 --extra-cflags="-m32 -march=i386 -mtune=i386"
 +sh cross-make.sh clean all
 +sh cross-make.sh DESTDIR=.. install
 +sh cross-make.sh distclean

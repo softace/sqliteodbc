@@ -15,7 +15,7 @@ else
 fi
 
 if test $(arch) = "x86_64" ; then
-    CC32="gcc -m32 -march=i386 -mtune=generic"
+    CC32="gcc -m32 -march=i386 -mtune=i386"
     SH32="linux32 sh"
 else
     CC32=gcc

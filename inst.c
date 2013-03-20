@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.17 2012/01/24 07:40:58 chw Exp chw $
+ * $Id: inst.c,v 1.19 2013/01/22 16:37:30 chw Exp chw $
  *
- * Copyright (c) 2001-2012 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -29,46 +29,32 @@
 #define SEESTR2 ""
 #endif
 
-#ifdef _WIN64
-#define NUMDRVS 1
-static char *DriverName[NUMDRVS] = {
-    "SQLite3 ODBC Driver" SEESTR
-};
-static char *DSName[NUMDRVS] = {
-    "SQLite3 " SEESTR2 "Datasource"
-};
-static char *DriverDLL[NUMDRVS] = {
-    "sqlite3odbc" SEEEXT ".dll"
-};
-#ifdef WITH_SQLITE_DLLS
-static char *EngineDLL[NUMDRVS] = {
-    "sqlite3" SEEEXT ".dll"
-};
-#endif
-#else
-#define NUMDRVS 3
+#define NUMDRVS 4
 static char *DriverName[NUMDRVS] = {
     "SQLite ODBC Driver",
     "SQLite ODBC (UTF-8) Driver",
-    "SQLite3 ODBC Driver" SEESTR
+    "SQLite3 ODBC Driver" SEESTR,
+    "SQLite4 ODBC Driver"
 };
 static char *DSName[NUMDRVS] = {
     "SQLite Datasource",
     "SQLite UTF-8 Datasource",
-    "SQLite3 " SEESTR2 "Datasource"
+    "SQLite3 " SEESTR2 "Datasource",
+    "SQLite4 Datasource"
 };
 static char *DriverDLL[NUMDRVS] = {
     "sqliteodbc.dll",
     "sqliteodbcu.dll",
-    "sqlite3odbc" SEEEXT ".dll"
+    "sqlite3odbc" SEEEXT ".dll",
+    "sqlite4odbc.dll"
 };
 #ifdef WITH_SQLITE_DLLS
 static char *EngineDLL[NUMDRVS] = {
     "sqlite.dll",
     "sqliteu.dll",
-    "sqlite3.dll"
+    "sqlite3.dll",
+    "sqlite4.dll"
 };
-#endif
 #endif
 
 static int quiet = 0;

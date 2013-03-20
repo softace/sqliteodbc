@@ -59,7 +59,7 @@ EXE = .exe
 #TCC = gcc -O6
 #TCC = gcc -g -O0 -Wall
 #TCC = gcc -g -O0 -Wall -fprofile-arcs -ftest-coverage
-TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -march=i386 -mtune=generic \
+TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -march=i386 -mtune=i386 \
       -O2 -DNO_TCL -DNO_OLDNAMES -D_off_t="long long" -D_OFF_T_=1
 #TCC = /opt/ansic/bin/c89 -O +z -Wl,-a,archive
 

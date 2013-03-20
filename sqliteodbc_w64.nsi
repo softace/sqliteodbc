@@ -107,6 +107,7 @@ Section "-Main (required)" InstallationInfo
  File "sqlite3_mod_csvtable.dll"
  File "sqlite3_mod_rtree.dll"
  File "sqlite3_mod_extfunc.dll"
+ File "sqlite3_mod_zipfile.dll"
  File "license.terms"
  File "license.txt"
  File "README"

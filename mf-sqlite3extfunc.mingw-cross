@@ -6,7 +6,7 @@
 #### C Compile and options for use in building executables that 
 #    will run on the target platform.
 #
-TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -march=i386 -mtune=generic \
+TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -march=i386 -mtune=i386 \
       -O2 -DNO_TCL
 
 # This is how we compile

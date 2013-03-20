@@ -1,7 +1,7 @@
 STATICLIB = libz.a
 
 CC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32
-CFLAGS = -march=i386 -mtune=generic -O2
+CFLAGS = -march=i386 -mtune=i386 -O2
 
 LD = $(CC)
 LDFLAGS =

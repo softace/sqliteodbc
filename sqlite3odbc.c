@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.150 2012/12/09 09:51:24 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.153 2013/02/27 06:36:58 chw Exp chw $
  *
- * Copyright (c) 2004-2012 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2013 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -54,6 +54,7 @@ static struct dl_sqlite3_funcs {
     int (*column_count)(sqlite3_stmt *p0);
     const char * (*column_database_name)(sqlite3_stmt *p0, int p1);
     const char * (*column_decltype)(sqlite3_stmt *p0, int p1);
+    double (*column_double)(sqlite3_stmt *p0, int p1);
     const char * (*column_name)(sqlite3_stmt *p0, int p1);
     const char * (*column_origin_name)(sqlite3_stmt *p0, int p1);
     const char * (*column_table_name)(sqlite3_stmt *p0, int p1);
@@ -130,6 +131,7 @@ static struct dl_sqlite3_funcs {
 #define sqlite3_column_count          dls_funcs.column_count
 #define sqlite3_column_database_name  dls_funcs.column_database_name
 #define sqlite3_column_decltype       dls_funcs.column_decltype
+#define sqlite3_column_double         dls_funcs.column_double
 #define sqlite3_column_name           dls_funcs.column_name
 #define sqlite3_column_origin_name    dls_funcs.column_origin_name
 #define sqlite3_column_table_name     dls_funcs.column_table_name
@@ -3548,7 +3550,15 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
     }
 #if defined(_WIN32) || defined(_WIN64)
     if (!isu) {
-	uname = wmb_to_utf(name, -1);
+	char expname[MAX_PATH];
+
+	expname[0] = '\0';
+	rc = ExpandEnvironmentStrings(name, expname, sizeof (expname));
+	if (rc <= sizeof (expname)) {
+	    uname = wmb_to_utf(expname, rc - 1);
+	} else {
+	    uname = wmb_to_utf(name, -1);
+	}
 	if (!uname) {
 	    rc = SQLITE_NOMEM;
 	    setstatd(d, rc, "out of memory", (*d->ov3) ? "HY000" : "S1000");
@@ -17283,7 +17293,7 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     switch (wmsg) {
     case WM_INITDIALOG:
 #ifdef _WIN64
-	SetWindowLong(hdlg, DWLP_USER, lparam);
+	SetWindowLongPtr(hdlg, DWLP_USER, lparam);
 #else
 	SetWindowLong(hdlg, DWL_USER, lparam);
 #endif
@@ -17502,7 +17512,7 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
     switch (wmsg) {
     case WM_INITDIALOG:
 #ifdef _WIN64
-	SetWindowLong(hdlg, DWLP_USER, lparam);
+	SetWindowLongPtr(hdlg, DWLP_USER, lparam);
 #else
 	SetWindowLong(hdlg, DWL_USER, lparam);
 #endif
@@ -18464,6 +18474,12 @@ dls_0(void)
     return 0;
 }
 
+static double
+dls_00(void)
+{
+    return 0;
+}
+
 static void *
 dls_null(void)
 {
@@ -18513,6 +18529,7 @@ static struct {
     DLS_ENT(column_count, dls_0),
     DLS_ENT(column_database_name, dls_empty),
     DLS_ENT(column_decltype, dls_empty),
+    DLS_ENT(column_double, dls_00),
     DLS_ENT(column_name, dls_empty),
     DLS_ENT(column_origin_name, dls_null),
     DLS_ENT(column_table_name, dls_null),

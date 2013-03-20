@@ -113,6 +113,7 @@ Section "-Main (required)" InstallationInfo
 ; SQLite 3.6.*
  File "sqlite3_mod_rtree.dll"
  File "sqlite3_mod_extfunc.dll"
+ File "sqlite3_mod_zipfile.dll"
  File "license.terms"
  File "license.txt"
  File "README"

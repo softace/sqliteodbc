@@ -1,6 +1,18 @@
 SQLite ODBC Driver
 ------------------
 
+Wed Mar 20 2013 version 0.991 released
+
+	* update to SQLite 3.7.16
+	* added experimental libxml2 XPath virtual table module
+	* added Michael Brey's configure fixes
+	* added Zac Vawter's patch for Win32 ExpandEnviromentStrings()
+	  on database file names
+	* fixes for Windows 8 64bit (SetWindowLongPtr())
+	* added experimental SQLite4 driver
+	* fixes in impexp extension module
+	* added manifests to adddsn.exe/inst.exe
+
 Fri Dec 14 2012 version 0.99 released
 
 	* update to SQLite 3.7.15
