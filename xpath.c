@@ -25,6 +25,11 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
+#ifdef WITH_XSLT
+#include <libxslt/xslt.h>
+#include <libxslt/transform.h>
+#include <libxslt/xsltutils.h>
+#endif
 
 #ifdef STANDALONE
 #include <sqlite3.h>
@@ -74,7 +79,7 @@ typedef struct XTAB {
     struct XCSR *xc;	/**< Current cursor. */
     int sdoc;		/**< Size of idocs array. */
     int ndoc;		/**< Number of used entries in idocs array. */
-    int *idocs;		/**< Indexes in global module DOC table. */
+    int *idocs;		/**< Indexes in module-wide DOC table. */
 } XTAB;
 
 /**
@@ -466,7 +471,7 @@ xpath_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
     if (n == 0) {
 	n = xt->idocs[xc->pos];
 	if (xm->docs[n].doc) {
-	    sqlite3_result_int64(ctx, (sqlite3_int64) xm->docs[n].doc);
+	    sqlite3_result_int(ctx, n + 1);
 	    return SQLITE_OK;
 	}
     } else if (n == 6) {
@@ -505,7 +510,7 @@ xpath_rowid(sqlite3_vtab_cursor *cursor, sqlite3_int64 *rowidp)
     int n = xt->idocs[xc->pos];
 
     if (xm->docs[n].doc) {
-	*rowidp = (sqlite3_int64) xm->docs[n].doc;
+	*rowidp = (sqlite3_int64) (n + 1);
 	return SQLITE_OK;
     }
     return SQLITE_ERROR;
@@ -538,10 +543,7 @@ xpath_rowid(sqlite3_vtab_cursor *cursor, sqlite3_int64 *rowidp)
  *
  * All columns except DOCID are hidden. UPDATE on the virtual table
  * is not supported. Default parser options are XML_PARSE_NOERROR,
- * XML_PARSE_NOWARNING, and XML_PARSE_NONET. Specify either an
- * XML string as the XML column or a path name or URL in the
- * PATH column. To copy an already parsed DOCID from one virtual
- * table to another, specify the DOCID column only.
+ * XML_PARSE_NOWARNING, and XML_PARSE_NONET.
  */
 
 static int
@@ -556,10 +558,10 @@ xpath_update(sqlite3_vtab *vtab, int argc, sqlite3_value **argv,
     if (argc == 1) {
 	/* DELETE */
 	int i, k = -1;
-	sqlite3_int64 n = sqlite3_value_int64(argv[0]);
 
+	n = sqlite3_value_int(argv[0]);
 	for (i = 0; i < xt->ndoc; i++) {
-	    if (n == (sqlite3_int64) xm->docs[xt->idocs[i]].doc) {
+	    if ((n - 1) == xt->idocs[i]) {
 		k = xt->idocs[i];
 		memmove(xt->idocs + i, xt->idocs + i + 1,
 			(xt->ndoc - (i + 1)) * sizeof (int));
@@ -567,22 +569,14 @@ xpath_update(sqlite3_vtab *vtab, int argc, sqlite3_value **argv,
 		break;
 	    }
 	}
-	if ((k > 0) && xm->mutex) {
-	    sqlite3_mutex_enter(xm->mutex);
-	    xm->docs[k].refcnt -= 1;
-	    if (xm->docs[k].refcnt <= 0) {
-		doc = xm->docs[k].doc;
-		xm->docs[k].doc = 0;
-		xm->docs[k].refcnt = 0;
-		xm->ndoc--;
-	    }
-	    sqlite3_mutex_leave(xm->mutex);
+	if ((k >= 0) && xm->mutex) {
+	    n = k;
+	    doc = xm->docs[n].doc;
 	}
 	rc = SQLITE_OK;
     } else if ((argc > 1) && (sqlite3_value_type(argv[0]) == SQLITE_NULL)) {
 	/* INSERT */
-	int i;
-	sqlite3_int64 docid;
+	int i, docid;
 	int opts = (XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NONET);
 	char *enc = 0;
 
@@ -591,38 +585,36 @@ xpath_update(sqlite3_vtab *vtab, int argc, sqlite3_value **argv,
 		sqlite3_free(vtab->zErrMsg);
 	    }
 	    vtab->zErrMsg = sqlite3_mprintf("ROWID must be NULL");
+	    rc = SQLITE_CONSTRAINT;
 	    goto done;
 	}
 	if (sqlite3_value_type(argv[2]) != SQLITE_NULL) {
-	    docid = sqlite3_value_int64(argv[2]);
+	    docid = sqlite3_value_int(argv[2]);
 	    if ((sqlite3_value_type(argv[3]) != SQLITE_NULL) ||
 		(sqlite3_value_type(argv[4]) != SQLITE_NULL)) {
 		if (vtab->zErrMsg) {
 		    sqlite3_free(vtab->zErrMsg);
 		}
 		vtab->zErrMsg = sqlite3_mprintf("XML and PATH must be NULL");
+		rc = SQLITE_CONSTRAINT;
 		goto done;
 	    }
 	    sqlite3_mutex_enter(xm->mutex);
 	    for (i = 0; xm->docs && (i < xt->ndoc); i++) {
-		n = xt->idocs[i];
-		if ((n >= 0) && (n < xm->sdoc)) {
-		    if ((sqlite3_int64) xm->docs[n].doc == docid) {
-			sqlite3_mutex_leave(xm->mutex);
-			if (vtab->zErrMsg) {
-			    sqlite3_free(vtab->zErrMsg);
-			}
-			vtab->zErrMsg =
-			    sqlite3_mprintf("constraint violation");
-			goto done;
+		if ((docid - 1) == xt->idocs[i]) {
+		    sqlite3_mutex_leave(xm->mutex);
+		    if (vtab->zErrMsg) {
+			sqlite3_free(vtab->zErrMsg);
 		    }
+		    vtab->zErrMsg = sqlite3_mprintf("constraint violation");
+		    rc = SQLITE_CONSTRAINT;
+		    goto done;
 		}
 	    }
-	    for (n = 0; xm->docs && (n < xm->ndoc); n++) {
-		if ((sqlite3_int64) xm->docs[n].doc == docid) {
-		    xm->docs[n].refcnt++;
-		    doc = xm->docs[n].doc;
-		    break;
+	    if ((docid > 0) && (docid <= xm->sdoc)) {
+		doc = xm->docs[docid - 1].doc;
+		if (doc) {
+		    xm->docs[docid - 1].refcnt++;
 		}
 	    }
 	    sqlite3_mutex_leave(xm->mutex);
@@ -643,6 +635,7 @@ xpath_update(sqlite3_vtab *vtab, int argc, sqlite3_value **argv,
 		sqlite3_free(vtab->zErrMsg);
 	    }
 	    vtab->zErrMsg = sqlite3_mprintf("specify one of XML or PATH");
+	    rc = SQLITE_CONSTRAINT;
 	    goto done;
 	}
 	if (sqlite3_value_type(argv[5]) != SQLITE_NULL) {
@@ -705,7 +698,7 @@ havedoc:
 		xm->docs[i].refcnt = 1;
 		xm->ndoc++;
 		xt->idocs[xt->ndoc++] = i;
-		*rowidp = (sqlite3_int64) doc;
+		*rowidp = (sqlite3_int64) (i + 1);
 		doc = docToFree = 0;
 		rc = SQLITE_OK;
 		break;
@@ -756,7 +749,7 @@ nomem:
  *   SELECT xpath_string(docid, '//book/title') FROM X;<br>
  *   SELECT xpath_number(docid, '//book/price') FROM X;<br>
  *
- * The RHS of the xpath_vfunc_* functions should be a constant string.
+ * The RHS of the xpath_* functions should be a constant string.
  */
 
 static void 
@@ -849,20 +842,22 @@ xpath_vfunc_common(sqlite3_context *ctx, int conv, int argc,
 	xp->doc = xm->docs[n].doc;
 	xp->parent = 0;
 	xp->pos = -1;
-	pctx = xmlXPathNewContext(xm->docs[n].doc);
-	if (!pctx) {
-	    sqlite3_result_error(ctx, "out of memory", -1);
-	    goto done;
+	if (xp->doc) {
+	    pctx = xmlXPathNewContext(xm->docs[n].doc);
+	    if (!pctx) {
+		sqlite3_result_error(ctx, "out of memory", -1);
+		goto done;
+	    }
+	    pobj = xmlXPathEvalExpression((xmlChar *) xp->expr, pctx);
+	    if (!pobj) {
+		sqlite3_result_error(ctx, "bad XPath expression", -1);
+		goto done;
+	    }
+	    xp->pctx = pctx;
+	    xp->pobj = pobj;
+	    pctx = 0;
+	    pobj = 0;
 	}
-	pobj = xmlXPathEvalExpression((xmlChar *) xp->expr, pctx);
-	if (!pobj) {
-	    sqlite3_result_error(ctx, "bad XPath expression", -1);
-	    goto done;
-	}
-	xp->pctx = pctx;
-	xp->pobj = pobj;
-	pctx = 0;
-	pobj = 0;
     }
     if (xp->pos < 0) {
 	xp->pos = 0;
@@ -878,6 +873,7 @@ xpath_vfunc_common(sqlite3_context *ctx, int conv, int argc,
 	    sqlite3_result_null(ctx);
 	} else {
 	    xmlNodePtr node = xp->pobj->nodesetval->nodeTab[xp->pos];
+	    xmlBufferPtr buf = 0;
 
 	    xp->parent = node->parent;
 	    if (node) {
@@ -893,6 +889,18 @@ xpath_vfunc_common(sqlite3_context *ctx, int conv, int argc,
 		case 2:
 		    sqlite3_result_double(ctx,
 					  xmlXPathCastNodeToNumber(node));
+		    break;
+		case 3:
+		    buf = xmlBufferCreate();
+		    if (!buf) {
+			sqlite3_result_error(ctx, "out of memory", -1);
+			goto done;
+		    }
+		    xmlNodeDump(buf, xp->doc, node, 0, 0);
+		    sqlite3_result_text(ctx, (char *) xmlBufferContent(buf),
+					xmlBufferLength(buf),
+					SQLITE_TRANSIENT);
+		    xmlBufferFree(buf);
 		    break;
 		default:
 		    p = (char *) xmlXPathCastNodeToString(node);
@@ -973,6 +981,19 @@ xpath_vfunc_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 }
 
 /**
+ * XPath select function returning XML from virtual table.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ */
+
+static void 
+xpath_vfunc_xml(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    return xpath_vfunc_common(ctx, 3, argc, argv);
+}
+
+/**
  * Find overloaded function on virtual table.
  * @param vtab virtual table
  * @param nargs number arguments
@@ -1002,6 +1023,11 @@ xpath_findfunc(sqlite3_vtab *vtab, int nargs, const char *name,
     }
     if (!strcmp(name, "xpath_number")) {
 	*pfunc = xpath_vfunc_number;
+	*parg = vtab;
+	return 1;
+    }
+    if (!strcmp(name, "xpath_xml")) {
+	*pfunc = xpath_vfunc_xml;
 	*parg = vtab;
 	return 1;
     }
@@ -1063,10 +1089,16 @@ static sqlite3_module xpath_mod = {
  * Examples:
  *
  *   SELECT xpath_string(&lt;docid&gt;, '//book/title');<br>
- *   SELECT xpath_number(&lt;xml-string&gt;, '//book/price');<br>
+ *   SELECT xpath_number(&lt;xml-string&gt;, '//book/price',
+ *                       &lt;options;&gt, &lt;encoding&gt;,
+ *                       &lt;base-url&gt;);<br>
  *
  * The &lt;docid&gt; argument is the DOCID value of a row
- * in a virtual table.
+ * in a virtual table. Otherwise a string containing an
+ * XML document is expected. The optional arguments are<br>
+ * &lt;options&gt;  - parser options, see libxml's XML_PARSE_* defines<br>
+ * &lt;encoding&gt; - encoding of the XML document<br>
+ * &lt;base-url&gt; - base URL of the XML document<br>
  */
 
 static void 
@@ -1077,8 +1109,7 @@ xpath_func_common(sqlite3_context *ctx, int conv,
     xmlXPathContextPtr pctx = 0;
     xmlXPathObjectPtr pobj = 0;
     XMOD *xm = (XMOD *) sqlite3_user_data(ctx);
-    sqlite3_int64 n = 0;
-    int index = -1;
+    int index = 0;
     char *p;
 
     if (argc < 2) {
@@ -1086,29 +1117,19 @@ xpath_func_common(sqlite3_context *ctx, int conv,
 	goto done;
     }
     if (sqlite3_value_type(argv[0]) == SQLITE_INTEGER) {
-	n = sqlite3_value_int64(argv[0]);
-	if (n == 0) {
-	    sqlite3_result_error(ctx, "bad DOCID", -1);
-	    goto done;
-	}
+	index = sqlite3_value_int(argv[0]);
 	if (!xm->mutex) {
 	    sqlite3_result_error(ctx, "init error", -1);
 	    goto done;
 	}
 	sqlite3_mutex_enter(xm->mutex);
-	for (index = 0; index < xm->sdoc; index++) {
-	    if (n == (sqlite3_int64) xm->docs[index].doc) {
-		break;
-	    }
-	}
-	if (index >= xm->sdoc) {
-	    index = -1;
+	if ((index <= 0) || (index > xm->sdoc) || !xm->docs[index - 1].doc) {
 	    sqlite3_mutex_leave(xm->mutex);
-	    sqlite3_result_error(ctx, "bad DOCID", -1);
+	    sqlite3_result_error(ctx, "invalid DOCID", -1);
 	    goto done;
 	}
-	doc = xm->docs[index].doc;
-	xm->docs[index].refcnt += 1;
+	doc = xm->docs[index - 1].doc;
+	xm->docs[index - 1].refcnt += 1;
 	sqlite3_mutex_leave(xm->mutex);
     } else {
 	int opts = (XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NONET);
@@ -1119,13 +1140,13 @@ xpath_func_common(sqlite3_context *ctx, int conv,
 	    sqlite3_result_null(ctx);
 	    return;
 	}
-	if (argc > 2) {
+	if ((argc > 2) && (sqlite3_value_type(argv[2]) != SQLITE_NULL)) {
 	    opts = sqlite3_value_int(argv[2]);
 	}
-	if (argc > 3) {
+	if ((argc > 3) && (sqlite3_value_type(argv[3]) != SQLITE_NULL)) {
 	    enc = (char *) sqlite3_value_text(argv[3]);
 	}
-	if (argc > 4) {
+	if ((argc > 4) && (sqlite3_value_type(argv[4]) != SQLITE_NULL)) {
 	    url = (char *) sqlite3_value_text(argv[4]);
 	}
 	doc = xmlReadMemory(p, sqlite3_value_bytes(argv[0]),
@@ -1158,6 +1179,25 @@ xpath_func_common(sqlite3_context *ctx, int conv,
     case 2:
 	sqlite3_result_double(ctx, xmlXPathCastToNumber(pobj));
 	break;
+    case 3:
+	if ((pobj->type == XPATH_NODESET) && pobj->nodesetval &&
+	    (pobj->nodesetval->nodeNr)) {
+	    xmlNodePtr node = pobj->nodesetval->nodeTab[0];
+	    xmlBufferPtr buf = 0;
+
+	    buf = xmlBufferCreate();
+	    if (!buf) {
+		sqlite3_result_error(ctx, "out of memory", -1);
+		goto done;
+	    }
+	    xmlNodeDump(buf, doc, node, 0, 0);
+	    sqlite3_result_text(ctx, (char *) xmlBufferContent(buf),
+				xmlBufferLength(buf), SQLITE_TRANSIENT);
+	    xmlBufferFree(buf);
+	} else {
+	    sqlite3_result_null(ctx);
+	}
+	break;
     default:
 	p = (char *) xmlXPathCastToString(pobj);
 	sqlite3_result_text(ctx, p, -1, SQLITE_TRANSIENT);
@@ -1178,12 +1218,12 @@ done:
     } else if (doc) {
 	if (xm->mutex) {
 	    sqlite3_mutex_enter(xm->mutex);
-	    if (xm->docs && (index >= 0)) {
-		xm->docs[index].refcnt -= 1;
-		if (xm->docs[index].refcnt <= 0) {
+	    if (xm->docs && index) {
+		xm->docs[index - 1].refcnt -= 1;
+		if (xm->docs[index - 1].refcnt <= 0) {
 		    docToFree = doc;
-		    xm->docs[index].refcnt = 0;
-		    xm->docs[index].doc = 0;
+		    xm->docs[index - 1].refcnt = 0;
+		    xm->docs[index - 1].doc = 0;
 		}
 	    }
 	    sqlite3_mutex_leave(xm->mutex);
@@ -1234,6 +1274,19 @@ xpath_func_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 }
 
 /**
+ * XPath select function returning XML.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ */
+
+static void 
+xpath_func_xml(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    xpath_func_common(ctx, 3, argc, argv);
+}
+
+/**
  * Function to dump XML document.
  * @param ctx SQLite function context
  * @param argc number of arguments
@@ -1241,7 +1294,7 @@ xpath_func_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  *
  * Examples:
  *
- *   SELECT xml_dump(&lt;docid&gt;, &lt;encoding&gt;, &lt;fmt&gt;)<br>
+ *   SELECT xml_dump(&lt;docid&gt;, &lt;encoding&gt; &lt;fmt&gt;)<br>
  *
  * The &lt;docid&gt; argument is the DOCID value of a row
  * in a virtual table. The &lt;encoding&gt; argument is
@@ -1254,8 +1307,7 @@ static void
 xpath_func_dump(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     XMOD *xm = (XMOD *) sqlite3_user_data(ctx);
-    sqlite3_int64 n = 0;
-    int index = -1, dump_len = 0, fmt = 1;
+    int index = 0, dump_len = 0, fmt = 1;
     xmlChar *dump = 0;
     char *enc = "utf-8";
 
@@ -1263,11 +1315,7 @@ xpath_func_dump(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 	sqlite3_result_null(ctx);
 	return;
     }
-    n = sqlite3_value_int64(argv[0]);
-    if (n == 0) {
-	sqlite3_result_error(ctx, "bad DOCID", -1);
-	return;
-    }
+    index = sqlite3_value_int(argv[0]);
     if (argc > 1) {
 	enc = (char *) sqlite3_value_text(argv[1]);
 	if (!enc) {
@@ -1282,23 +1330,182 @@ xpath_func_dump(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 	return;
     }
     sqlite3_mutex_enter(xm->mutex);
-    for (index = 0; index < xm->sdoc; index++) {
-	if (n == (sqlite3_int64) xm->docs[index].doc) {
-	    break;
-	}
-    }
-    if (index >= xm->sdoc) {
+    if ((index <= 0) || (index > xm->sdoc) || !xm->docs[index - 1].doc) {
 	sqlite3_mutex_leave(xm->mutex);
-	sqlite3_result_error(ctx, "bad DOCID", -1);
+	sqlite3_result_error(ctx, "invalid DOCID", -1);
 	return;
     }
-    xmlDocDumpFormatMemoryEnc(xm->docs[index].doc, &dump, &dump_len, enc, fmt);
+    xmlDocDumpFormatMemoryEnc(xm->docs[index - 1].doc, &dump, &dump_len,
+			      enc, fmt);
     if (dump) {
 	sqlite3_result_text(ctx, (char *) dump, dump_len, SQLITE_TRANSIENT);
 	xmlFree(dump);
     }
     sqlite3_mutex_leave(xm->mutex);
 }
+
+#ifdef WITH_XSLT
+/**
+ * Function to transform XML document using XSLT stylesheet.
+ * @param ctx SQLite function context
+ * @param argc number of arguments
+ * @param argv argument vector
+ *
+ * Examples:
+ *
+ *   SELECT xslt_transform(&lt;docid&gt;, &lt;stylesheet&gt;, ...)<br>
+ *   SELECT xslt_transform(&lt;xml-string&gt;, &lt;stylesheet&gt;,
+ *                         &lt;options;&gt, &lt;encoding&gt;,
+ *                         &lt;base-url&gt;, ...);<br>
+ *
+ * The &lt;docid&gt; argument is the DOCID value of a row
+ * in a virtual table. &lt;stylesheet&gt; is the stylesheet
+ * to apply on that document. When the transformation succeeded,
+ * the transformed document replaces the original document.<br>
+ * In the second form an XML string is transformed with the
+ * same parameters as in the xpath_string() SQLite function.<br>
+ * The ellipsis optional arguments are the string parameters for
+ * the XSLT transformation.
+ */
+
+static void 
+xpath_func_transform(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    xmlDocPtr doc = 0, docToFree = 0, res = 0;
+    xsltStylesheetPtr cur = 0;
+    XMOD *xm = (XMOD *) sqlite3_user_data(ctx);
+    int index = 0, nparams = 0, param0, i;
+    char *p;
+    const char **params = 0;
+
+    if (argc < 2) {
+	sqlite3_result_null(ctx);
+	goto done;
+    }
+    if (sqlite3_value_type(argv[0]) == SQLITE_INTEGER) {
+	index = sqlite3_value_int(argv[0]);
+	if (!xm->mutex) {
+	    sqlite3_result_error(ctx, "init error", -1);
+	    goto done;
+	}
+	sqlite3_mutex_enter(xm->mutex);
+	if ((index <= 0) || (index > xm->sdoc) || !xm->docs[index - 1].doc) {
+	    sqlite3_mutex_leave(xm->mutex);
+	    sqlite3_result_error(ctx, "invalid DOCID", -1);
+	    goto done;
+	}
+	doc = xm->docs[index - 1].doc;
+	xm->docs[index - 1].refcnt += 1;
+	sqlite3_mutex_leave(xm->mutex);
+	param0 = 2;
+	nparams = argc - 2;
+    } else {
+	int opts = (XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NONET);
+	char *enc = 0, *url = 0;
+
+	p = (char *) sqlite3_value_blob(argv[0]);
+	if (!p) {
+	    sqlite3_result_null(ctx);
+	    return;
+	}
+	if ((argc > 2) && (sqlite3_value_type(argv[2]) != SQLITE_NULL)) {
+	    opts = sqlite3_value_int(argv[2]);
+	}
+	if ((argc > 3) && (sqlite3_value_type(argv[3]) != SQLITE_NULL)) {
+	    enc = (char *) sqlite3_value_text(argv[3]);
+	}
+	if ((argc > 4) && (sqlite3_value_type(argv[4]) != SQLITE_NULL)) {
+	    url = (char *) sqlite3_value_text(argv[4]);
+	}
+	doc = xmlReadMemory(p, sqlite3_value_bytes(argv[0]),
+			    url ? url : "", enc, opts);
+	docToFree = doc;
+	if (!doc) {
+	    sqlite3_result_error(ctx, "read error", -1);
+	    goto done;
+	}
+	param0 = 5;
+	nparams = argc - 5;
+    }
+    p = (char *) sqlite3_value_text(argv[1]);
+    if (!p) {
+	sqlite3_result_null(ctx);
+	goto done;
+    }
+    cur = xsltParseStylesheetFile((xmlChar *) p);
+    if (!cur) {
+	sqlite3_result_error(ctx, "read error on stylesheet", -1);
+	goto done;
+    }
+    if (nparams <= 0) {
+	nparams = 1;
+    } else {
+	nparams++;
+    }
+    params = sqlite3_malloc(nparams * sizeof (char *));
+    if (!params) {
+	sqlite3_result_error(ctx, "out of memory", -1);
+	goto done;
+    }
+    for (i = 0; i < (argc - param0); i++) {
+	params[i] = (const char *) sqlite3_value_text(argv[i + param0]);
+	if (!params[i]) {
+	    params[i] = "";
+	}
+    }
+    params[i] = 0;
+    res = xsltApplyStylesheet(cur, doc, params);
+    if (!res) {
+	sqlite3_result_error(ctx, "transformation failed", -1);
+	goto done;
+    }
+    if (docToFree) {
+	xmlChar *str = 0;
+
+	xmlFreeDoc(docToFree);
+	docToFree = res;
+	i = 0;
+	xsltSaveResultToString(&str, &i, res, cur);
+	if (str) {
+	    sqlite3_result_text(ctx, (char *) str, i, SQLITE_TRANSIENT);
+	    xmlFree(str);
+	} else {
+	    sqlite3_result_null(ctx);
+	}
+    }
+done:
+    if (params) {
+	sqlite3_free(params);
+    }
+    if (cur) {
+	xsltFreeStylesheet(cur);
+    }
+    if (docToFree) {
+	xmlFreeDoc(docToFree);
+    } else if (doc) {
+	if (xm->mutex) {
+	    sqlite3_mutex_enter(xm->mutex);
+	    if (xm->docs && index) {
+		docToFree = doc;
+		xm->docs[index - 1].doc = 0;
+		xmlFreeDoc(docToFree);
+		docToFree = 0;
+		xm->docs[index - 1].refcnt -= 1;
+		xm->docs[index - 1].doc = res;
+		if (xm->docs[index - 1].refcnt <= 0) {
+		    docToFree = res;
+		    xm->docs[index - 1].refcnt = 0;
+		    xm->docs[index - 1].doc = 0;
+		}
+	    }
+	    sqlite3_mutex_leave(xm->mutex);
+	    if (docToFree) {
+		xmlFreeDoc(docToFree);
+	    }
+	}
+    }
+}
+#endif
 
 /**
  * Module finalizer.
@@ -1406,19 +1613,31 @@ xpath_init(sqlite3 *db)
 			    (void *) xm, xpath_func_boolean, 0, 0);
     sqlite3_create_function(db, "xpath_number", -1, SQLITE_UTF8,
 			    (void *) xm, xpath_func_number, 0, 0);
+    sqlite3_create_function(db, "xpath_xml", -1, SQLITE_UTF8,
+			    (void *) xm, xpath_func_xml, 0, 0);
     sqlite3_create_function(db, "xml_dump", -1, SQLITE_UTF8,
 			    (void *) xm, xpath_func_dump, 0, 0);
+#ifdef WITH_XSLT
+    sqlite3_create_function(db, "xslt_transform", -1, SQLITE_UTF8,
+			    (void *) xm, xpath_func_transform, 0, 0);
+#endif
     rc = sqlite3_create_module_v2(db, "xpath", &xpath_mod,
 				  (void *) xm, xpath_fini);
     if (rc != SQLITE_OK) {
-	sqlite3_create_function(db, "xpath_value", -1, SQLITE_UTF8,
+	sqlite3_create_function(db, "xpath_string", -1, SQLITE_UTF8,
 				(void *) xm, 0, 0, 0);
 	sqlite3_create_function(db, "xpath_boolean", -1, SQLITE_UTF8,
 				(void *) xm, 0, 0, 0);
 	sqlite3_create_function(db, "xpath_number", -1, SQLITE_UTF8,
 				(void *) xm, 0, 0, 0);
+	sqlite3_create_function(db, "xpath_xml", -1, SQLITE_UTF8,
+				(void *) xm, 0, 0, 0);
 	sqlite3_create_function(db, "xml_dump", -1, SQLITE_UTF8,
 				(void *) xm, 0, 0, 0);
+#ifdef WITH_XSLT
+	sqlite3_create_function(db, "xslt_transform", -1, SQLITE_UTF8,
+				(void *) xm, 0, 0, 0);
+#endif
 	xpath_fini(xm);
     }
     return rc;

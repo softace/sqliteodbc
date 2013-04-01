@@ -1747,6 +1747,7 @@ mem_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     unsigned long t = 0;
 #endif
 #if !defined(_WIN32) && !defined(_WIN64)
+    mem_blk mb0;
     int pfd[2];
     int n;
 #endif
@@ -1775,14 +1776,33 @@ mem_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     if (pipe(pfd) < 0) {
 	return SQLITE_CANTOPEN;
     }
-    n = (write(pfd[1], (char *) mb, 1) < 0) ? errno : 0;
-    close(pfd[0]);
-    close(pfd[1]);
+    n = (write(pfd[1], (char *) mb, sizeof (mem_blk)) < 0) ? errno : 0;
     if (n == EFAULT) {
+cantopen:
+	close(pfd[0]);
+	close(pfd[1]);
 	return SQLITE_CANTOPEN;
     }
+    n = read(pfd[0], (char *) &mb0, sizeof (mem_blk));
+    if (n != sizeof (mem_blk)) {
+	goto cantopen;
+    }
+    if (memcmp(mb0.magic, MEM_MAGIC, 4) == 0) {
+#ifdef linux
+	n = (write(pfd[1], (char *) mb0.data, 1) < 0) ? errno : 0;
+	if (n == EFAULT) {
+	    goto cantopen;
+	}
 #endif
-    if (memcmp(mb->magic, MEM_MAGIC, 4) == 0) {
+	if (mb0.length > 0) {
+	    n = (write(pfd[1], (char *) mb0.data + mb0.length - 1, 1) < 0)
+	      ? errno : 0;
+	    if (n == EFAULT) {
+		goto cantopen;
+	    }
+	}
+	close(pfd[0]);
+	close(pfd[1]);
 #ifdef linux
 	sqlite3_mutex_enter(mb->mutex);
 #endif
@@ -1791,8 +1811,15 @@ mem_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 	sqlite3_mutex_leave(mb->mutex);
 #endif
     } else {
+	goto cantopen;
+    }
+#else
+    if (memcmp(mb->magic, MEM_MAGIC, 4) == 0) {
+	mb->opened++;
+    } else {
 	return SQLITE_CANTOPEN;
     }
+#endif
     memset(mf, 0, sizeof (mem_file));
     mf->mb = mb;
     mf->base.pMethods = &mem_methods;

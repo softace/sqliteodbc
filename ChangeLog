@@ -1,6 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Apr 01 2013 version 0.992 released
+
+	* update to SQLite 3.7.16.1
+	* enhancements in XPath virtual table module
+
 Wed Mar 20 2013 version 0.991 released
 
 	* update to SQLite 3.7.16
