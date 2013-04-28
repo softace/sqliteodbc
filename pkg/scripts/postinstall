@@ -1,0 +1,16 @@
+#!/bin/sh
+echo "post" >> /tmp/pkg.log
+echo $* >> /tmp/pkg.log
+THISDIR=`pwd`
+echo "CWD: $THISDIR" >> /tmp/pkg.log
+if [ -f "$2/usr/local/lib/libsqlite3odbc.dylib" ] ; then
+  rm "$2/usr/local/lib/libsqlite3odbc.dylib"
+fi
+cd $2/usr/local/lib
+ln -s libsqlite3odbc-0.85.dylib libsqlite3odbc.dylib
+cd $THISDIR
+if [ ! -f "$2/Library/ODBC/odbcinst.ini" ] ; then
+  cp ./odbcinst.ini "$2/Library/ODBC/"
+else
+  "$1/Contents/Resources//registerdriver.py" "$1" "$2"
+fi
