@@ -1,11 +1,11 @@
 #!/bin/sh
 
-if [ $# -ne 1 ] ; then
-  echo "Error: must pass version id string as arg, e.g. \"0.83\""
-  exit 1
-fi
+VERSION=`cat VERSION`
 
+cp *.la ./pkg/tmp/usr/local/lib
+cp -P ./.libs/*.a ./pkg/tmp/usr/local/lib
+cp -P ./.libs/*.dylib ./pkg/tmp/usr/local/lib
 packagemaker --root ./pkg/tmp --id de.ch-werner.sqliteOdbc \
-  -v  --version 0.85 --title "SQLite ODBC" --scripts ./pkg/scripts \
- --resources ./pkg/resources \
+  -v  --version $VERSION --title "SQLite ODBC v-$VERSION" \
+  --scripts ./pkg/scripts --resources ./pkg/resources \
   --out sqlite3odbc.pkg

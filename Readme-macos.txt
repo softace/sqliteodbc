@@ -8,6 +8,8 @@ procedures.  To the best of my memory, you need to:
 1.) . ./macos_env  # sets appropriate compiler env vars prior to run configure
 2.) ./configure
 3.) make  # insure that make using "libtool" from this directory - not Apple libtool
+3a.) You may or may not need to run "./mkdynlib" after running make.  If there
+     is no *.dylib nor .libs/*.dylib, then try it.
 4.) ./mkpkg
 
 The result of running "mkpkg" will be a directory hierarchy with top level
