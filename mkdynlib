@@ -1,0 +1,6 @@
+VERSION=`cat VERSION`
+gcc -dynamiclib -undefined error \
+    -arch ppc -arch ppc64 -arch i386 -arch x86_64 \
+    -o .libs/libsqlite3odbc-${VERSION}.dylib  \
+    sqlite3odbc.lo  -lsqlite3 -liodbcinst -lc \
+    -install_name  /usr/local/lib/libsqlite3odbc-${VERSION}.dylib 

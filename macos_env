@@ -1,0 +1,5 @@
+export CCFLAGS='-arch ppc -arch ppc64 -arch i386 -arch x86_64 -g -Os -pipe'
+export CFLAGS='-arch ppc -arch ppc64 -arch i386 -arch x86_64 -g -Os -pipe -no-cppprecomp'
+export CXXFLAGS='-arch ppc -arch ppc64 -arch i386 -arch x86_64 -g -Os -pipe'
+export LDFLAGS='-arch ppc -arch ppc64 -arch i386 -arch x86_64 -bind_at_load'
+#export MACOSX_DEPLOYMENT_TARGET=10.5
