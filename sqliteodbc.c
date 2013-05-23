@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.205 2013/02/27 06:36:58 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.206 2013/05/10 15:27:55 chw Exp chw $
  *
  * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1825,6 +1825,9 @@ errout:
 		int ojfn = 0;
 		char *inq2 = NULL, *end = q + 1;
 
+		while (*end && ISSPACE(*end)) {
+		    ++end;
+		}
 		if (*end != 'd' && *end != 'D' &&
 		    *end != 't' && *end != 'T') {
 		    ojfn = 1;

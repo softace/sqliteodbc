@@ -1,6 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
+Thu May 23 2013 version 0.993 released
+
+	* update to SQLite 3.7.17
+	* added julian day conversion for SQL_DATE/SQL_TIME/SQL_TIMESTAMP
+
 Mon Apr 01 2013 version 0.992 released
 
 	* update to SQLite 3.7.16.1

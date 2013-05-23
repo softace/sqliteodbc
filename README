@@ -14,7 +14,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.7.16.1, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.7.17, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -27,7 +27,7 @@ on as an absolute pathname including the drive letter, eg as
 can be specified in the respective field. If empty a default value
 of 100000 milliseconds is used.
 
-The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.7.16.1,
+The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.7.17,
 MingW cross compiler and only rudimentary tested on Windows Vista 64.
 
 Other tests were made on Linux with the "isql" command line tool
@@ -65,7 +65,10 @@ Restrictions of data type mapping:
 - The driver puts the ODBC string representations for date/time,
   (eg for "{ts '2001-10-10 12:58:00'}" the substring within the
   single quotes) directly into the SQLite column
-
+- When the DSN Option "JDConv" (Julian Day conversion) is enabled
+  the SQLite 3 driver translates floating point column data
+  interpreted as Julian Day to/from SQL_DATE, SQL_TIME, and
+  SQL_TIMESTAMP data types (supported since May 2013)
 
 Since November 17th, 2001, configure/libtool is used for the Un*x
 version which should automatically find the SQLite and unixODBC
@@ -328,7 +331,7 @@ TODO:
 - improve documentation
 
 
-2013-04-01
+2013-05-23
 Christian Werner
 mailto:chw@ch-werner.de
 

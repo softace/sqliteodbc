@@ -1883,7 +1883,7 @@ mem_access(sqlite3_vfs *vfs, const char *name, int flags, int *outflags)
 static int
 mem_fullpathname(sqlite3_vfs *vfs, const char *name, int len, char *out)
 {
-    sqlite3_snprintf(len, out, "%s", name);
+    strncpy(out, name, len);
     out[len - 1] = '\0';
     return SQLITE_OK;
 }
@@ -1911,7 +1911,9 @@ mem_dlopen(sqlite3_vfs *vfs, const char *name)
 static void
 mem_dlerror(sqlite3_vfs *vfs, int len, char *out)
 {
-    sqlite3_snprintf(len, out, "Loadable extensions are not supported");
+    static const char *errtxt = "Loadable extensions are not supported";
+
+    strncpy(out, errtxt, strlen(errtxt));
     out[len - 1] = '\0';
 }
 

@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.153 2013/02/27 06:36:58 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.154 2013/05/10 15:28:18 chw Exp chw $
  *
  * Copyright (c) 2004-2013 Christian Werner <chw@ch-werner.de>
  *
@@ -2438,6 +2438,9 @@ errout:
 		int ojfn = 0;
 		char *inq2 = NULL, *end = q + 1;
 
+		while (*end && ISSPACE(*end)) {
+		    ++end;
+		}
 		if (*end != 'd' && *end != 'D' &&
 		    *end != 't' && *end != 'T') {
 		    ojfn = 1;
@@ -2756,6 +2759,62 @@ freet:
 }
 
 /**
+ * Convert julian day to year/month/day.
+ * @param jd julian day as stored in database
+ * @param ds output DATE_STRUCT
+ */
+
+static void
+convJD2YMD(double jd, DATE_STRUCT *ds)
+{
+    int z, a, b, c, d, e, x1;
+    sqlite_int64 ijd;
+
+    ijd = jd * 86400000.0 + 0.5;
+    z = (int) ((ijd + 43200000) / 86400000);
+    a = (int) ((z - 1867216.25) / 36524.25);
+    a = z + 1 + a - (a / 4);
+    b = a + 1524;
+    c = (int) ((b - 122.1) / 365.25);
+    d = (36525 * c) / 100;
+    e = (int) ((b - d) / 30.6001);
+    x1 = (int) (30.6001 * e);
+    ds->day = b - d - x1;
+    ds->month = (e < 14) ? (e - 1) : (e - 13);
+    ds->year = (ds->month > 2) ? (c - 4716) : (c - 4715);
+}
+
+
+/**
+ * Convert julian day to hour/minute/second.
+ * @param jd julian day as stored in database
+ * @param ts output TIME_STRUCT
+ * @param fp optional fractional part output
+ */
+
+static void
+convJD2HMS(double jd, TIME_STRUCT *ts, int *fp)
+{
+    int s;
+    double ds;
+    sqlite_int64 ijd;
+
+    ijd = jd * 86400000.0 + 0.5;
+    s = (int)((ijd + 43200000) % 86400000);
+    ds = s / 1000.0;
+    if (fp) {
+	*fp = (s % 1000) * 1000000;
+    }
+    s = (int) ds;
+    ds -= s;
+    ts->hour = s / 3600;
+    s -= ts->hour * 3600;
+    ts->minute = s / 60;
+    ds += s - ts->minute *60;
+    ts->second = (int) ds;
+}
+
+/**
  * Return number of month days.
  * @param year
  * @param month 1..12
@@ -2783,6 +2842,7 @@ getmdays(int year, int month)
 
 /**
  * Convert string to ODBC DATE_STRUCT.
+ * @param jdconv when true, allow julian day format
  * @param str string to be converted
  * @param ds output DATE_STRUCT
  * @result 0 on success, -1 on error
@@ -2790,15 +2850,31 @@ getmdays(int year, int month)
  * Strings of the format 'YYYYMMDD' or 'YYYY-MM-DD' or
  * 'YYYY/MM/DD' or 'MM/DD/YYYY' are converted to a
  * DATE_STRUCT.
+ *
+ * If the string looks like a floating point number,
+ * SQLite3's julian day format is assumed.
  */
 
 static int
-str2date(char *str, DATE_STRUCT *ds)
+str2date(int jdconv, char *str, DATE_STRUCT *ds)
 {
     int i, err = 0;
+    double jd;
     char *p, *q, sepc = '\0';
 
     ds->year = ds->month = ds->day = 0;
+    if (jdconv) {
+	p = strchr(str, '.');
+	if (p) {
+	    /* julian day format */
+	    p = 0;
+	    jd = ln_strtod(str, &p);
+	    if (p && p > str) {
+		convJD2YMD(jd, ds);
+		return 0;
+	    }
+	}
+    }
     p = str;
     while (*p && !ISDIGIT(*p)) {
 	++p;
@@ -2882,21 +2958,38 @@ done:
 
 /**
  * Convert string to ODBC TIME_STRUCT.
+ * @param jdconv when true, allow julian day format
  * @param str string to be converted
  * @param ts output TIME_STRUCT
  * @result 0 on success, -1 on error
  *
  * Strings of the format 'HHMMSS' or 'HH:MM:SS'
  * are converted to a TIME_STRUCT.
+ *
+ * If the string looks like a floating point number,
+ * SQLite3's julian day format is assumed.
  */
 
 static int
-str2time(char *str, TIME_STRUCT *ts)
+str2time(int jdconv, char *str, TIME_STRUCT *ts)
 {
     int i, err = 0, ampm = -1;
+    double jd;
     char *p, *q;
 
     ts->hour = ts->minute = ts->second = 0;
+    if (jdconv) {
+	p = strchr(str, '.');
+	if (p) {
+	    /* julian day format */
+	    p = 0;
+	    jd = ln_strtod(str, &p);
+	    if (p && p > str) {
+		convJD2HMS(jd, ts, 0);
+		return 0;
+	    }
+	}
+    }
     p = str;
     while (*p && !ISDIGIT(*p)) {
 	++p;
@@ -2981,6 +3074,7 @@ done:
 
 /**
  * Convert string to ODBC TIMESTAMP_STRUCT.
+ * @param jdconv when true, allow julian day format
  * @param str string to be converted
  * @param tss output TIMESTAMP_STRUCT
  * @result 0 on success, -1 on error
@@ -2992,17 +3086,56 @@ done:
  *    YYYY-MM-DDThh:mm:ss[.f]shh:mm
  * are also supported. In case a time zone field is present,
  * the resulting TIMESTAMP_STRUCT is expressed in UTC.
+ *
+ * If the string looks like a floating point number,
+ * SQLite3's julian day format is assumed.
  */
 
 static int
-str2timestamp(char *str, TIMESTAMP_STRUCT *tss)
+str2timestamp(int jdconv, char *str, TIMESTAMP_STRUCT *tss)
 {
     int i, m, n, err = 0, ampm = -1;
+    double jd;
     char *p, *q, in = '\0', sepc = '\0';
 
     tss->year = tss->month = tss->day = 0;
     tss->hour = tss->minute = tss->second = 0;
     tss->fraction = 0;
+    if (jdconv) {
+	p = strchr(str, '.');
+	if (p) {
+	    q = strchr(str, '-');
+	    if (q == str) {
+		q = 0;
+	    }
+	    if (!q) {
+		q = strchr(str, '/');
+		if (!q) {
+		    q = strchr(str, ':');
+		}
+	    }
+	    if (!q || q > p) {
+		/* julian day format */
+		p = 0;
+		jd = ln_strtod(str, &p);
+		if (p && p > str) {
+		    DATE_STRUCT ds;
+		    TIME_STRUCT ts;
+
+		    convJD2YMD(jd, &ds);
+		    convJD2HMS(jd, &ts, &n);
+		    tss->year = ds.year;
+		    tss->month = ds.month;
+		    tss->day = ds.day;
+		    tss->hour = ts.hour;
+		    tss->minute = ts.minute;
+		    tss->second = ts.second;
+		    tss->fraction = n;
+		    return 0;
+		}
+	    }
+	}
+    }
     p = str;
     while (*p && !ISDIGIT(*p)) {
 	++p;
@@ -4857,6 +4990,25 @@ setupparam(STMT *s, char *sql, int pnum)
     case SQL_C_TYPE_DATE:
 #endif
     case SQL_C_DATE:
+	if (*s->jdconv) {
+	    int a, b, x1, x2, y, m, d;
+
+	    p->s3type = SQLITE_FLOAT;
+	    p->s3size = sizeof (double);
+	    y = ((DATE_STRUCT *) p->param)->year;
+	    m = ((DATE_STRUCT *) p->param)->month;
+	    d = ((DATE_STRUCT *) p->param)->day;
+	    if (m <= 2) {
+		y--;
+		m += 12;
+	    }
+	    a = y / 100;
+	    b = 2 - a + (a / 4);
+	    x1 = 36525 * (y + 4716) / 100;
+	    x2 = 306001 * (m + 1) / 10000;
+	    p->s3dval = x1 + x2 + d + b - 1524.5;
+	    break;
+	}
 	sprintf(p->strbuf, "%04d-%02d-%02d",
 		((DATE_STRUCT *) p->param)->year,
 		((DATE_STRUCT *) p->param)->month,
@@ -4869,6 +5021,15 @@ setupparam(STMT *s, char *sql, int pnum)
     case SQL_C_TYPE_TIME:
 #endif
     case SQL_C_TIME:
+	if (*s->jdconv) {
+	    p->s3type = SQLITE_FLOAT;
+	    p->s3size = sizeof (double);
+	    p->s3dval = 2451544.5 + 
+	       (((TIME_STRUCT *) p->param)->hour * 3600000.0 +
+		((TIME_STRUCT *) p->param)->minute * 60000.0 +
+		((TIME_STRUCT *) p->param)->second * 1000.0) / 86400000.0;
+	    break;
+	}
 	sprintf(p->strbuf, "%02d:%02d:%02d",
 		((TIME_STRUCT *) p->param)->hour,
 		((TIME_STRUCT *) p->param)->minute,
@@ -4881,6 +5042,30 @@ setupparam(STMT *s, char *sql, int pnum)
     case SQL_C_TYPE_TIMESTAMP:
 #endif
     case SQL_C_TIMESTAMP:
+	if (*s->jdconv) {
+	    int a, b, x1, x2, y, m, d;
+
+	    p->s3type = SQLITE_FLOAT;
+	    p->s3size = sizeof (double);
+	    y = ((TIMESTAMP_STRUCT *) p->param)->year;
+	    m = ((TIMESTAMP_STRUCT *) p->param)->month;
+	    d = ((TIMESTAMP_STRUCT *) p->param)->day;
+	    if (m <= 2) {
+		y--;
+		m += 12;
+	    }
+	    a = y / 100;
+	    b = 2 - a + (a / 4);
+	    x1 = 36525 * (y + 4716) / 100;
+	    x2 = 306001 * (m + 1) / 10000;
+	    p->s3dval = x1 + x2 + d + b - 1524.5 +
+	       (((TIMESTAMP_STRUCT *) p->param)->hour * 3600000.0 +
+		((TIMESTAMP_STRUCT *) p->param)->minute * 60000.0 +
+		((TIMESTAMP_STRUCT *) p->param)->second * 1000.0 +
+		((TIMESTAMP_STRUCT *) p->param)->fraction / 1.0E6)
+	       / 86400000.0;
+	    break;
+	}
 	len = (int) ((TIMESTAMP_STRUCT *) p->param)->fraction;
 	len /= 1000000;
 	len = len % 1000;
@@ -10754,6 +10939,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, char *pwd,
     char loadext[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], nwflag[32], biflag[32];
     char snflag[32], lnflag[32], ncflag[32], fkflag[32], jmode[32];
+    char jdflag[32];
 #if defined(_WIN32) || defined(_WIN64)
     char oemcp[32];
 #endif
@@ -10828,6 +11014,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, char *pwd,
     getdsnattr(buf, "loadext", loadext, sizeof (loadext));
     jmode[0] = '\0';
     getdsnattr(buf, "journalmode", jmode, sizeof (jmode));
+    jdflag[0] = '\0';
+    getdsnattr(buf, "jdconv", jdflag, sizeof (jdflag));
 #if defined(_WIN32) || defined(_WIN64)
     oemcp[0] = '\0';
     getdsnattr(buf, "oemcp", oemcp, sizeof (oemcp));
@@ -10863,6 +11051,8 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, char *pwd,
 			       loadext, sizeof (loadext), ODBC_INI);
     SQLGetPrivateProfileString(buf, "journalmode", "",
 			       jmode, sizeof (jmode), ODBC_INI);
+    SQLGetPrivateProfileString(buf, "jdconv", "",
+			       jdflag, sizeof (jdflag), ODBC_INI);
 #if defined(_WIN32) || defined(_WIN64)
     SQLGetPrivateProfileString(buf, "oemcp", "1",
 			       oemcp, sizeof (oemcp), ODBC_INI);
@@ -10885,6 +11075,7 @@ drvconnect(SQLHDBC dbc, SQLCHAR *dsn, SQLSMALLINT dsnLen, char *pwd,
     d->longnames = getbool(lnflag);
     d->nocreat = getbool(ncflag);
     d->fksupport = getbool(fkflag);
+    d->jdconv = getbool(jdflag);
 #if defined(_WIN32) || defined(_WIN64)
     d->oemcp = getbool(oemcp);
 #else
@@ -11069,6 +11260,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     char pwd[SQL_MAX_MESSAGE_LENGTH];
     char sflag[32], spflag[32], ntflag[32], snflag[32], lnflag[32];
     char ncflag[32], nwflag[32], fkflag[32], jmode[32], biflag[32];
+    char jdflag[32];
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -11212,6 +11404,14 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 				   biflag, sizeof (biflag), ODBC_INI);
     }
 #endif
+    jdflag[0] = '\0';
+    getdsnattr(buf, "jdconv", jdflag, sizeof (jdflag));
+#ifndef WITHOUT_DRIVERMGR
+    if (dsn[0] && !jdflag[0]) {
+	SQLGetPrivateProfileString(dsn, "jdconv", "",
+				   jdflag, sizeof (jdflag), ODBC_INI);
+    }
+#endif
     pwd[0] = '\0';
     getdsnattr(buf, "pwd", pwd, sizeof (pwd));
 #ifndef WITHOUT_DRIVERMGR
@@ -11242,10 +11442,11 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
 			 "DSN=%s;Database=%s;StepAPI=%s;Timeout=%s;"
 			 "SyncPragma=%s;NoTXN=%s;ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;FKSupport=%s;Tracefile=%s;"
-			 "JournalMode=%s;LoadExt=%s;BigInt=%s;PWD=%s",
+			 "JournalMode=%s;LoadExt=%s;BigInt=%s;JDConv=%s;"
+			 "PWD=%s",
 			 dsn, dbname, sflag, busy, spflag, ntflag,
 			 snflag, lnflag, ncflag, nwflag, fkflag, tracef,
-			 jmode, loadext, biflag,pwd);
+			 jmode, loadext, biflag, jdflag, pwd);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
 	}
@@ -11267,6 +11468,7 @@ drvdriverconnect(SQLHDBC dbc, SQLHWND hwnd,
     d->nowchar = getbool(nwflag);
     d->fksupport = getbool(fkflag);
     d->dobigint = getbool(biflag);
+    d->jdconv = getbool(jdflag);
     d->oemcp = 0;
     d->pwdLen = strlen(pwd);
     d->pwd = (d->pwdLen > 0) ? pwd : NULL;
@@ -11360,6 +11562,7 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->dbc = dbc;
     s->ov3 = d->ov3;
     s->oemcp = &d->oemcp;
+    s->jdconv = &d->jdconv;
     s->nowchar[0] = d->nowchar;
     s->nowchar[1] = 0;
     s->dobigint = d->dobigint;
@@ -12430,7 +12633,7 @@ converr:
 	case SQL_C_TYPE_DATE:
 #endif
 	case SQL_C_DATE:
-	    if (str2date(*data, (DATE_STRUCT *) val) < 0) {
+	    if (str2date(*s->jdconv, *data, (DATE_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
 		*lenp = sizeof (DATE_STRUCT);
@@ -12440,7 +12643,7 @@ converr:
 	case SQL_C_TYPE_TIME:
 #endif
 	case SQL_C_TIME:
-	    if (str2time(*data, (TIME_STRUCT *) val) < 0) {
+	    if (str2time(*s->jdconv, *data, (TIME_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
 		*lenp = sizeof (TIME_STRUCT);
@@ -12450,7 +12653,8 @@ converr:
 	case SQL_C_TYPE_TIMESTAMP:
 #endif
 	case SQL_C_TIMESTAMP:
-	    if (str2timestamp(*data, (TIMESTAMP_STRUCT *) val) < 0) {
+	    if (str2timestamp(*s->jdconv, *data,
+			      (TIMESTAMP_STRUCT *) val) < 0) {
 		*lenp = SQL_NULL_DATA;
 	    } else {
 		*lenp = sizeof (TIMESTAMP_STRUCT);
@@ -16936,7 +17140,8 @@ done:
 #define KEY_OEMCP              15
 #define KEY_BIGINT             16
 #define KEY_PASSWD             17
-#define NUMOFKEYS	       18
+#define KEY_JDCONV             18
+#define NUMOFKEYS	       19
 
 typedef struct {
     BOOL supplied;
@@ -16975,6 +17180,7 @@ static struct {
     { "OEMCP", KEY_OEMCP },
     { "BigInt", KEY_BIGINT },
     { "PWD", KEY_PASSWD },
+    { "JDConv", KEY_JDCONV },
     { NULL, 0 }
 };
 
@@ -17240,6 +17446,12 @@ GetAttributes(SETUPDLG *setupdlg)
 				   sizeof (setupdlg->attr[KEY_PASSWD].attr),
 				   ODBC_INI);
     }
+    if (!setupdlg->attr[KEY_JDCONV].supplied) {
+	SQLGetPrivateProfileString(dsn, "JDConv", "",
+				   setupdlg->attr[KEY_JDCONV].attr,
+				   sizeof (setupdlg->attr[KEY_JDCONV].attr),
+				   ODBC_INI);
+    }
 }
 
 /**
@@ -17341,6 +17553,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_BIGINT,
 		       getbool(setupdlg->attr[KEY_BIGINT].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_JDCONV,
+		       getbool(setupdlg->attr[KEY_JDCONV].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -17428,6 +17643,9 @@ ConfigDlgProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_BIGINT].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_BIGINT) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_JDCONV].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_JDCONV) == BST_CHECKED) ?
 		   "1" : "0");
 	    SetDSNAttributes(hdlg, setupdlg);
 	    /* FALL THROUGH */
@@ -17559,6 +17777,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 	CheckDlgButton(hdlg, IDC_BIGINT,
 		       getbool(setupdlg->attr[KEY_BIGINT].attr) ?
 		       BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hdlg, IDC_JDCONV,
+		       getbool(setupdlg->attr[KEY_JDCONV].attr) ?
+		       BST_CHECKED : BST_UNCHECKED);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
 			   CB_LIMITTEXT, (WPARAM) 10, (LPARAM) 0);
 	SendDlgItemMessage(hdlg, IDC_SYNCP,
@@ -17631,6 +17852,9 @@ DriverConnectProc(HWND hdlg, WORD wmsg, WPARAM wparam, LPARAM lparam)
 		   "1" : "0");
 	    strcpy(setupdlg->attr[KEY_BIGINT].attr,
 		   (IsDlgButtonChecked(hdlg, IDC_BIGINT) == BST_CHECKED) ?
+		   "1" : "0");
+	    strcpy(setupdlg->attr[KEY_JDCONV].attr,
+		   (IsDlgButtonChecked(hdlg, IDC_JDCONV) == BST_CHECKED) ?
 		   "1" : "0");
 	    /* FALL THROUGH */
 	case IDCANCEL:
@@ -17728,7 +17952,7 @@ retry:
 			 "ShortNames=%s;LongNames=%s;"
 			 "NoCreat=%s;NoWCHAR=%s;"
 			 "FKSupport=%s;JournalMode=%s;OEMCP=%s;LoadExt=%s;"
-			 "BigInt=%s;PWD=%s",
+			 "BigInt=%s;JDConv=%s;PWD=%s",
 			 dsn_0 ? "DSN=" : "",
 			 dsn_0 ? dsn : "",
 			 dsn_0 ? ";" : "",
@@ -17749,6 +17973,7 @@ retry:
 			 setupdlg->attr[KEY_OEMCP].attr,
 			 setupdlg->attr[KEY_LOADEXT].attr,
 			 setupdlg->attr[KEY_BIGINT].attr,
+			 setupdlg->attr[KEY_JDCONV].attr,
 			 setupdlg->attr[KEY_PASSWD].attr);
 	if (count < 0) {
 	    buf[sizeof (buf) - 1] = '\0';
@@ -17780,6 +18005,7 @@ retry:
     d->fksupport = getbool(setupdlg->attr[KEY_FKSUPPORT].attr);
     d->oemcp = getbool(setupdlg->attr[KEY_OEMCP].attr);
     d->dobigint = getbool(setupdlg->attr[KEY_BIGINT].attr);
+    d->jdconv = getbool(setupdlg->attr[KEY_JDCONV].attr);
     d->pwdLen = strlen(setupdlg->attr[KEY_PASSWD].attr);
     d->pwd = (d->pwdLen > 0) ? setupdlg->attr[KEY_PASSWD].attr : NULL;
     ret = dbopen(d, dbname ? dbname : "", 0,

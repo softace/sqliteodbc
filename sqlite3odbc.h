@@ -15,7 +15,7 @@
  * @file sqlite3odbc.h
  * Header file for SQLite3 ODBC driver.
  *
- * $Id: sqlite3odbc.h,v 1.41 2013/01/11 12:20:56 chw Exp chw $
+ * $Id: sqlite3odbc.h,v 1.42 2013/05/10 15:28:18 chw Exp chw $
  *
  * Copyright (c) 2004-2013 Christian Werner <chw@ch-werner.de>
  *
@@ -138,6 +138,7 @@ typedef struct dbc {
     int step_enable;		/**< True for sqlite_compile/step/finalize */
     int trans_disable;		/**< True for no transaction support */
     int oemcp;			/**< True for Win32 OEM CP translation */
+    int jdconv;			/**< True for julian day conversion */
     struct stmt *cur_s3stmt;	/**< Current STMT executing sqlite statement */
     int s3stmt_needmeta;	/**< True to get meta data in s3stmt_step(). */
     FILE *trace;		/**< sqlite3_trace() file pointer or NULL */
@@ -230,6 +231,7 @@ typedef struct stmt {
     SQLCHAR *query;		/**< Current query, raw string */
     int *ov3;			/**< True for SQL_OV_ODBC3 */
     int *oemcp;			/**< True for Win32 OEM CP translation */
+    int *jdconv;		/**< True for julian day conversion */
     int isselect;		/**< > 0 if query is a SELECT statement */
     int ncols;			/**< Number of result columns */
     COL *cols;			/**< Result column array */
