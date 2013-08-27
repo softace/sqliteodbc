@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Tue Aug 27 2013 version 0.994 released
+
+	* update to SQLite 3.8.0
+	* enhanced fixupsql() regarding ODBC escape sequences
+	* fixes in Win32 dialog option handling of julian day conversion
+	* allow simple EXPLAIN statements to return result sets
+	* use sqlite3_close_v2() if available
+
 Thu May 23 2013 version 0.993 released
 
 	* update to SQLite 3.7.17

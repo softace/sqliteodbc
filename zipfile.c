@@ -42,6 +42,8 @@ static SQLITE_EXTENSION_INIT1
 
 #include <zlib.h>
 
+#undef snprintf
+
 #define ZIP_SIG_LEN			4
 
 #define ZIP_LOCAL_HEADER_SIG		0x04034b50

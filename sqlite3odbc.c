@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.154 2013/05/10 15:28:18 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.157 2013/08/27 12:37:10 chw Exp chw $
  *
  * Copyright (c) 2004-2013 Christian Werner <chw@ch-werner.de>
  *
@@ -19,6 +19,7 @@
 
 #if defined(WITH_SQLITE_DLLS) && (WITH_SQLITE_DLLS > 1)
 #define SQLITE_DYNLOAD 1
+#undef  HAVE_SQLITE3CLOSEV2
 #endif
 
 #include "sqlite3odbc.h"
@@ -2436,7 +2437,7 @@ errout:
 	     */
 	    if (!inq) {
 		int ojfn = 0;
-		char *inq2 = NULL, *end = q + 1;
+		char *inq2 = NULL, *end = q + 1, *start;
 
 		while (*end && ISSPACE(*end)) {
 		    ++end;
@@ -2445,6 +2446,7 @@ errout:
 		    *end != 't' && *end != 'T') {
 		    ojfn = 1;
 		}
+		start = end;
 		while (*end) {
 		    if (inq2 && *end == *inq2) {
 			inq2 = NULL;
@@ -2456,7 +2458,6 @@ errout:
 		    ++end;
 		}
 		if (*end == '}') {
-		    char *start = q + 1;
 		    char *end2 = end - 1;
 
 		    if (ojfn) {
@@ -2539,6 +2540,9 @@ errout:
 	    if (size >= 6 &&
 		(strncasecmp(p, "select", 6) == 0 ||
 		 strncasecmp(p, "pragma", 6) == 0)) {
+		*isselect = 1;
+	    } else if (size >= 7 &&
+		       strncasecmp(p, "explain", 7) == 0) {
 		*isselect = 1;
 	    } else {
 		*isselect = 0;
@@ -3674,7 +3678,11 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 		    d->dbname);
 	    fflush(d->trace);
 	}
+#if defined(HAVE_SQLITE3CLOSEV2) && (HAVE_SQLITE3CLOSEV2)
+	sqlite3_close_v2(d->sqlite);
+#else
 	sqlite3_close(d->sqlite);
+#endif
 	d->sqlite = NULL;
     }
 #if defined(HAVE_SQLITE3VFS) && (HAVE_SQLITE3VFS)
@@ -11184,6 +11192,7 @@ static SQLRETURN
 drvdisconnect(SQLHDBC dbc)
 {
     DBC *d;
+    int rc;
 
     if (dbc == SQL_NULL_HDBC) {
 	return SQL_INVALID_HANDLE;
@@ -11205,7 +11214,11 @@ drvdisconnect(SQLHDBC dbc)
 		    d->dbname);
 	    fflush(d->trace);
 	}
-	sqlite3_close(d->sqlite);
+	rc = sqlite3_close(d->sqlite);
+	if (rc == SQLITE_BUSY) {
+	    setstatd(d, -1, "unfinished statements", "25000");
+	    return SQL_ERROR;
+	}
 	d->sqlite = NULL;
     }
     freep(&d->dbname);
@@ -17328,6 +17341,11 @@ SetDSNAttributes(HWND parent, SETUPDLG *setupdlg)
 				     setupdlg->attr[KEY_BIGINT].attr,
 				     ODBC_INI);
     }
+    if (parent || setupdlg->attr[KEY_JDCONV].supplied) {
+	SQLWritePrivateProfileString(dsn, "JDConv",
+				     setupdlg->attr[KEY_JDCONV].attr,
+				     ODBC_INI);
+    }
     if (parent || setupdlg->attr[KEY_PASSWD].supplied) {
 	SQLWritePrivateProfileString(dsn, "PWD",
 				     setupdlg->attr[KEY_PASSWD].attr,
@@ -18346,7 +18364,7 @@ InUn(int remove, char *cmdline)
 	if (GetFileAttributesA(dllbuf) == INVALID_FILE_ATTRIBUTES) {
 	    return FALSE;
 	}
-	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
+	if (strcasecmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
 	    char buf[512];
 
 	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);

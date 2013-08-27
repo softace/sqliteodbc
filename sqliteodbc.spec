@@ -1,5 +1,5 @@
 %define name sqliteodbc
-%define version 0.993
+%define version 0.994
 %define release 1
 
 Name: %{name}
@@ -102,5 +102,5 @@ fi
 %{_libdir}/*.so*
 
 %changelog
-* Thu May 23 2013 ...
+* Tue Aug 27 2013 ...
 - automatically recreated by configure ...

@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.206 2013/05/10 15:27:55 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.207 2013/08/27 04:48:29 chw Exp chw $
  *
  * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1823,7 +1823,7 @@ errout:
 	     */
 	    if (!inq) {
 		int ojfn = 0;
-		char *inq2 = NULL, *end = q + 1;
+		char *inq2 = NULL, *end = q + 1, *start;
 
 		while (*end && ISSPACE(*end)) {
 		    ++end;
@@ -1832,6 +1832,7 @@ errout:
 		    *end != 't' && *end != 'T') {
 		    ojfn = 1;
 		}
+		start = end;
 		while (*end) {
 		    if (inq2 && *end == *inq2) {
 			inq2 = NULL;
@@ -1843,7 +1844,6 @@ errout:
 		    ++end;
 		}
 		if (*end == '}') {
-		    char *start = q + 1;
 		    char *end2 = end - 1;
 
 		    if (ojfn) {
@@ -1926,6 +1926,9 @@ errout:
 	    if (size >= 6 &&
 		(strncasecmp(p, "select", 6) == 0 ||
 		 strncasecmp(p, "pragma", 6) == 0)) {
+		*isselect = 1;
+	    } else if (size >= 7 &&
+		       strncasecmp(p, "explain", 7) == 0) {
 		*isselect = 1;
 	    } else {
 		*isselect = 0;
@@ -16141,7 +16144,7 @@ InUn(int remove, char *cmdline)
 	if (GetFileAttributesA(dllbuf) == INVALID_FILE_ATTRIBUTES) {
 	    return FALSE;
 	}
-	if (strcmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
+	if (strcasecmp(dllbuf, inst) != 0 && !CopyFile(dllbuf, inst, 0)) {
 	    char buf[512];
 
 	    sprintf(buf, "Copy %s to %s failed.", dllbuf, inst);
