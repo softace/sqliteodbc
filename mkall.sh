@@ -22,16 +22,61 @@ else
     SH32=sh
 fi
 
+case "$REL" in
+    [yYTt1-9]*)
+	MVER32=""
+	;;
+    *)
+	MVER32="-$VER32"
+	;;
+esac
+
+export MSVCRT=""
+
+echo -n >/dev/tty "sqliteodbc_dl$MVER32.exe ... "
 NO_SQLITE2=1 NO_TCCEXT=1 SQLITE_DLLS=2 CC=$CC32 $SH32 mingw-cross-build.sh
-mv sqliteodbc.exe dist/sqliteodbc_dl-$VER32.exe
+mv sqliteodbc.exe dist/sqliteodbc_dl$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
 
+echo -n >/dev/tty "sqliteodbc$MVER32.exe ..."
 CC=$CC32 $SH32 mingw-cross-build.sh
-mv sqliteodbc.exe dist/sqliteodbc-$VER32.exe
+mv sqliteodbc.exe dist/sqliteodbc$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
 
+echo -n >/dev/tty "sqliteodbc_w64_dl$MVER32.exe ..."
 NO_SQLITE2=1 SQLITE_DLLS=2 sh mingw64-cross-build.sh
-mv sqliteodbc_w64.exe dist/sqliteodbc_w64_dl-$VER32.exe
+mv sqliteodbc_w64.exe dist/sqliteodbc_w64_dl$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
 
+echo -n >/dev/tty "sqliteodbc_w64$MVER32.exe ..."
 sh mingw64-cross-build.sh
-mv sqliteodbc_w64.exe dist/sqliteodbc_w64-$VER32.exe
+mv sqliteodbc_w64.exe dist/sqliteodbc_w64$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
 
+export MSVCRT="100"
+MVER32="_msvcr100$MVER32"
+
+echo -n >/dev/tty "sqliteodbc_dl$MVER32.exe ..."
+NO_SQLITE2=1 NO_TCCEXT=1 SQLITE_DLLS=2 CC=$CC32 $SH32 mingw-cross-build.sh
+mv sqliteodbc.exe dist/sqliteodbc_dl$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
+
+echo -n >/dev/tty "sqliteodbc$MVER32.exe ..."
+CC=$CC32 $SH32 mingw-cross-build.sh
+mv sqliteodbc.exe dist/sqliteodbc$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
+
+echo -n >/dev/tty "sqliteodbc_w64_dl$MVER32.exe ..."
+NO_SQLITE2=1 SQLITE_DLLS=2 sh mingw64-cross-build.sh
+mv sqliteodbc_w64.exe dist/sqliteodbc_w64_dl$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
+
+echo -n >/dev/tty "sqliteodbc_w64$MVER32.exe ..."
+sh mingw64-cross-build.sh
+mv sqliteodbc_w64.exe dist/sqliteodbc_w64$MVER32.exe
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
+
+echo -n >/dev/tty "sqliteodbc-$VER.tar.gz ..."
 test -r ../sqliteodbc-$VER.tar.gz && cp -p ../sqliteodbc-$VER.tar.gz dist
+if test $? = 0 ; then echo >/dev/tty OK ; else echo >/dev/tty ERROR ; fi
+

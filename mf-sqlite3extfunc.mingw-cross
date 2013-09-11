@@ -13,6 +13,38 @@ TCC = /opt/mingw64/bin/x86_64-w64-mingw32-gcc -m32 -march=i386 -mtune=i386 \
 #
 TCCX = $(TCC) $(OPTS) $(THREADSAFE) $(USLEEP) -I. -Isqlite3 -Isqlite3/src
 
+ifeq ($(MSVCRT),70)
+	TCCX   += -D__MSVCRT_VERSION=0x0700
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex \
+	    -lmingw32 -lgcc -lmsvcr70 \
+	    -lgdi32 -lcomdlg32 \
+	    -ladvapi32 -lshell32 -luser32 -lkernel32
+endif
+ifeq ($(MSVCRT),80)
+	TCCX   += -D__MSVCRT_VERSION=0x0800
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex \
+	    -lmingw32 -lgcc -lmsvcr80 \
+	    -lgdi32 -lcomdlg32 \
+	    -ladvapi32 -lshell32 -luser32 -lkernel32
+endif
+ifeq ($(MSVCRT),90)
+	TCCX   += -D__MSVCRT_VERSION=0x0900
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex \
+	    -lmingw32 -lgcc -lmsvcr90 -lmsvcrt \
+	    -lgdi32 -lcomdlg32 \
+	    -ladvapi32 -lshell32 -luser32 -lkernel32
+endif
+ifeq ($(MSVCRT),100)
+	TCCX   += -D__MSVCRT_VERSION=0x0A00
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex \
+	    -lmingw32 -lgcc -lmsvcr100 -lmsvcrt \
+	    -lgdi32 -lcomdlg32 \
+	    -ladvapi32 -lshell32 -luser32 -lkernel32
+endif
+ifeq ($(LMSVCRT),)
+	LMSVCRT = -lmsvcrt
+endif
+
 # MKSHLIB = gcc -shared
 # SO = so
 # SHPREFIX = lib
@@ -32,7 +64,7 @@ extfunc.o:	extfunc.c
 sqlite3_mod_extfunc.$(SO):	extfunc.o
 	$(TCCX) -shared -Wl,--kill-at \
 	    -Wl,-out-implib,libsqlite3extfunc.a -Wl,--strip-all \
-	    -o sqlite3_mod_extfunc.$(SO) extfunc.o
+	    -o sqlite3_mod_extfunc.$(SO) extfunc.o $(LMSVCRT)
 
 clean:
 	rm -f extfunc.o libsqlite3extfunc.a sqlite3_mod_extfunc.$(SO)

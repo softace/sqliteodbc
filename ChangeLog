@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Wed Sep 11 2013 version 0.995 released
+
+	* update to SQLite 3.8.0.2
+	* enhanced MinGW cross make/build scripts to support
+	  generating with newer MSVC runtimes, e.g. Visual
+	  Studio 2010 msvcr100.dll
+
 Tue Aug 27 2013 version 0.994 released
 
 	* update to SQLite 3.8.0

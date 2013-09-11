@@ -26,7 +26,7 @@ set -e
 
 VER2=2.8.17
 VER3=3.8.0
-VER3X=3080000
+VER3X=3080002
 VERZ=1.2.7
 TCCVER=0.9.25
 
@@ -635,7 +635,7 @@ diff -u sqlite3.orig/src/tclsqlite.c sqlite3/src/tclsqlite.c
 +++ sqlite3/src/tclsqlite.c	2007-04-10 07:47:49.000000000 +0200
 @@ -14,6 +14,7 @@
  **
- ** $Id: mingw-cross-build.sh,v 1.80 2013/08/27 11:55:21 chw Exp chw $
+ ** $Id: mingw-cross-build.sh,v 1.82 2013/09/04 10:50:27 chw Exp chw $
  */
 +#ifndef NO_TCL     /* Omit this whole file if TCL is unavailable */
  #include "tcl.h"

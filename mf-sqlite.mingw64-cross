@@ -111,16 +111,36 @@ libshell.o:	$(TOP)/src/libshell.c sqlite.h
 ###############################################################################
 include $(TOP)/main.mk
 
+ifeq ($(MSVCRT),70)
+	TCCX   += -D__MSVCRT_VERSION=0x0700
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex -lgcc -lmsvcr70
+endif
+ifeq ($(MSVCRT),80)
+	TCCX   += -D__MSVCRT_VERSION=0x0800
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex -lgcc -lmsvcr80
+endif
+ifeq ($(MSVCRT),90)
+	TCCX   += -D__MSVCRT_VERSION=0x0900
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex -lgcc -lmsvcr90
+endif
+ifeq ($(MSVCRT),100)
+	TCCX   += -D__MSVCRT_VERSION=0x0A00
+	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex -lgcc -lmsvcr100
+endif
+ifeq ($(LMSVCRT),)
+	LMSVCRT = -lmsvcrt
+endif
+
 sqlite.dll:	$(LIBOBJ)
 	rm -f libsqlite.a
 	$(TCC) $(CFLAGS) -shared -Wl,--kill-at \
 	    -Wl,--out-implib,libsqlite.a -Wl,--strip-all \
-	    -o sqlite.dll $(LIBOBJ) \
-	    -lcomdlg32 -lkernel32 -luser32 -lmsvcrt
+	    -o sqlite.dll $(LIBOBJ) $(LMSVCRT) \
+	    -lcomdlg32 -lkernel32 -luser32
 
 sqliteu.dll:	$(LIBOBJ)
 	rm -f libsqlite.a
 	$(TCC) $(CFLAGS) -shared -Wl,--kill-at \
 	    -Wl,--out-implib,libsqlite.a -Wl,--strip-all \
-	    -o sqliteu.dll $(LIBOBJ) \
-	    -lcomdlg32 -lkernel32 -luser32 -lmsvcrt
+	    -o sqliteu.dll $(LIBOBJ) $(LMSVCRT) \
+	    -lcomdlg32 -lkernel32 -luser32
