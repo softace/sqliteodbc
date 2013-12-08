@@ -1,6 +1,19 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Dec 08 2013 version 0.996 released
+
+	* update to SQLite 3.8.2
+	* when length/indicator parameter to SQLBindParam*() is
+	  a NULL pointer for SQL_CHAR, treat it like SQL_NTS
+	* fixes in ZIP read-only extension module
+	* update sqlite+tcc module to TCC 0.9.26
+	* for SQLite3/4 drivers allow recursive ODBC escape sequences
+	* added partial implementation of SQLBulkOperations()
+	  in SQLite3/4 drivers
+	* added SQL_UPDATE/SQL_DELETE/SQL_ADD handling in SQLSetPos()
+	  of SQLite3/4 drivers
+
 Wed Sep 11 2013 version 0.995 released
 
 	* update to SQLite 3.8.0.2

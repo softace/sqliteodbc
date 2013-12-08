@@ -2,7 +2,7 @@
  * @file sqlite4odbc.c
  * SQLite4 ODBC Driver main module.
  *
- * $Id: sqlite4odbc.c,v 1.3 2013/08/27 04:48:29 chw Exp chw $
+ * $Id: sqlite4odbc.c,v 1.8 2013/12/08 07:18:56 chw Exp chw $
  *
  * Copyright (c) 2013 Christian Werner <chw@ch-werner.de>
  *
@@ -37,17 +37,17 @@ void dls_fini(void);
 
 static struct dl_sqlite4_funcs {
     int (*bind_blob)(sqlite4_stmt *p0, int p1, const void *p2, int p3,
-		     void (*p4)(void *));
+		     void (*p4)(void *, void *), void *p5);
     int (*bind_double)(sqlite4_stmt *p0, int p1, double p2);
     int (*bind_int)(sqlite4_stmt *p0, int p1, int p2);
     int (*bind_int64)(sqlite4_stmt *p0, int p1, sqlite4_int64 p2);
     int (*bind_null)(sqlite4_stmt *p0, int p1);
     int (*bind_parameter_count)(sqlite4_stmt *p0);
     int (*bind_text)(sqlite4_stmt *p0, int p1, const char *p2, int p3,
-		     void (*p4)(void *));
+		     void (*p4)(void *, void *), void *p5);
     int (*changes)(sqlite4 *p0);
-    int (*close)(sqlite4 *p0);
-    const void * (*column_blob)(sqlite4_stmt *p0, int p1);
+    int (*close)(sqlite4 *p0, unsigned int p1);
+    const void * (*column_blob)(sqlite4_stmt *p0, int p1, int p2);
     int (*column_bytes)(sqlite4_stmt *p0, int p1);
     int (*column_count)(sqlite4_stmt *p0);
     const char * (*column_database_name)(sqlite4_stmt *p0, int p1);
@@ -56,21 +56,25 @@ static struct dl_sqlite4_funcs {
     const char * (*column_name)(sqlite4_stmt *p0, int p1);
     const char * (*column_origin_name)(sqlite4_stmt *p0, int p1);
     const char * (*column_table_name)(sqlite4_stmt *p0, int p1);
-    const unsigned char * (*column_text)(sqlite4_stmt *p0, int p1);
+    const char * (*column_text)(sqlite4_stmt *p0, int p1, p2);
     int (*column_type)(sqlite4_stmt *p0, int p1);
-    int (*create_function)(sqlite4 *p0, const char *p1, int p2, int p3,
+    int (*create_function)(sqlite4 *p0, const char *p1, int p2,
 			   void *p4,
 			   void (*p5)(sqlite4_context *, int, sqlite4_value **),
 			   void (*p6)(sqlite4_context *, int, sqlite4_value **),
-			   void (*p7)(sqlite4_context *));
+			   void (*p7)(sqlite4_context *),
+			   void (*p8)(void *));
     int (*errcode)(sqlite4 *p0);
     const char * (*errmsg)(sqlite4 *p0);
     int (*exec)(sqlite4 *p0, const char *p1,
 		int (*p2)(void *, int, char **, char **),
-		void *p3, char **p4);
+		void *p3);
     int (*finalize)(sqlite4_stmt *p0);
     void (*free)(sqlite4_env *p0, void *p1);
     void (*interrupt)(sqlite4 *p0);
+#if 0
+    sqlite4_int64 (*last_insert_rowid)(sqlite4 *p0);
+#endif
     const char * (*libversion)(void);
 #if 0
     int (*load_extension)(sqlite4 *p0, const char *p1, const char *p2,
@@ -80,14 +84,14 @@ static struct dl_sqlite4_funcs {
     char * (*mprintf)(sqlite4_env *p0, const char *p1, ...);
     int (*open)(sqlite4_env *p0, const char *p1, sqlite4 **p2, ...);
     int (*prepare)(sqlite4 *p0, const char *p1, int p2, sqlite4_stmt **p3,
-		   const char **p4);
-    void * (*profile)(sqlite4 *p0,
-		      void (*p1)(void *, const char *, sqlite4_uint64),
-		      void *p2);
+		   int *p4);
+    void (*profile)(sqlite4 *p0, void *p1,
+		    void (*p2)(void *, const char *, sqlite4_uint64),
+		    void *p3);
     void * (*realloc)(sqlite4_env *p0, void *p1, int p2);
     int (*reset)(sqlite4_stmt *p0);
     void (*result_blob)(sqlite4_context *p0, const void *p1,
-			int p2, void (*p3)(void *));
+			int p2, void (*p3)(void *, void *), void *p4);
     void (*result_error)(sqlite4_context *p0, const char *p1, int p2);
     void (*result_int)(sqlite4_context *p0, int p1);
     void (*result_null)(sqlite4_context *p0);
@@ -99,11 +103,12 @@ static struct dl_sqlite4_funcs {
 				 char const **p4, char const **p5,
 				 int *p6, int *p7, int *p8);
 #endif
-    void * (*trace)(sqlite4 *p0, void (*p1)(void *, const char *), void *p2);
+    void (*trace)(sqlite4 *p0, void *p1, void (*p2)(void *, const char *),
+		  void *p2);
     void * (*user_data)(sqlite4_context *p0);
-    const void * (*value_blob)(sqlite4_value *p0);
+    const void * (*value_blob)(sqlite4_value *p0, int *p1);
     int (*value_bytes)(sqlite4_value *p0);
-    const unsigned char * (*value_text)(sqlite4_value *p0);
+    const char * (*value_text)(sqlite4_value *p0, int *p1);
     int (*value_type)(sqlite4_value *p0);
 } dls_funcs;
 
@@ -134,6 +139,9 @@ static struct dl_sqlite4_funcs {
 #define sqlite4_finalize              dls_funcs.finalize
 #define sqlite4_free                  dls_funcs.free
 #define sqlite4_interrupt             dls_funcs.interrupt
+#if 0
+#define sqlite4_last_insert_rowid     dls_funcs.last_insert_rowid
+#endif
 #define sqlite4_libversion            dls_funcs.libversion
 #if 0
 #define sqlite4_load_extension        dls_funcs.load_extension
@@ -233,6 +241,19 @@ static struct dl_sqlite4_funcs {
 #define ENV_MAGIC  0x53544145
 #define DBC_MAGIC  0x53544144
 #define DEAD_MAGIC 0xdeadbeef
+
+/**
+ * @typedef dstr
+ * @struct dstr
+ * Internal structure representing dynamic strings.
+ */
+
+typedef struct dstr {
+    int len;		/**< Current length. */
+    int max;		/**< Maximum length of buffer. */
+    int oom;		/**< True when out of memory. */
+    char buffer[1];	/**< String buffer. */
+} dstr;
 
 static const char *xdigits = "0123456789ABCDEFabcdef";
 
@@ -549,6 +570,9 @@ static SQLRETURN setupdyncols(STMT *s, sqlite4_stmt *s4stmt, int *ncolsp);
 static SQLRETURN setupparbuf(STMT *s, BINDPARM *p);
 static SQLRETURN starttran(STMT *s);
 static SQLRETURN setupparam(STMT *s, char *sql, int pnum);
+static SQLRETURN getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
+			    SQLPOINTER val, SQLINTEGER len, SQLLEN *lenp,
+			    int partial);
 
 #if (defined(_WIN32) || defined(_WIN64)) && defined(WINTERFACE)
 /* MS Access hack part 1 (reserved error -7748) */
@@ -576,6 +600,163 @@ strdup_(const char *str)
     return p;
 }
 #endif
+
+/**
+ * Append string to dynamic string.
+ * @param dsp dstr pointer
+ * @param str string to append
+ * @result dsp result dstr pointer or NULL.
+ */
+
+static dstr *
+dsappend(dstr *dsp, const char *str)
+{
+    int len;
+
+    if (!str) {
+	return dsp;
+    }
+    len = strlen(str);
+    if (!dsp) {
+	int max = 256;
+
+	if (max < len) {
+	    max += len;
+	}
+	dsp = xmalloc(max);
+	if (dsp) {
+	    dsp->max = max;
+	    dsp->len = dsp->oom = 0;
+	    goto copy;
+	}
+	return dsp;
+    }
+    if (dsp->oom) {
+	return dsp;
+    }
+    if (dsp->len + len > dsp->max) {
+	int max = dsp->max + len + 256;
+	dstr *ndsp = xrealloc(dsp, max);
+
+	if (!ndsp) {
+	    strcpy(dsp->buffer, "OUT OF MEMORY");
+	    dsp->max = dsp->len = 13;
+	    dsp->oom = 1;
+	    return dsp;
+	}
+	dsp = ndsp;
+	dsp->max = max;
+    }
+copy:
+    strcpy(dsp->buffer + dsp->len, str);
+    dsp->len += len;
+    return dsp;
+}
+
+/**
+ * Append string quoted to dynamic string.
+ * @param dsp dstr pointer
+ * @param str string to append
+ * @result dsp result dstr pointer or NULL.
+ */
+
+static dstr *
+dsappendq(dstr *dsp, const char *str)
+{
+    int len;
+    const char *p;
+    char *q;
+
+    if (!str) {
+	return dsp;
+    }
+    len = strlen(str);
+    for (p = str; *p; ++p) {
+	if (p[0] == '"') {
+	    ++len;
+	}
+    }
+    if (!dsp) {
+	int max = 256;
+
+	if (max < len) {
+	    max += len;
+	}
+	dsp = xmalloc(max);
+	if (dsp) {
+	    dsp->max = max;
+	    dsp->len = dsp->oom = 0;
+	    goto copy;
+	}
+	return dsp;
+    }
+    if (dsp->oom) {
+	return dsp;
+    }
+    if (dsp->len + len > dsp->max) {
+	int max = dsp->max + len + 256;
+	dstr *ndsp = xrealloc(dsp, max);
+
+	if (!ndsp) {
+	    strcpy(dsp->buffer, "OUT OF MEMORY");
+	    dsp->max = dsp->len = 13;
+	    dsp->oom = 1;
+	    return dsp;
+	}
+	dsp = ndsp;
+	dsp->max = max;
+    }
+copy:
+    for (p = str, q = dsp->buffer + dsp->len; *p; ++p) {
+	*q++ = *p;
+	if (p[0] == '"') {
+	    *q++ = '"';
+	}
+    }
+    *q = '\0';
+    dsp->len += len;
+    return dsp;
+}
+
+/**
+ * Return dynamic string's value.
+ * @param dsp dstr pointer
+ * @result string value
+ */
+
+static const char *
+dsval(dstr *dsp)
+{
+    if (dsp) {
+	return (const char *) dsp->buffer;
+    }
+    return "ERROR";
+}
+
+/**
+ * Check error on dynamic string.
+ * @param dsp dstr pointer
+ * @result true when error pending
+ */
+
+static int
+dserr(dstr *dsp)
+{
+    return !dsp || dsp->oom;
+}
+
+/**
+ * Free dynamic string.
+ * @param dsp dstr pointer
+ */
+
+static void
+dsfree(dstr *dsp)
+{
+    if (dsp) {
+	xfree(dsp);
+    }
+}
 
 #ifdef WCHARSUPPORT
 
@@ -1135,7 +1316,7 @@ s4bind(DBC *d, sqlite4_stmt *stmt, int nparams, BINDPARM *p)
 		break;
 	    case SQLITE4_TEXT:
 		sqlite4_bind_text(stmt, i + 1, p->s4val, p->s4size,
-				  SQLITE4_STATIC);
+				  SQLITE4_STATIC, 0);
 		if (d->trace) {
 		    fprintf(d->trace, "-- parameter %d: '%*s'\n", i + 1,
 			    p->s4size, (char *) p->s4val);
@@ -1144,7 +1325,7 @@ s4bind(DBC *d, sqlite4_stmt *stmt, int nparams, BINDPARM *p)
 		break;
 	    case SQLITE4_BLOB:
 		sqlite4_bind_blob(stmt, i + 1, p->s4val, p->s4size,
-				  SQLITE4_STATIC);
+				  SQLITE4_STATIC, 0);
 		if (d->trace) {
 		    fprintf(d->trace, "-- parameter %d: [BLOB]'\n", i + 1);
 		    fflush(d->trace);
@@ -1270,11 +1451,11 @@ nomem:
 
 	    p = NULL;
 	    if (coltype == SQLITE4_BLOB) {
-		int k, nbytes = sqlite4_column_bytes(t->stmt, i);
+		int k, nbytes;
 		char *qp;
 		unsigned const char *bp;
 
-		bp = sqlite4_column_blob(t->stmt, i);
+		bp = sqlite4_column_blob(t->stmt, i, &nbytes);
 		qp = xmalloc(nbytes * 2 + 4);
 		if (!qp) {
 		    goto nomem;
@@ -1289,7 +1470,9 @@ nomem:
 		*qp++ = '\'';
 		*qp = '\0';
 	    } else if (coltype != SQLITE4_NULL) {
-		p = xstrdup((char *) sqlite4_column_text(t->stmt, i));
+		int nbytes;
+
+		p = xstrdup((char *) sqlite4_column_text(t->stmt, i, &nbytes));
 		if (!p) {
 		    goto nomem;
 		}
@@ -1308,7 +1491,7 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
     DBC *d = (DBC *) s->dbc;
     int rc = SQLITE4_OK, keep = sql == NULL;
     TBLRES tres;
-    const char *sqlleft = 0;
+    int sqlleft = 0;
     int nretry = 0, haveerr = 0;
 
     if (!resp) {
@@ -1358,7 +1541,7 @@ drvgettable(STMT *s, const char *sql, char ***resp, int *nrowp,
 	}
 	if (!tres.stmt) {
 	    /* this happens for a comment or white-space */
-	    sql = sqlleft;
+	    sql += sqlleft;
 	    continue;
 	}
 retrieve:
@@ -1398,7 +1581,7 @@ retrieve:
 		tres.stmt = 0;
 		if (rc != SQLITE4_SCHEMA) {
 		    nretry = 0;
-		    sql = sqlleft;
+		    sql += sqlleft;
 		    while (sql && ISSPACE(*sql)) {
 			sql++;
 		    }
@@ -1468,7 +1651,7 @@ sqlite4_get_table(sqlite4 *db, const char *sql, char ***resp, int *nrowp,
 {
     int rc = SQLITE4_OK;
     TBLRES tres;
-    const char *sqlleft = 0;
+    int sqlleft = 0;
     int nretry = 0, haveerr = 0;
 
     if (!resp) {
@@ -1509,7 +1692,7 @@ sqlite4_get_table(sqlite4 *db, const char *sql, char ***resp, int *nrowp,
 	}
 	if (!tres.stmt) {
 	    /* this happens for a comment or white-space */
-	    sql = sqlleft;
+	    sql += sqlleft;
 	    continue;
 	}
 	ncol = sqlite4_column_count(tres.stmt);
@@ -1526,7 +1709,7 @@ sqlite4_get_table(sqlite4 *db, const char *sql, char ***resp, int *nrowp,
 		tres.stmt = 0;
 		if (rc != SQLITE4_SCHEMA) {
 		    nretry = 0;
-		    sql = sqlleft;
+		    sql += sqlleft;
 		    while (sql && ISSPACE(*sql)) {
 			sql++;
 		    }
@@ -1941,23 +2124,23 @@ setsqliteopts(sqlite4 *x, DBC *d)
     while (step < max) {
 	if (step < 1) {
 	    rc = sqlite4_exec(x, "PRAGMA empty_result_callbacks = on;",
-			      NULL, NULL, NULL);
+			      NULL, NULL);
 	    if (rc == SQLITE4_OK) {
 		rc = sqlite4_exec(x, d->fksupport ?
 				  "PRAGMA foreign_keys = on;" :
 				  "PRAGMA foreign_keys = off;",
-				  NULL, NULL, NULL);
+				  NULL, NULL);
 	    }
 	} else if (step < 2) {
 	    rc = sqlite4_exec(x, d->shortnames ?
 			      "PRAGMA full_column_names = off;" :
 			      "PRAGMA full_column_names = on;",
-			      NULL, NULL, NULL);
+			      NULL, NULL);
 	} else if (step < 3) {
 	    rc = sqlite4_exec(x, d->shortnames ?
 			      "PRAGMA short_column_names = on;" :
 			      "PRAGMA short_column_names = off;",
-			      NULL, NULL, NULL);
+			      NULL, NULL);
 	}
 	if (rc != SQLITE4_OK) {
 	    return rc;
@@ -2306,7 +2489,9 @@ fixupsql(char *sql, int sqlLen, int *nparam, int *isselect, char **errmsg)
     char *q = sql, *qz = NULL, *p, *inq = NULL, *out;
     int np = 0, isddl = -1, size;
 
-    *errmsg = NULL;
+    if (errmsg) {
+	*errmsg = NULL;
+    }
     if (sqlLen != SQL_NTS) {
 	qz = q = xmalloc(sqlLen + 1);
 	if (!qz) {
@@ -2408,7 +2593,9 @@ errout:
 		    } while (*qq && ISSPACE(*qq));
 		    if (*qq && *qq != ';') {
 			freep(&out);
-			*errmsg = "only one SQL statement allowed";
+			if (errmsg) {
+			    *errmsg = "only one SQL statement allowed";
+			}
 			goto errout;
 		    }
 		}
@@ -2422,9 +2609,12 @@ errout:
 	     * {oj ...}, {fn ...} etc.
 	     */
 	    if (!inq) {
-		int ojfn = 0;
+		int ojfn = 0, brc = 0;
 		char *inq2 = NULL, *end = q + 1, *start;
 
+		while (*end && ISSPACE(*end)) {
+		    ++end;
+		}
 		if (*end != 'd' && *end != 'D' &&
 		    *end != 't' && *end != 'T') {
 		    ojfn = 1;
@@ -2433,10 +2623,24 @@ errout:
 		while (*end) {
 		    if (inq2 && *end == *inq2) {
 			inq2 = NULL;
+		    } else if (inq2 == NULL && *end == '{') {
+			char *nerr = 0, *nsql;
+
+			nsql = fixupsql(end, SQL_NTS, 0, 0, &nerr);
+			if (nsql && !nerr) {
+			    strcpy(end, nsql);
+			} else {
+			    brc++;
+			}
+			freep(&nsql);
 		    } else if (inq2 == NULL && *end == '}') {
-			break;
+			if (brc-- <= 0) {
+			    break;
+			}
 		    } else if (inq2 == NULL && (*end == '\'' || *end == '"')) {
 			inq2 = end;
+		    } else if (inq2 == NULL && *end == '?') {
+			np++;
 		    }
 		    ++end;
 		}
@@ -2577,7 +2781,7 @@ findcol(char **cols, int ncols, char *name)
 static void
 fixupdyncols(STMT *s, DBC *d)
 {
-    int i;
+    int i, k;
 
     if (!s->dyncols) {
 	return;
@@ -2626,6 +2830,24 @@ fixupdyncols(STMT *s, DBC *d)
 	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
     }
+    for (i = 1, k = 0; i < s->dcols; i++) {
+	if (strcmp(s->dyncols[i].table, s->dyncols[0].table) == 0) {
+	    k++;
+	}
+    }
+    s->one_tbl = (k && k + 1 == s->dcols) ? 1 : 0;
+    k = 0;
+    if (s->one_tbl) {
+	for (i = 0; i < s->dcols; i++) {
+	    if (s->dyncols[i].ispk > 0) {
+		++k;
+		if (s->has_rowid < 0 && s->dyncols[i].isrowid > 0) {
+		    s->has_rowid = i;
+		}
+	    }
+	}
+    }
+    s->has_pk = k;
 }
 
 /**
@@ -3174,11 +3396,12 @@ getbool(char *string)
 
 /**
  * Internal function to release memory of blob
+ * @param dummy unused
  * @param p pointer to memory
  */
 
 static void
-blob_free(void *p)
+blob_free(void *dummy, void *p)
 {
     sqlite4_free(0, p);
 }
@@ -3200,7 +3423,9 @@ blob_import(sqlite4_context *ctx, int nargs, sqlite4_value **args)
 
     if (nargs > 0) {
 	if (sqlite4_value_type(args[0]) != SQLITE4_NULL) {
-	    filename = (char *) sqlite4_value_text(args[0]);
+	    int nbytes;
+
+	    filename = (char *) sqlite4_value_text(args[0], &nbytes);
 	}
     }
     if (filename) {
@@ -3233,7 +3458,7 @@ blob_import(sqlite4_context *ctx, int nargs, sqlite4_value **args)
 			    sqlite4_result_error(ctx, "read error", -1);
 			    sqlite4_free(0, p);
 			} else {
-			    sqlite4_result_blob(ctx, p, n, blob_free);
+			    sqlite4_result_blob(ctx, p, n, blob_free, 0);
 			}
 		    } else {
 			sqlite4_result_error(ctx, "out of memory", -1);
@@ -3271,12 +3496,13 @@ blob_export(sqlite4_context *ctx, int nargs, sqlite4_value **args)
     int n = 0;
 
     if (nargs > 0) {
-	p = (char *) sqlite4_value_blob(args[0]);
-	n = sqlite4_value_bytes(args[0]);
+	p = (char *) sqlite4_value_blob(args[0], &n);
     }
     if (nargs > 1) {
 	if (sqlite4_value_type(args[1]) != SQLITE4_NULL) {
-	    filename = (char *) sqlite4_value_text(args[1]);
+	    int nbytes;
+
+	    filename = (char *) sqlite4_value_text(args[1], &nbytes);
 	}
     }
     if (p) {
@@ -3414,7 +3640,7 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 		    d->dbname);
 	    fflush(d->trace);
 	}
-	sqlite4_close(d->sqlite);
+	sqlite4_close(d->sqlite, 0);
 	d->sqlite = NULL;
     }
     if (d->nocreat) {
@@ -3451,7 +3677,7 @@ dbopen(DBC *d, char *name, int isu, char *dsn, char *sflag,
 connfail:
 	setstatd(d, rc, "connect failed", (*d->ov3) ? "HY000" : "S1000");
 	if (d->sqlite) {
-	    sqlite4_close(d->sqlite);
+	    sqlite4_close(d->sqlite, 0);
 	    d->sqlite = NULL;
 	}
 	return SQL_ERROR;
@@ -3459,7 +3685,7 @@ connfail:
     d->pwd = NULL;
     d->pwdLen = 0;
     if (d->trace) {
-	sqlite4_profile(d->sqlite, dbtrace, d);
+	sqlite4_profile(d->sqlite, d, dbtrace, 0);
     }
     d->step_enable = getbool(sflag);
     d->trans_disable = getbool(ntflag);
@@ -3483,7 +3709,7 @@ connfail:
 		    d->dbname);
 	    fflush(d->trace);
 	}
-	sqlite4_close(d->sqlite);
+	sqlite4_close(d->sqlite, 0);
 	d->sqlite = NULL;
 	goto connfail;
     }
@@ -3494,13 +3720,13 @@ connfail:
 	char syncp[128];
 
 	sprintf(syncp, "PRAGMA synchronous = %8.8s;", spflag);
-	sqlite4_exec(d->sqlite, syncp, NULL, NULL, NULL);
+	sqlite4_exec(d->sqlite, syncp, NULL, NULL);
     }
     if (jmode[0] != '\0') {
 	char jourp[128];
 
 	sprintf(jourp, "PRAGMA journal_mode = %16.16s;", jmode);
-	sqlite4_exec(d->sqlite, jourp, NULL, NULL, NULL);
+	sqlite4_exec(d->sqlite, jourp, NULL, NULL);
     }
     if (d->trace) {
 	fprintf(d->trace, "-- sqlite4_open: '%s'\n", d->dbname);
@@ -3539,10 +3765,10 @@ connfail:
 	}
     }
 #endif
-    sqlite4_create_function(d->sqlite, "blob_import", 1, SQLITE4_UTF8,
-			    d, blob_import, 0, 0);
-    sqlite4_create_function(d->sqlite, "blob_export", 2, SQLITE4_UTF8,
-			    d, blob_export, 0, 0);
+    sqlite4_create_function(d->sqlite, "blob_import", 1, d,
+			    blob_import, 0, 0, 0);
+    sqlite4_create_function(d->sqlite, "blob_export", 2, d,
+			    blob_export, 0, 0, 0);
     return SQL_SUCCESS;
 }
 
@@ -3672,18 +3898,20 @@ static void
 s4stmt_addmeta(sqlite4_stmt *s4stmt, int col, DBC *d, COL *ci)
 {
     int nn = 0, pk = 0, ai = 0;
-    const char *dn, *tn, *cn, *dummy1, *dummy2;
+    const char *dn, *tn, *cn, *dummy[4];
 
     dn = sqlite4_column_database_name(s4stmt, col);
     tn = sqlite4_column_table_name(s4stmt, col);
     cn = sqlite4_column_origin_name(s4stmt, col);
+    dummy[0] = dummy[1] = 0;
 #if 0
     sqlite4_table_column_metadata(d->sqlite, dn, tn, cn,
-				  &dummy1, &dummy2,
+				  dummy, dummy + 1,
 				  &nn, &pk, &ai);
 #endif
     ci->autoinc = ai ? SQL_TRUE: SQL_FALSE;
     ci->notnull = nn ? SQL_NO_NULLS : SQL_NULLABLE;
+    ci->ispk = pk ? 1 : 0;
     if (d->trace) {
 	fprintf(d->trace, "-- column %d %s\n",
 		col + 1, nn ? "notnull" : "nullable");
@@ -3691,6 +3919,20 @@ s4stmt_addmeta(sqlite4_stmt *s4stmt, int col, DBC *d, COL *ci)
 	    fprintf(d->trace, "-- column %d autoincrement\n", col + 1);
 	}
 	fflush(d->trace);
+    }
+    ci->isrowid = 0;
+    if (ci->ispk) {
+	nn = pk = ai = 0;
+	dummy[2] = dummy[3] = 0;
+  
+#if 0
+	sqlite4_table_column_metadata(d->sqlite, dn, tn, "rowid",
+				      dummy + 2, dummy + 3,
+				      &nn, &pk, &ai);
+#endif
+	if (pk && dummy[0] && dummy[0] == dummy[2]) {
+	    ci->isrowid = 1;
+	}
     }
 }
 
@@ -3826,7 +4068,7 @@ s4stmt_step(STMT *s)
 	}
 	rowd = xmalloc((1 + 2 * ncols) * sizeof (char *));
 	if (rowd) {
-	    const unsigned char *value;
+	    const char *value;
 
 	    rowd[0] = (char *) ((PTRDIFF_T) (ncols * 2));
 	    ++rowd;
@@ -3835,11 +4077,11 @@ s4stmt_step(STMT *s)
 
 		rowd[i] = rowd[i + ncols] = NULL;
 		if (coltype == SQLITE4_BLOB) {
-		    int k, nbytes = sqlite4_column_bytes(s->s4stmt, i);
+		    int k, nbytes;
 		    char *qp;
 		    unsigned const char *bp;
 
-		    bp = sqlite4_column_blob(s->s4stmt, i);
+		    bp = sqlite4_column_blob(s->s4stmt, i, &nbytes);
 		    qp = xmalloc(nbytes * 2 + 4);
 		    if (qp) {
 			rowd[i + ncols] = qp;
@@ -3877,7 +4119,9 @@ s4stmt_step(STMT *s)
 		    rowd[i + ncols] = xstrdup(buffer);
 #endif
 		} else if (coltype != SQLITE4_NULL) {
-		    value = sqlite4_column_text(s->s4stmt, i);
+		    int nbytes;
+
+		    value = sqlite4_column_text(s->s4stmt, i, &nbytes);
 		    rowd[i + ncols] = xstrdup((char *) value);
 		}
 	    }
@@ -3886,9 +4130,13 @@ s4stmt_step(STMT *s)
 
 		value = NULL;
 		if (coltype == SQLITE4_BLOB) {
-		    value = sqlite4_column_blob(s->s4stmt, i);
+		    int nbytes;
+
+		    value = sqlite4_column_blob(s->s4stmt, i, &nbytes);
 		} else if (coltype != SQLITE4_NULL) {
-		    value = sqlite4_column_text(s->s4stmt, i);
+		    int nbytes;
+
+		    value = sqlite4_column_text(s->s4stmt, i, &nbytes);
 		}
 		if (value && !rowd[i + ncols]) {
 		    freerows(rowd);
@@ -4000,7 +4248,7 @@ static SQLRETURN
 s4stmt_start(STMT *s)
 {
     DBC *d = (DBC *) s->dbc;
-    const char *endp;
+    int sqlleft;
     sqlite4_stmt *s4stmt = NULL;
     int rc, nretry = 0;
 
@@ -4010,7 +4258,7 @@ s4stmt_start(STMT *s)
 	do {
 	    s4stmt = NULL;
 	    rc = sqlite4_prepare(d->sqlite, (char *) s->query, -1,
-				 &s4stmt, &endp);
+				 &s4stmt, &sqlleft);
 	    if (rc != SQLITE4_OK) {
 		if (s4stmt) {
 		    sqlite4_finalize(s4stmt);
@@ -4043,21 +4291,6 @@ s4stmt_start(STMT *s)
     s->s4stmt_rownum = -1;
     s4bind(d, s->s4stmt, s->nparams, s->bindparms);
     return SQL_SUCCESS;
-}
-
-/**
- * Function not implemented.
- */
-
-SQLRETURN SQL_API
-SQLBulkOperations(SQLHSTMT stmt, SQLSMALLINT oper)
-{
-    SQLRETURN ret;
-
-    HSTMT_LOCK(stmt);
-    ret = drvunimplstmt(stmt);
-    HSTMT_UNLOCK(stmt);
-    return ret;
 }
 
 #ifndef WINTERFACE
@@ -4500,10 +4733,10 @@ setupparam(STMT *s, char *sql, int pnum)
 	p->s4type = SQLITE4_TEXT;
 	p->s4size = -1;
 	p->s4val = p->param;
-	if (!p->parbuf && p->lenp) {
+	if (!p->parbuf) {
 #ifdef WCHARSUPPORT
 	    if (type == SQL_C_WCHAR) {
-		if (*p->lenp == SQL_NTS) {
+		if (!p->lenp || *p->lenp == SQL_NTS) {
 		    p->max = uc_strlen(p->param) * sizeof (SQLWCHAR);
 		} else if (*p->lenp >= 0) {
 		    p->max = *p->lenp;
@@ -4511,7 +4744,7 @@ setupparam(STMT *s, char *sql, int pnum)
 	    } else
 #endif
 	    if (type == SQL_C_CHAR) {
-		if (*p->lenp == SQL_NTS) {
+		if (!p->lenp || *p->lenp == SQL_NTS) {
 		    p->len = p->max = strlen(p->param);
 #if defined(_WIN32) || defined(_WIN64)
 		    needalloc = 1;
@@ -4581,10 +4814,6 @@ setupparam(STMT *s, char *sql, int pnum)
 	}
 	break;
     case SQL_C_UTINYINT:
-	p->s4type = SQLITE4_INTEGER;
-	p->s4size = sizeof (int);
-	p->s4ival = *((SQLCHAR *) p->param);
-	break;
     case SQL_C_TINYINT:
     case SQL_C_STINYINT:
 	p->s4type = SQLITE4_INTEGER;
@@ -5275,7 +5504,7 @@ noconn:
     mkbindcols(s, s->ncols);
     s->nowchar[1] = 1;
     s->nrows = 0;
-    s->rowp = -1;
+    s->rowp = s->rowprs = -1;
     s->isselect = -1;
     if (nret) {
 	*nret = s->ncols;
@@ -5522,10 +5751,9 @@ doit:
 	sqlite4_free(0, errp);
 	errp = NULL;
     }
-    s->rowp = -1;
+    s->rowp = s->rowprs = -1;
     return SQL_SUCCESS;
 }
-
 
 #if !defined(WINTERFACE) || (defined(HAVE_UNIXODBC) && (HAVE_UNIXODBC))
 /**
@@ -7232,13 +7460,13 @@ done:
 static SQLRETURN
 starttran(STMT *s)
 {
-    int ret = SQL_SUCCESS, rc, busy_count = 0;
+    int ret = SQL_SUCCESS, rc;
     char *errp = NULL;
     DBC *d = (DBC *) s->dbc;
 
     if (!d->autocommit && !d->intrans && !d->trans_disable) {
-	rc = sqlite4_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL, &errp);
-	dbtracerc(d, rc, errp);
+	rc = sqlite4_exec(d->sqlite, "BEGIN TRANSACTION", NULL, NULL);
+	dbtracerc(d, rc, NULL);
 	if (rc != SQLITE4_OK) {
 	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		    errp ? errp : "unknown error", rc);
@@ -7265,7 +7493,7 @@ starttran(STMT *s)
 static SQLRETURN
 endtran(DBC *d, SQLSMALLINT comptype, int force)
 {
-    int ret, busy_count = 0;
+    int ret;
     char *sql, *errp = NULL;
 
     if (!d->sqlite) {
@@ -7282,8 +7510,8 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
     case SQL_ROLLBACK:
 	sql = "ROLLBACK TRANSACTION";
     doit:
-	ret = sqlite4_exec(d->sqlite, sql, NULL, NULL, &errp);
-	dbtracerc(d, ret, errp);
+	ret = sqlite4_exec(d->sqlite, sql, NULL, NULL);
+	dbtracerc(d, ret, NULL);
 	d->intrans = 0;
 	if (ret != SQLITE4_OK) {
 	    setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
@@ -8364,9 +8592,12 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     case SQL_ATTR_USE_BOOKMARKS: {
 	STMT *s = (STMT *) stmt;
 
-	*(SQLUINTEGER *) val = s->bkmrk ? SQL_UB_ON : SQL_UB_OFF;
+	*(SQLUINTEGER *) val = s->bkmrk;
 	return SQL_SUCCESS;
     }
+    case SQL_ATTR_FETCH_BOOKMARK_PTR:
+	*(SQLPOINTER *) val = s->bkmrkptr;
+	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
 	*((SQLULEN **) val) = s->parm_bind_offs;
 	return SQL_SUCCESS;
@@ -8580,10 +8811,22 @@ drvsetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS:
 	if (val != (SQLPOINTER) SQL_UB_OFF &&
-	    val != (SQLPOINTER) SQL_UB_ON) {
+	    val != (SQLPOINTER) SQL_UB_ON &&
+	    val != (SQLPOINTER) SQL_UB_VARIABLE) {
 	    goto e01s02;
 	}
-	s->bkmrk = val == (SQLPOINTER) SQL_UB_ON;
+	if (*s->ov3 && val == (SQLPOINTER) SQL_UB_VARIABLE) {
+	    s->bkmrk = SQL_UB_VARIABLE;
+	    return SQL_SUCCESS;
+	}
+	if (val == (SQLPOINTER) SQL_UB_VARIABLE) {
+	    s->bkmrk = SQL_UB_ON;
+	    goto e01s02;
+	} 
+	s->bkmrk = (val == (SQLPOINTER) SQL_UB_ON) ? SQL_UB_ON : SQL_UB_OFF;
+	return SQL_SUCCESS;
+    case SQL_ATTR_FETCH_BOOKMARK_PTR:
+	s->bkmrkptr = (SQLINTEGER *) val;
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
 	s->max_rows = uval;
@@ -8863,6 +9106,411 @@ SQLSetStmtOptionW(SQLHSTMT stmt, SQLUSMALLINT opt,
 #endif
 
 /**
+ * Check for unbound result columns.
+ * @param s statement handle
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+chkunbound(STMT *s)
+{
+    int i;
+
+    if (!s->bindcols || s->nbindcols < s->ncols) {
+unbound:
+	setstat(s, -1, "unbound columns", (*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    for (i = 0; i < s->ncols; i++) {
+	BINDCOL *b = &s->bindcols[i];
+
+	if (b->type == SQL_UNKNOWN_TYPE || !b->valp) {
+	    goto unbound;
+	}
+    }
+    return SQL_SUCCESS;
+}
+
+/**
+ * Internal handler to setup parameters for positional updates
+ * from bound user buffers.
+ * @param s statement handle
+ * @param stmt SQLite4 statement pointer
+ * @param i result set column index
+ * @param si SQLite4 parameter index
+ * @param rsi result set row index
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+setposbind(STMT *s, sqlite4_stmt *stmt, int i, int si, int rsi)
+{
+    DBC *d = (DBC *) s->dbc;
+    SQLPOINTER dp = 0;
+    SQLLEN *lp = 0;
+    BINDCOL *b = &s->bindcols[i];
+    COL *c = &s->cols[i];
+    int frac;
+    char strbuf[128], *cp;
+
+    if (b->valp) {
+	if (s->bind_type != SQL_BIND_BY_COLUMN) {
+	    dp = (SQLPOINTER) ((char *) b->valp + s->bind_type * rsi);
+	} else {
+	    dp = (SQLPOINTER) ((char *) b->valp + b->max * rsi);
+	}
+	if (s->bind_offs) {
+	    dp = (SQLPOINTER) ((char *) dp + *s->bind_offs);
+	}
+    }
+    if (b->lenp) {
+	if (s->bind_type != SQL_BIND_BY_COLUMN) {
+	    lp = (SQLLEN *) ((char *) b->lenp + s->bind_type * rsi);
+	} else {
+	    lp = b->lenp + rsi;
+	}
+	if (s->bind_offs) {
+	    lp = (SQLLEN *) ((char *) lp + *s->bind_offs);
+	}
+    }
+    if (!dp || !lp) {
+	setstat(s, -1, "unbound column in positional update",
+		(*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    if (*lp == SQL_NULL_DATA) {
+	sqlite4_bind_null(stmt, si);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: NULL\n", si);
+	    fflush(d->trace);
+	}
+	return SQL_SUCCESS;
+    }
+    switch (b->type) {
+    case SQL_C_UTINYINT:
+    case SQL_C_TINYINT:
+    case SQL_C_STINYINT:
+	sqlite4_bind_int(stmt, si, *(SQLCHAR *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %d\n", si, *(SQLCHAR *) dp);
+	    fflush(d->trace);
+	}
+	break;
+#ifdef SQL_BIT
+    case SQL_C_BIT:
+	sqlite4_bind_int(stmt, si, (*(SQLCHAR *) dp) ? 1 : 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %d\n", si,
+		    (*(SQLCHAR *) dp) ? 1 : 0);
+	    fflush(d->trace);
+	}
+	break;
+#endif
+    case SQL_C_USHORT:
+	sqlite4_bind_int(stmt, si, *(SQLUSMALLINT *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %d\n", si,
+		    *(SQLUSMALLINT *) dp);
+	    fflush(d->trace);
+	}
+	break;
+    case SQL_C_SHORT:
+    case SQL_C_SSHORT:
+	sqlite4_bind_int(stmt, si, *(SQLSMALLINT *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %d\n", si,
+		    *(SQLSMALLINT *) dp);
+	    fflush(d->trace);
+	}
+	break;
+    case SQL_C_ULONG:
+	sqlite4_bind_int(stmt, si, *(SQLUINTEGER *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %ld\n", si,
+		    (long) *(SQLUINTEGER *) dp);
+	    fflush(d->trace);
+	}
+	break;
+    case SQL_C_LONG:
+    case SQL_C_SLONG:
+	sqlite4_bind_int(stmt, si, *(SQLINTEGER *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %ld\n", si,
+		    (long) *(SQLINTEGER *) dp);
+	    fflush(d->trace);
+	}
+	break;
+#ifdef SQL_BIGINT
+    case SQL_C_UBIGINT:
+    case SQL_C_SBIGINT:
+	sqlite4_bind_int64(stmt, si, *(SQLBIGINT *) dp);
+	if (d->trace) {
+	    fprintf(d->trace,
+#ifdef _WIN32
+		    "-- parameter %d: %I64d\n",
+#else
+		    "-- parameter %d: %lld\n",
+#endif
+		    si, (sqlite4_int64) *(SQLBIGINT *) dp);
+	    fflush(d->trace);
+	}
+	break;
+#endif
+    case SQL_C_FLOAT:
+	sqlite4_bind_double(stmt, si, *(float *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %g\n", si,
+		    *(float *) dp);
+	    fflush(d->trace);
+	}
+	break;
+    case SQL_C_DOUBLE:
+	sqlite4_bind_double(stmt, si, *(double *) dp);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: %g\n", si,
+		    *(double *) dp);
+	    fflush(d->trace);
+	}
+	break;
+    case SQL_C_BINARY:
+	sqlite4_bind_blob(stmt, si, (char *) dp, *lp, SQLITE4_STATIC, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: [BLOB]\n", si);
+	    fflush(d->trace);
+	}
+	break;
+#ifdef WCHARSUPPORT
+    case SQL_C_WCHAR:
+	cp = uc_to_utf((SQLWCHAR *) dp, *lp);
+	if (!cp) {
+	    return nomem(s);
+	}
+	sqlite4_bind_text(stmt, si, cp, -1, SQLITE4_TRANSIENT, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: '%s'\n", si, cp);
+	    fflush(d->trace);
+	}
+	uc_free(cp);
+	break;
+#endif
+    case SQL_C_CHAR:
+#if defined(_WIN32) || defined(_WIN64)
+	if (*s->oemcp) {
+	    cp = wmb_to_utf((char *) dp, *lp);
+	    if (!cp) {
+		return nomem(s);
+	    }
+	    sqlite4_bind_text(stmt, si, cp, -1, SQLITE4_TRANSIENT, 0);
+	    if (d->trace) {
+		fprintf(d->trace, "-- parameter %d: '%s'\n", si, cp);
+		fflush(d->trace);
+	    }
+	    uc_free(cp);
+	} else
+#endif
+	{
+	    if (*lp == SQL_NTS) {
+		sqlite4_bind_text(stmt, si, (char *) dp, -1,
+				  SQLITE4_STATIC, 0);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: '%s'\n", si,
+			    (char *) dp);
+		    fflush(d->trace);
+		}
+	    } else {
+		sqlite4_bind_text(stmt, si, (char *) dp, *lp,
+				  SQLITE4_STATIC, 0);
+		if (d->trace) {
+		    fprintf(d->trace, "-- parameter %d: '%*s'\n", si,
+			    (int) *lp, (char *) dp);
+		    fflush(d->trace);
+		}
+	    }
+	}
+	break;
+#ifdef SQL_C_TYPE_DATE
+    case SQL_C_TYPE_DATE:
+#endif
+    case SQL_C_DATE:
+	sprintf(strbuf, "%04d-%02d-%02d",
+		((DATE_STRUCT *) dp)->year,
+		((DATE_STRUCT *) dp)->month,
+		((DATE_STRUCT *) dp)->day);
+	sqlite4_bind_text(stmt, si, strbuf, -1, SQLITE4_TRANSIENT, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: '%s'\n", si, strbuf);
+	    fflush(d->trace);
+	}
+	break;
+#ifdef SQL_C_TYPE_TIME
+    case SQL_C_TYPE_TIME:
+#endif
+    case SQL_C_TIME:
+	sprintf(strbuf, "%02d:%02d:%02d",
+		((TIME_STRUCT *) dp)->hour,
+		((TIME_STRUCT *) dp)->minute,
+		((TIME_STRUCT *) dp)->second);
+	sqlite4_bind_text(stmt, si, strbuf, -1, SQLITE4_TRANSIENT, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: '%s'\n", si, strbuf);
+	    fflush(d->trace);
+	}
+	break;
+#ifdef SQL_C_TYPE_TIMESTAMP
+    case SQL_C_TYPE_TIMESTAMP:
+#endif
+    case SQL_C_TIMESTAMP:
+	frac = (int) ((TIMESTAMP_STRUCT *) dp)->fraction;
+	frac /= 1000000;
+	frac = frac % 1000;
+	if (frac < 0) {
+	    frac = 0;
+	}
+	if (c->prec && c->prec <= 16) {
+	    sprintf(strbuf, "%04d-%02d-%02d %02d:%02d:00.000",
+		    ((TIMESTAMP_STRUCT *) dp)->year,
+		    ((TIMESTAMP_STRUCT *) dp)->month,
+		    ((TIMESTAMP_STRUCT *) dp)->day,
+		    ((TIMESTAMP_STRUCT *) dp)->hour,
+		    ((TIMESTAMP_STRUCT *) dp)->minute);
+	} else if (c->prec && c->prec <= 19) {
+	    sprintf(strbuf, "%04d-%02d-%02d %02d:%02d:%02d.000",
+		    ((TIMESTAMP_STRUCT *) dp)->year,
+		    ((TIMESTAMP_STRUCT *) dp)->month,
+		    ((TIMESTAMP_STRUCT *) dp)->day,
+		    ((TIMESTAMP_STRUCT *) dp)->hour,
+		    ((TIMESTAMP_STRUCT *) dp)->minute,
+		    ((TIMESTAMP_STRUCT *) dp)->second);
+	} else {
+	    sprintf(strbuf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+		    ((TIMESTAMP_STRUCT *) dp)->year,
+		    ((TIMESTAMP_STRUCT *) dp)->month,
+		    ((TIMESTAMP_STRUCT *) dp)->day,
+		    ((TIMESTAMP_STRUCT *) dp)->hour,
+		    ((TIMESTAMP_STRUCT *) dp)->minute,
+		    ((TIMESTAMP_STRUCT *) dp)->second,
+		    frac);
+	}
+	sqlite4_bind_text(stmt, si, strbuf, -1, SQLITE4_TRANSIENT, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: '%s'\n", si, strbuf);
+	    fflush(d->trace);
+	}
+	break;
+    default:
+	setstat(s, -1, "unsupported column type in positional update",
+		(*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    return SQL_SUCCESS;
+}
+
+/**
+ * Internal handler to setup parameters for positional updates
+ * from driver side result set.
+ * @param s statement handle
+ * @param stmt SQLite4 statement pointer
+ * @param i result set column index
+ * @param si SQLite4 parameter index
+ * @param rsi result set row index
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+setposibind(STMT *s, sqlite4_stmt *stmt, int i, int si, int rsi)
+{
+    DBC *d = (DBC *) s->dbc;
+    char **data;
+    int pos;
+
+    pos = s->rowprs;
+    if (pos < 0) {
+	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
+	return SQL_ERROR;
+    }
+    pos += rsi;
+    data = s->rows + s->ncols + (pos * s->ncols) + i;
+    if (*data == NULL) {
+	sqlite4_bind_null(stmt, si);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: NULL\n", si);
+	    fflush(d->trace);
+	}
+    } else {
+	sqlite4_bind_text(stmt, si, *data, -1, SQLITE4_STATIC, 0);
+	if (d->trace) {
+	    fprintf(d->trace, "-- parameter %d: '%s'\n", si, *data);
+	    fflush(d->trace);
+	}
+    }
+    return SQL_SUCCESS;
+}
+
+/**
+ * Internal handler to refresh user buffers from driver side result set.
+ * @param s statement handle
+ * @param rsi result set row index
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+setposrefr(STMT *s, int rsi)
+{
+    int i, withinfo = 0;
+    SQLRETURN ret = SQL_SUCCESS;
+
+    for (i = 0; s->bindcols && i < s->ncols; i++) {
+	BINDCOL *b = &s->bindcols[i];
+	SQLPOINTER dp = 0;
+	SQLLEN *lp = 0;
+
+	b->offs = 0;
+	if (b->valp) {
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		dp = (SQLPOINTER) ((char *) b->valp + s->bind_type * rsi);
+	    } else {
+		dp = (SQLPOINTER) ((char *) b->valp + b->max * rsi);
+	    }
+	    if (s->bind_offs) {
+		dp = (SQLPOINTER) ((char *) dp + *s->bind_offs);
+	    }
+	}
+	if (b->lenp) {
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		lp = (SQLLEN *) ((char *) b->lenp + s->bind_type * rsi);
+	    } else {
+		lp = b->lenp + rsi;
+	    }
+	    if (s->bind_offs) {
+		lp = (SQLLEN *) ((char *) lp + *s->bind_offs);
+	    }
+	}
+	if (dp || lp) {
+	    int rowp = s->rowp;
+
+	    s->rowp = s->rowprs + rsi;
+	    ret = getrowdata(s, (SQLUSMALLINT) i, b->type, dp,
+			     b->max, lp, 0);
+	    s->rowp = rowp;
+	    if (!SQL_SUCCEEDED(ret)) {
+		s->row_status0[rsi] = SQL_ROW_ERROR;
+		break;
+	    }
+	    if (ret != SQL_SUCCESS) {
+		withinfo = 1;
+#ifdef SQL_ROW_SUCCESS_WITH_INFO
+		s->row_status0[rsi] = SQL_ROW_SUCCESS_WITH_INFO;
+#endif
+	    }
+	}
+    }
+    if (SQL_SUCCEEDED(ret)) {
+	ret = withinfo ? SQL_SUCCESS_WITH_INFO : SQL_SUCCESS;
+    }
+    return ret;
+}
+
+/**
  * Internal set position on result in HSTMT.
  * @param stmt statement handle
  * @param row row to be positioned
@@ -8875,17 +9523,281 @@ static SQLRETURN
 drvsetpos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
 {
     STMT *s = (STMT *) stmt;
-    int rowp;
+    DBC *d = (DBC *) s->dbc;
+    int rowp, i, k, rc;
+    dstr *sql = 0;
+    int sqlleft;
+    sqlite4_stmt *s4stmt = NULL;
+    SQLRETURN ret;
 
-    if (op != SQL_POSITION) {
-	return drvunimplstmt(stmt);
-    }
-    rowp = s->rowp + row - 1;
-    if (!s->rows || row <= 0 || rowp < -1 || rowp >= s->nrows) {
-	setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
+    if (lock != SQL_LOCK_NO_CHANGE) {
+	setstat(s, -1, "unsupported locking mode",
+		(*s->ov3) ? "HY000" : "S1000");
 	return SQL_ERROR;
     }
-    s->rowp = rowp;
+    if (s->isselect != 1 || s->curtype != SQL_CURSOR_STATIC) {
+	setstat(s, -1, "incompatible statement",
+		(*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    if (op == SQL_ADD) {
+	if (s->one_tbl <= 0) {
+	    setstat(s, -1, "incompatible rowset",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
+	}
+	if (row == 0 || row > s->rowset_size + 1) {
+	    goto rowoor;
+	}
+	ret = chkunbound(s);
+	if (ret != SQL_SUCCESS) {
+	    return ret;
+	}
+	sql = dsappend(sql, "INSERT INTO ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	for (i = 0; i < s->ncols; i++) {
+	    sql = dsappend(sql, (i > 0) ? "," : "(");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	}
+	sql = dsappend(sql, ") VALUES ");
+	for (i = 0; i < s->ncols; i++) {
+	    sql = dsappend(sql, (i > 0) ? ",?" : "(?");
+	}
+	sql = dsappend(sql, ")");
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+istmterr:
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
+	    ret = setposbind(s, s4stmt, i, k, row - 1);
+	    if (ret != SQL_SUCCESS) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+		return ret;
+	    }
+	    k++;
+	}
+	rc = sqlite4_step(s4stmt);
+	if (rc != SQLITE4_DONE) {
+	    goto istmterr;
+	}
+	sqlite4_finalize(s4stmt);
+	if (sqlite4_changes(d->sqlite) > 0 && row <= s->rowset_size) {
+	    if (s->row_status0) {
+		s->row_status0[row - 1] = SQL_ROW_ADDED;
+	    }
+	    if (s->row_status) {
+		s->row_status[row - 1] = SQL_ROW_ADDED;
+	    }
+	}
+	return SQL_SUCCESS;
+    } else if (op == SQL_UPDATE || op == SQL_DELETE) {
+	if (s->one_tbl <= 0 || s->has_pk <= 0) {
+	    setstat(s, -1, "incompatible rowset",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
+	}
+	if (row == 0) {
+	    ret = SQL_SUCCESS;
+	    for (i = 1; i <= s->rowset_size; i++) {
+		ret = drvsetpos(stmt, i, op, lock);
+		if (!SQL_SUCCEEDED(ret)) {
+		    break;
+		}
+	    }
+	    return ret;
+	}
+	if (row > s->rowset_size) {
+	    goto rowoor;
+	}
+    }
+    if (op != SQL_POSITION && op != SQL_REFRESH &&
+	op != SQL_DELETE && op != SQL_UPDATE) {
+	return drvunimplstmt(stmt);
+    }
+    if (op == SQL_POSITION) {
+	rowp = s->rowp + row - 1;
+	if (!s->rows || row == 0 || rowp < -1 || rowp >= s->nrows) {
+rowoor:
+	    setstat(s, -1, "row out of range", (*s->ov3) ? "HY107" : "S1107");
+	    return SQL_ERROR;
+	}
+	s->rowp = rowp;
+    } else if (op == SQL_REFRESH) {
+	if (row > s->rowset_size) {
+	    goto rowoor;
+	}
+	if (row == 0) {
+	    ret = SQL_SUCCESS;
+	    for (i = 0; i < s->rowset_size; i++) {
+		ret = setposrefr(s, i);
+		if (!SQL_SUCCEEDED(ret)) {
+		    break;
+		}
+	    }
+	    return ret;
+	}
+	return setposrefr(s, row - 1);
+    } else if (op == SQL_DELETE) {
+	sql = dsappend(sql, "DELETE FROM ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	for (i = k = 0; i < s->ncols; i++) {
+	    if (s->dyncols[i].ispk <= 0) {
+		continue;
+	    }
+	    sql = dsappend(sql, (k > 0) ? " AND " : " WHERE ");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	    sql = dsappend(sql, " = ?");
+	    k++;
+	}
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+dstmterr:
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
+	    if (s->dyncols[i].ispk <= 0) {
+		continue;
+	    }
+	    ret = setposibind(s, s4stmt, i, k, row - 1);
+	    if (ret != SQL_SUCCESS) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+		return ret;
+	    }
+	    k++;
+	}
+	rc = sqlite4_step(s4stmt);
+	if (rc != SQLITE4_DONE) {
+	    goto dstmterr;
+	}
+	sqlite4_finalize(s4stmt);
+	if (sqlite4_changes(d->sqlite) > 0) {
+	    if (s->row_status0) {
+		s->row_status0[row - 1] = SQL_ROW_DELETED;
+	    }
+	    if (s->row_status) {
+		s->row_status[row - 1] = SQL_ROW_DELETED;
+	    }
+	}
+	return SQL_SUCCESS;
+    } else if (op == SQL_UPDATE) {
+	ret = chkunbound(s);
+	if (ret != SQL_SUCCESS) {
+	    return ret;
+	}
+	sql = dsappend(sql, "UPDATE ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	for (i = 0; i < s->ncols; i++) {
+	    sql = dsappend(sql, (i > 0) ? ", " : " SET ");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	    sql = dsappend(sql, " = ?");
+	}
+	for (i = k = 0; i < s->ncols; i++) {
+	    if (s->dyncols[i].ispk <= 0) {
+		continue;
+	    }
+	    sql = dsappend(sql, (k > 0) ? " AND " : " WHERE ");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	    sql = dsappend(sql, " = ?");
+	    k++;
+	}
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+ustmterr:
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
+	    ret = setposbind(s, s4stmt, i, k, row - 1);
+	    if (ret != SQL_SUCCESS) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+		return ret;
+	    }
+	    k++;
+	}
+	for (i = 0; s->bindcols && i < s->ncols; i++) {
+	    if (s->dyncols[i].ispk <= 0) {
+		continue;
+	    }
+	    ret = setposibind(s, s4stmt, i, k, row - 1);
+	    if (ret != SQL_SUCCESS) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+		return ret;
+	    }
+	    k++;
+	}
+	rc = sqlite4_step(s4stmt);
+	if (rc != SQLITE4_DONE) {
+	    goto ustmterr;
+	}
+	sqlite4_finalize(s4stmt);
+	if (sqlite4_changes(d->sqlite) > 0) {
+	    if (s->row_status0) {
+		s->row_status0[row - 1] = SQL_ROW_UPDATED;
+	    }
+	    if (s->row_status) {
+		s->row_status[row - 1] = SQL_ROW_UPDATED;
+	    }
+	}
+	return SQL_SUCCESS;
+    }
     return SQL_SUCCESS;
 }
 
@@ -8905,6 +9817,405 @@ SQLSetPos(SQLHSTMT stmt, SQLSETPOSIROW row, SQLUSMALLINT op, SQLUSMALLINT lock)
 
     HSTMT_LOCK(stmt);
     ret = drvsetpos(stmt, row, op, lock);
+    HSTMT_UNLOCK(stmt);
+    return ret;
+}
+
+/**
+ * Internal perform bulk operation on HSTMT.
+ * @param stmt statement handle
+ * @param op operation to be performed
+ * @result ODBC error code
+ */
+
+static SQLRETURN
+drvbulkoperations(SQLHSTMT stmt, SQLSMALLINT op)
+{
+    STMT *s = (STMT *) stmt;
+    DBC *d = (DBC *) s->dbc;
+    int row, i, k, rc;
+    dstr *sql = 0;
+    int sqlleft;
+    sqlite4_stmt *s4stmt = NULL;
+    SQLRETURN ret;
+
+    if (s->isselect != 1 || s->curtype != SQL_CURSOR_STATIC) {
+	setstat(s, -1, "incompatible statement",
+		(*s->ov3) ? "HY000" : "S1000");
+	return SQL_ERROR;
+    }
+    if (op == SQL_ADD) {
+	if (s->one_tbl <= 0) {
+	    setstat(s, -1, "incompatible rowset",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
+	}
+	ret = chkunbound(s);
+	if (ret != SQL_SUCCESS) {
+	    return ret;
+	}
+	sql = dsappend(sql, "INSERT INTO ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	for (i = 0; i < s->ncols; i++) {
+	    sql = dsappend(sql, (i > 0) ? "," : "(");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	}
+	sql = dsappend(sql, ") VALUES ");
+	for (i = 0; i < s->ncols; i++) {
+	    sql = dsappend(sql, (i > 0) ? ",?" : "(?");
+	}
+	sql = dsappend(sql, ")");
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (row = 0; row < s->rowset_size; row++) {
+	    for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
+		ret = setposbind(s, s4stmt, i, k, row);
+		if (ret != SQL_SUCCESS) {
+istmterr:
+		    if (s->row_status0) {
+			s->row_status0[row] = SQL_ROW_ERROR;
+		    }
+		    if (s->row_status) {
+			s->row_status[row] = SQL_ROW_ERROR;
+		    }
+		    dbtraceapi(d, "sqlite4_finalize", NULL);
+		    sqlite4_finalize(s4stmt);
+		    return ret;
+		}
+		k++;
+	    }
+	    rc = sqlite4_step(s4stmt);
+	    if (rc != SQLITE4_DONE) {
+		setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+			sqlite4_errmsg(d->sqlite), rc);
+		ret = SQL_ERROR;
+		goto istmterr;
+	    }
+	    if (sqlite4_changes(d->sqlite) > 0) {
+		if (s->row_status0) {
+		    s->row_status0[row] = SQL_ROW_ADDED;
+		}
+		if (s->row_status) {
+		    s->row_status[row] = SQL_ROW_ADDED;
+		}
+	    }
+	    if (s->bkmrk == SQL_UB_VARIABLE &&
+		s->bkmrkcol.type == SQL_C_VARBOOKMARK &&
+		s->bkmrkcol.valp) {
+		SQLPOINTER *val;
+
+		if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		    val = (SQLPOINTER)
+			((char *) s->bkmrkcol.valp + s->bind_type * row);
+		} else {
+		    val = (SQLPOINTER)
+			((char *) s->bkmrkcol.valp + s->bkmrkcol.max * row);
+		}
+		if (s->bind_offs) {
+		    val = (SQLPOINTER) ((char *) val + *s->bind_offs);
+		}
+#if 0
+		*(sqlite4_int64 *) val = sqlite4_last_insert_rowid(d->sqlite);
+#else
+		*(sqlite4_int64 *) val = 0;
+#endif
+		if (s->bkmrkcol.lenp) {
+		    SQLLEN *ival;
+
+		    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+			ival = (SQLLEN *)
+			    ((char *) s->bkmrkcol.lenp + s->bind_type * row);
+		    } else {
+			ival = &s->bkmrkcol.lenp[row];
+		    }
+		    if (s->bind_offs) {
+			ival = (SQLLEN *) ((char *) ival + *s->bind_offs);
+		    }
+		    *ival = sizeof (sqlite4_int64);
+		}
+	    }
+	    dbtraceapi(d, "sqlite4_reset", NULL);
+	    sqlite4_reset(s4stmt);
+	}
+	dbtraceapi(d, "sqlite4_finalize", NULL);
+	sqlite4_finalize(s4stmt);
+	return SQL_SUCCESS;
+    } else if (op == SQL_DELETE_BY_BOOKMARK) {
+	if (s->has_rowid < 0 ||
+	    s->bkmrk != SQL_UB_VARIABLE ||
+	    s->bkmrkcol.type != SQL_C_VARBOOKMARK ||
+	    !s->bkmrkcol.valp) {
+	    setstat(s, -1, "incompatible rowset",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
+	}
+	sql = dsappend(sql, "DELETE FROM ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	sql = dsappend(sql, " WHERE ");
+	sql = dsappendq(sql, s->dyncols[0].column);
+	sql = dsappend(sql, " = ?");
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (row = 0; row < s->rowset_size; row++) {
+	    SQLPOINTER *val;
+	    sqlite4_int64 rowid;
+
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bind_type * row);
+	    } else {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bkmrkcol.max * row);
+	    }
+	    if (s->bind_offs) {
+		val = (SQLPOINTER) ((char *) val + *s->bind_offs);
+	    }
+	    if (s->bkmrkcol.lenp) {
+		SQLLEN *ival;
+
+		if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		    ival = (SQLLEN *)
+			((char *) s->bkmrkcol.lenp + s->bind_type * row);
+		} else {
+		    ival = &s->bkmrkcol.lenp[row];
+		}
+		if (s->bind_offs) {
+		    ival = (SQLLEN *) ((char *) ival + *s->bind_offs);
+		}
+		if (*ival != sizeof (sqlite4_int64)) {
+		    continue;
+		}
+	    }
+	    rowid = *(sqlite4_int64 *) val;
+	    sqlite4_bind_int64(s4stmt, 1, rowid);
+	    if (d->trace) {
+		fprintf(d->trace,
+#ifdef _WIN32
+			"-- parameter 1: %I64d\n",
+#else
+			"-- parameter 1: %lld\n",
+#endif
+			rowid);
+		fflush(d->trace);
+	    }
+	    rc = sqlite4_step(s4stmt);
+	    if (rc != SQLITE4_DONE) {
+		setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+			sqlite4_errmsg(d->sqlite), rc);
+		if (s->row_status0) {
+		    s->row_status0[row] = SQL_ROW_ERROR;
+		}
+		if (s->row_status) {
+		    s->row_status[row] = SQL_ROW_ERROR;
+		}
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+		return SQL_ERROR;
+	    }
+	    if (sqlite4_changes(d->sqlite) > 0) {
+		if (s->row_status0) {
+		    s->row_status0[row] = SQL_ROW_DELETED;
+		}
+		if (s->row_status) {
+		    s->row_status[row] = SQL_ROW_DELETED;
+		}
+	    }
+	    dbtraceapi(d, "sqlite4_reset", NULL);
+	    sqlite4_reset(s4stmt);
+	}
+	dbtraceapi(d, "sqlite4_finalize", NULL);
+	sqlite4_finalize(s4stmt);
+	return SQL_SUCCESS;
+    } else if (op == SQL_UPDATE_BY_BOOKMARK) {
+	if (s->has_rowid < 0 ||
+	    s->bkmrk != SQL_UB_VARIABLE ||
+	    s->bkmrkcol.type != SQL_C_VARBOOKMARK ||
+	    !s->bkmrkcol.valp) {
+	    setstat(s, -1, "incompatible rowset",
+		    (*s->ov3) ? "HY000" : "S1000");
+	    return SQL_ERROR;
+	}
+	ret = chkunbound(s);
+	if (ret != SQL_SUCCESS) {
+	    return ret;
+	}
+	sql = dsappend(sql, "UPDATE ");
+	if (s->dyncols[0].db && s->dyncols[0].db[0]) {
+	    sql = dsappendq(sql, s->dyncols[0].db);
+	    sql = dsappend(sql, ".");
+	}
+	sql = dsappendq(sql, s->dyncols[0].table);
+	for (i = 0, k = 0; i < s->ncols; i++) {
+	    if (i == s->has_rowid) {
+		continue;
+	    }
+	    sql = dsappend(sql, (k > 0) ? ", " : " SET ");
+	    sql = dsappendq(sql, s->dyncols[i].column);
+	    sql = dsappend(sql, " = ?");
+	    k++;
+	}
+	sql = dsappend(sql, " WHERE ");
+	sql = dsappendq(sql, s->dyncols[s->has_rowid].column);
+	sql = dsappend(sql, " = ?");
+	if (dserr(sql)) {
+	    dsfree(sql);
+	    return nomem(s);
+	}
+	dbtraceapi(d, "sqlite4_prepare", dsval(sql));
+	s4stmt = NULL;
+	rc = sqlite4_prepare(d->sqlite, dsval(sql), -1, &s4stmt, &sqlleft);
+	dbtracerc(d, rc, NULL);
+	dsfree(sql);
+	if (rc != SQLITE4_OK) {
+	    setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+		    sqlite4_errmsg(d->sqlite), rc);
+	    if (s4stmt) {
+		dbtraceapi(d, "sqlite4_finalize", NULL);
+		sqlite4_finalize(s4stmt);
+	    }
+	    return SQL_ERROR;
+	}
+	for (row = 0; row < s->rowset_size; row++) {
+	    SQLPOINTER *val;
+	    sqlite4_int64 rowid;
+
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bind_type * row);
+	    } else {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bkmrkcol.max * row);
+	    }
+	    if (s->bind_offs) {
+		val = (SQLPOINTER) ((char *) val + *s->bind_offs);
+	    }
+	    if (s->bkmrkcol.lenp) {
+		SQLLEN *ival;
+
+		if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		    ival = (SQLLEN *)
+			((char *) s->bkmrkcol.lenp + s->bind_type * row);
+		} else {
+		    ival = &s->bkmrkcol.lenp[row];
+		}
+		if (s->bind_offs) {
+		    ival = (SQLLEN *) ((char *) ival + *s->bind_offs);
+		}
+		if (*ival != sizeof (sqlite4_int64)) {
+		    continue;
+		}
+	    }
+	    for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
+		if (i == s->has_rowid) {
+		    continue;
+		}
+		ret = setposbind(s, s4stmt, i, k, row);
+		if (ret != SQL_SUCCESS) {
+ustmterr:
+		    if (s->row_status0) {
+			s->row_status0[row] = SQL_ROW_ERROR;
+		    }
+		    if (s->row_status) {
+			s->row_status[row] = SQL_ROW_ERROR;
+		    }
+		    dbtraceapi(d, "sqlite4_finalize", NULL);
+		    sqlite4_finalize(s4stmt);
+		    return ret;
+		}
+		k++;
+	    }
+	    rowid = *(sqlite4_int64 *) val;
+	    sqlite4_bind_int64(s4stmt, k, rowid);
+	    if (d->trace) {
+		fprintf(d->trace,
+#ifdef _WIN32
+			"-- parameter %d: %I64d\n",
+#else
+			"-- parameter %d: %lld\n",
+#endif
+			k, rowid);
+		fflush(d->trace);
+	    }
+	    rc = sqlite4_step(s4stmt);
+	    if (rc != SQLITE4_DONE) {
+		setstat(s, rc, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
+			sqlite4_errmsg(d->sqlite), rc);
+		ret = SQL_ERROR;
+		goto ustmterr;
+	    }
+	    if (sqlite4_changes(d->sqlite) > 0) {
+		if (s->row_status0) {
+		    s->row_status0[row] = SQL_ROW_UPDATED;
+		}
+		if (s->row_status) {
+		    s->row_status[row] = SQL_ROW_UPDATED;
+		}
+	    }
+	    dbtraceapi(d, "sqlite4_reset", NULL);
+	    sqlite4_reset(s4stmt);
+	}
+	dbtraceapi(d, "sqlite4_finalize", NULL);
+	sqlite4_finalize(s4stmt);
+	return SQL_SUCCESS;
+    }
+    setstat(s, -1, "unsupported operation", (*s->ov3) ? "HY000" : "S1000");
+    return SQL_ERROR;
+}
+
+/**
+ * Perform bulk operation on HSTMT.
+ * @param stmt statement handle
+ * @param oper operation to be performed
+ * @result ODBC error code
+ */
+
+SQLRETURN SQL_API
+SQLBulkOperations(SQLHSTMT stmt, SQLSMALLINT oper)
+{
+    SQLRETURN ret;
+
+    HSTMT_LOCK(stmt);
+    ret = drvbulkoperations(stmt, oper);
     HSTMT_UNLOCK(stmt);
     return ret;
 }
@@ -9268,8 +10579,11 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_POSITIONED_STATEMENTS:
-    case SQL_LOCK_TYPES:
 	*((SQLUINTEGER *) val) = 0;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+    case SQL_LOCK_TYPES:
+	*((SQLUINTEGER *) val) = SQL_LCK_NO_CHANGE;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_BOOKMARK_PERSISTENCE:
@@ -9292,7 +10606,8 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLUSMALLINT);
 	break;
     case SQL_POS_OPERATIONS:
-	*((SQLUINTEGER *) val) = 0;
+	*((SQLUINTEGER *) val) = SQL_POS_POSITION | SQL_POS_UPDATE |
+	    SQL_POS_DELETE | SQL_POS_ADD | SQL_POS_REFRESH;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_ALTER_TABLE:
@@ -9392,7 +10707,10 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_STATIC_CURSOR_ATTRIBUTES1:
 	*((SQLUINTEGER *) val) = SQL_CA1_NEXT | SQL_CA1_ABSOLUTE |
-	    SQL_CA1_RELATIVE | SQL_CA1_BOOKMARK;
+	    SQL_CA1_RELATIVE | SQL_CA1_BOOKMARK | SQL_CA1_POS_POSITION |
+	    SQL_CA1_POS_DELETE | SQL_CA1_POS_UPDATE | SQL_CA1_POS_REFRESH |
+	    SQL_CA1_LOCK_NO_CHANGE | SQL_CA1_BULK_ADD |
+	    SQL_CA1_BULK_UPDATE_BY_BOOKMARK | SQL_CA1_BULK_DELETE_BY_BOOKMARK;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_FORWARD_ONLY_CURSOR_ATTRIBUTES2:
@@ -9589,6 +10907,7 @@ SQLGetFunctions(SQLHDBC dbc, SQLUSMALLINT func,
     exists[SQL_API_SQLSETPARAM] = SQL_TRUE;
     exists[SQL_API_SQLEXECDIRECT] = SQL_TRUE;
     exists[SQL_API_SQLTRANSACT] = SQL_TRUE;
+    exists[SQL_API_SQLBULKOPERATIONS] = SQL_TRUE;
     exists[SQL_API_SQLEXECUTE] = SQL_TRUE;
     exists[SQL_API_SQLBINDPARAMETER] = SQL_TRUE;
     exists[SQL_API_SQLGETTYPEINFO] = SQL_TRUE;
@@ -10780,7 +12099,7 @@ drvdisconnect(SQLHDBC dbc)
 		    d->dbname);
 	    fflush(d->trace);
 	}
-	sqlite4_close(d->sqlite);
+	sqlite4_close(d->sqlite, 0);
 	d->sqlite = NULL;
     }
     freep(&d->dbname);
@@ -11125,6 +12444,8 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     memset(s, 0, sizeof (STMT));
     s->dbc = dbc;
     s->ov3 = d->ov3;
+    s->bkmrk = SQL_UB_OFF;
+    s->bkmrkptr = 0;
     s->oemcp = &d->oemcp;
     s->nowchar[0] = d->nowchar;
     s->nowchar[1] = 0;
@@ -11139,6 +12460,9 @@ drvallocstmt(SQLHDBC dbc, SQLHSTMT *stmt)
     s->bind_offs = NULL;
     s->paramset_size = 1;
     s->parm_bind_type = SQL_PARAM_BIND_BY_COLUMN;
+    s->one_tbl = -1;
+    s->has_pk = -1;
+    s->has_rowid = -1;
 #ifdef _WIN64
     sprintf((char *) s->cursorname, "CUR_%I64X", (SQLUBIGINT) *stmt);
 #else
@@ -11601,6 +12925,8 @@ freedyncols(STMT *s)
 	if (s->cols == s->dyncols) {
 	    s->cols = NULL;
 	    s->ncols = 0;
+	    s->one_tbl = -1;
+	    s->has_pk = -1;
 	}
 	freep(&s->dyncols);
     }
@@ -11641,6 +12967,9 @@ freeresult(STMT *s, int clrcols)
 	s->cols = NULL;
 	s->ncols = 0;
 	s->nowchar[1] = 0;
+	s->one_tbl = -1;
+	s->has_pk = -1;
+	s->has_rowid = -1;
     }
 }
 
@@ -11654,14 +12983,8 @@ unbindcols(STMT *s)
 {
     int i;
 
-    s->bkmrkcol.type = -1;
-    s->bkmrkcol.max = 0;
-    s->bkmrkcol.lenp = NULL;
-    s->bkmrkcol.valp = NULL;
-    s->bkmrkcol.index = 0;
-    s->bkmrkcol.offs = 0;
     for (i = 0; s->bindcols && i < s->nbindcols; i++) {
-	s->bindcols[i].type = -1;
+	s->bindcols[i].type = SQL_UNKNOWN_TYPE;
 	s->bindcols[i].max = 0;
 	s->bindcols[i].lenp = NULL;
 	s->bindcols[i].valp = NULL;
@@ -11690,7 +13013,7 @@ mkbindcols(STMT *s, int ncols)
 		return nomem(s);
 	    }
 	    for (i = s->nbindcols; i < ncols; i++) {
-		bindcols[i].type = -1;
+		bindcols[i].type = SQL_UNKNOWN_TYPE;
 		bindcols[i].max = 0;
 		bindcols[i].lenp = NULL;
 		bindcols[i].valp = NULL;
@@ -11747,6 +13070,9 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	setstat(s, -1, "invalid column", (*s->ov3) ? "07009" : "S1002");
 	return SQL_ERROR;
     }
+    if (s->retr_data != SQL_RD_ON) {
+	return SQL_SUCCESS;
+    }
     if (!s->rows) {
 	*lenp = SQL_NULL_DATA;
 	goto done;
@@ -11754,9 +13080,6 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
     if (s->rowp < 0 || s->rowp >= s->nrows) {
 	*lenp = SQL_NULL_DATA;
 	goto done;
-    }
-    if (s->retr_data != SQL_RD_ON) {
-	return SQL_SUCCESS;
     }
     type = mapdeftype(type, s->cols[col].type, s->cols[col].nosign ? 1 : 0,
 		      s->nowchar[0]);
@@ -12270,13 +13593,26 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     }
     s = (STMT *) stmt;
     if (col < 1) {
-	if (col == 0 && s->bkmrk && type == SQL_C_BOOKMARK) {
-	    s->bkmrkcol.type = type;
-	    s->bkmrkcol.max = sizeof (SQLINTEGER);
-	    s->bkmrkcol.lenp = lenp;
+	if (col == 0 && s->bkmrk == SQL_UB_ON &&
+	    type == SQL_C_BOOKMARK) {
+	    s->bkmrkcol.type = val ? type : SQL_UNKNOWN_TYPE;
+	    s->bkmrkcol.max = val ? sizeof (SQLINTEGER) : 0;
+	    s->bkmrkcol.lenp = val ? lenp : 0;
 	    s->bkmrkcol.valp = val;
 	    s->bkmrkcol.offs = 0;
-	    if (lenp) {
+	    if (val && lenp) {
+		*lenp = 0;
+	    }
+	    return SQL_SUCCESS;
+	} else if (col == 0 && s->bkmrk == SQL_UB_VARIABLE &&
+		   type == SQL_C_VARBOOKMARK &&
+		   max >= sizeof (sqlite4_int64)) {
+	    s->bkmrkcol.type = val ? type : SQL_UNKNOWN_TYPE;
+	    s->bkmrkcol.max = val ? max : 0;
+	    s->bkmrkcol.lenp = val ? lenp : 0;
+	    s->bkmrkcol.valp = val;
+	    s->bkmrkcol.offs = 0;
+	    if (val && lenp) {
 		*lenp = 0;
 	    }
 	    return SQL_SUCCESS;
@@ -12367,7 +13703,7 @@ drvbindcol(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
     }
     if (val == NULL) {
 	/* unbind column */
-	s->bindcols[col].type = -1;
+	s->bindcols[col].type = SQL_UNKNOWN_TYPE;
 	s->bindcols[col].max = 0;
 	s->bindcols[col].lenp = NULL;
 	s->bindcols[col].valp = NULL;
@@ -12491,7 +13827,7 @@ drvtables(SQLHSTMT stmt,
 	s->rowfree = sqlite4_free;
 #endif
 	s->nrows = 2;
-	s->rowp = -1;
+	s->rowp = s->rowprs = -1;
 	return SQL_SUCCESS;
     }
     if (cat && (catLen > 0 || catLen == SQL_NTS) && cat[0] == '%') {
@@ -12613,7 +13949,7 @@ doit:
 	sqlite4_free(0, errp);
 	errp = NULL;
     }
-    s->rowp = -1;
+    s->rowp = s->rowprs = -1;
     return SQL_SUCCESS;
 }
 
@@ -14188,13 +15524,34 @@ SQLGetData(SQLHSTMT stmt, SQLUSMALLINT col, SQLSMALLINT type,
 	return SQL_INVALID_HANDLE;
     }
     s = (STMT *) stmt;
-    if (col == 0 && s->bkmrk && type == SQL_C_BOOKMARK) {
-	*((long *) val) = s->rowp;
-	if (lenp) {
-	    *lenp = sizeof (long);
+    if (col == 0 && s->bkmrk != SQL_UB_OFF) {
+	if (s->bkmrk == SQL_UB_ON && type == SQL_C_BOOKMARK) {
+	    *((SQLINTEGER *) val) = s->rowp;
+	    if (lenp) {
+		*lenp = sizeof (SQLINTEGER);
+	    }
+	    ret = SQL_SUCCESS;
+	    goto done;
+	} else if (s->bkmrk == SQL_UB_VARIABLE && type == SQL_C_VARBOOKMARK) {
+	    if (s->has_rowid >= 0) {
+		char **data, *endp = 0;
+
+		data = s->rows + s->ncols + (s->rowp * s->ncols)
+		     + s->has_rowid;
+#ifdef __osf__
+		*((sqlite4_int64 *) val) = strtol(*data, &endp, 0);
+#else
+		*((sqlite4_int64 *) val) = strtoll(*data, &endp, 0);
+#endif
+	    } else {
+		*((sqlite4_int64 *) val) = s->rowp;
+	    }
+	    if (lenp) {
+		*lenp = sizeof (sqlite4_int64);
+	    }
+	    ret = SQL_SUCCESS;
+	    goto done;
 	}
-	ret = SQL_SUCCESS;
-	goto done;
     }
     if (col < 1 || col > s->ncols) {
 	setstat(s, -1, "invalid column", (*s->ov3) ? "07009" : "S1002");
@@ -14220,18 +15577,50 @@ dofetchbind(STMT *s, int rsi)
     int ret, i, withinfo = 0;
 
     s->row_status0[rsi] = SQL_ROW_SUCCESS;
-    if (s->bkmrk && s->bkmrkcol.valp) {
-	long *val;
+    if (s->bkmrk != SQL_UB_OFF && s->bkmrkcol.valp) {
+	int bsize = sizeof (SQLINTEGER);
 
-	if (s->bind_type != SQL_BIND_BY_COLUMN) {
-	    val = (long *) ((char *) s->bkmrkcol.valp + s->bind_type * rsi);
+	if (s->bkmrkcol.type == SQL_C_VARBOOKMARK) {
+	    SQLPOINTER *val;
+
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bind_type * rsi);
+	    } else {
+		val = (SQLPOINTER)
+		    ((char *) s->bkmrkcol.valp + s->bkmrkcol.max * rsi);
+	    }
+	    if (s->bind_offs) {
+		val = (SQLPOINTER) ((char *) val + *s->bind_offs);
+	    }
+	    if (s->has_rowid >= 0) {
+		char **data, *endp = 0;
+
+		data = s->rows + s->ncols + (s->rowp * s->ncols)
+		     + s->has_rowid;
+#ifdef __osf__
+		*(sqlite4_int64 *) val = strtol(*data, &endp, 0);
+#else
+		*(sqlite4_int64 *) val = strtoll(*data, &endp, 0);
+#endif
+	    } else {
+		*(sqlite4_int64 *) val = s->rowp;
+	    }
+	    bsize = sizeof (sqlite4_int64);
 	} else {
-	    val = (long *) s->bkmrkcol.valp + rsi;
+	    SQLINTEGER *val;
+
+	    if (s->bind_type != SQL_BIND_BY_COLUMN) {
+		val = (SQLINTEGER *)
+		    ((char *) s->bkmrkcol.valp + s->bind_type * rsi);
+	    } else {
+		val = (SQLINTEGER *) s->bkmrkcol.valp + rsi;
+	    }
+	    if (s->bind_offs) {
+		val = (SQLINTEGER *) ((char *) val + *s->bind_offs);
+	    }
+	    *val = s->rowp;
 	}
-	if (s->bind_offs) {
-	    val = (long *) ((char *) val + *s->bind_offs);
-	}
-	*val = s->rowp;
 	if (s->bkmrkcol.lenp) {
 	    SQLLEN *ival;
 
@@ -14244,7 +15633,7 @@ dofetchbind(STMT *s, int rsi)
 	    if (s->bind_offs) {
 		ival = (SQLLEN *) ((char *) ival + *s->bind_offs);
 	    }
-	    *ival = sizeof (long);
+	    *ival = bsize;
 	}
     }
     ret = SQL_SUCCESS;
@@ -14347,7 +15736,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
     ret = SQL_SUCCESS;
     i = 0;
     if (((DBC *) (s->dbc))->cur_s4stmt == s && s->s4stmt) {
-	s->rowp = 0;
+	s->rowp = s->rowprs = 0;
 	for (; i < s->rowset_size; i++) {
 	    if (s->max_rows && s->s4stmt_rownum + 1 >= s->max_rows) {
 		ret = (i == 0) ? SQL_NO_DATA : SQL_SUCCESS;
@@ -14378,18 +15767,18 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 		s->rowp = -1;
 	    }
 	    if (s->rowp >= s->nrows) {
-		s->rowp = s->nrows;
+		s->rowp = s->rowprs = s->nrows;
 		return SQL_NO_DATA;
 	    }
 	    break;
 	case SQL_FETCH_PRIOR:
 	    if (s->nrows < 1 || s->rowp <= 0) {
-		s->rowp = -1;
+		s->rowp = s->rowprs = -1;
 		return SQL_NO_DATA;
 	    }
 	    s->rowp -= s->rowset_size + 1;
 	    if (s->rowp < -1) {
-		s->rowp = -1;
+		s->rowp = s->rowprs = -1;
 		return SQL_NO_DATA;
 	    }
 	    break;
@@ -14410,17 +15799,17 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    break;
 	case SQL_FETCH_ABSOLUTE:
 	    if (offset == 0) {
-		s->rowp = -1;
+		s->rowp = s->rowprs = -1;
 		return SQL_NO_DATA;
 	    } else if (offset < 0) {
 		if (0 - offset <= s->nrows) {
 		    s->rowp = s->nrows + offset - 1;
 		    break;
 		}
-		s->rowp = -1;
+		s->rowp = s->rowprs = -1;
 		return SQL_NO_DATA;
 	    } else if (offset > s->nrows) {
-		s->rowp = s->nrows;
+		s->rowp = s->rowprs = s->nrows;
 		return SQL_NO_DATA;
 	    }
 	    s->rowp = offset - 1 - 1;
@@ -14429,23 +15818,57 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    if (offset >= 0) {
 		s->rowp += offset * s->rowset_size - 1;
 		if (s->rowp >= s->nrows) {
-		    s->rowp = s->nrows;
+		    s->rowp = s->rowprs = s->nrows;
 		    return SQL_NO_DATA;
 		}
 	    } else {
 		s->rowp += offset * s->rowset_size - 1;
 		if (s->rowp < -1) {
-		    s->rowp = -1;
+		    s->rowp = s->rowprs = -1;
 		    return SQL_NO_DATA;
 		}
 	    }
 	    break;
 	case SQL_FETCH_BOOKMARK:
-	    if (s->bkmrk) {
+	    if (s->bkmrk == SQL_UB_ON && !s->bkmrkptr) {
 		if (offset < 0 || offset >= s->nrows) {
 		    return SQL_NO_DATA;
 		}
 		s->rowp = offset - 1;
+		break;
+	    }
+	    if (s->bkmrk != SQL_UB_OFF && s->bkmrkptr) {
+		int rowp;
+
+		if (s->bkmrk == SQL_UB_VARIABLE) {
+		    if (s->has_rowid >= 0) {
+			sqlite4_int64 bkmrk, rowid;
+
+			bkmrk = *(sqlite4_int64 *) s->bkmrkptr;
+			for (rowp = 0; rowp < s->nrows; rowp++) {
+			    char **data, *endp = 0;
+
+			    data = s->rows + s->ncols + (rowp * s->ncols)
+				 + s->has_rowid;
+#ifdef __osf__
+			    rowid = strtol(*data, &endp, 0);
+#else
+			    rowid = strtoll(*data, &endp, 0);
+#endif
+			    if (rowid == bkmrk) {
+				break;
+			    }
+			}
+		    } else {
+			rowp = *(sqlite4_int64 *) s->bkmrkptr;
+		    }
+		} else {
+		    rowp = *(int *) s->bkmrkptr;
+		}
+		if (rowp + offset < 0 || rowp + offset >= s->nrows) {
+		    return SQL_NO_DATA;
+		}
+		s->rowp = rowp + offset - 1;
 		break;
 	    }
 	    /* fall through */
@@ -14454,6 +15877,7 @@ drvfetchscroll(SQLHSTMT stmt, SQLSMALLINT orient, SQLINTEGER offset)
 	    ret = SQL_ERROR;
 	    goto done;
 	}
+	s->rowprs = s->rowp + 1;
 	for (; i < s->rowset_size; i++) {
 	    ++s->rowp;
 	    if (s->rowp < 0 || s->rowp >= s->nrows) {
@@ -14542,6 +15966,7 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLROWOFFSET offset,
     STMT *s;
     SQLRETURN ret;
     SQLUSMALLINT *rst;
+    SQLINTEGER *bkmrkptr;
 
     HSTMT_LOCK(stmt);
     if (stmt == SQL_NULL_HSTMT) {
@@ -14551,8 +15976,11 @@ SQLExtendedFetch(SQLHSTMT stmt, SQLUSMALLINT orient, SQLROWOFFSET offset,
     /* temporarily turn off SQL_ATTR_ROW_STATUS_PTR */
     rst = s->row_status;
     s->row_status = 0;
+    bkmrkptr = s->bkmrkptr;
+    s->bkmrkptr = 0;
     ret = drvfetchscroll(stmt, orient, offset);
     s->row_status = rst;
+    s->bkmrkptr = bkmrkptr;
     if (rowstatus) {
 	memcpy(rowstatus, s->row_status0,
 	       sizeof (SQLUSMALLINT) * s->rowset_size);
@@ -16190,14 +17618,14 @@ noconn:
     freeresult(s, -1);
     if (s->isselect == 1) {
 	int ret, ncols, nretry = 0;
-	const char *rest;
+	int sqlleft;
 	sqlite4_stmt *s4stmt = NULL;
 
 	dbtraceapi(d, "sqlite4_prepare", (char *) s->query);
 	do {
 	    s4stmt = NULL;
 	    ret = sqlite4_prepare(d->sqlite, (char *) s->query, -1,
-				  &s4stmt, &rest);
+				  &s4stmt, &sqlleft);
 	    if (ret != SQLITE4_OK) {
 		if (s4stmt) {
 		    sqlite4_finalize(s4stmt);
@@ -16246,7 +17674,7 @@ drvexecute(SQLHSTMT stmt, int initial)
     STMT *s;
     DBC *d;
     char *errp = NULL;
-    int rc, i, ncols = 0, nrows = 0, busy_count;
+    int rc, i, ncols = 0, nrows = 0;
     SQLRETURN ret;
 
     if (stmt == SQL_NULL_HSTMT) {
@@ -16298,7 +17726,6 @@ unbound:
     if (ret != SQL_SUCCESS) {
 	goto cleanup;
     }
-    busy_count = 0;
 again:
     s4stmt_end(s);
     if (initial) {
@@ -16378,7 +17805,7 @@ done:
     mkbindcols(s, s->ncols);
 done2:
     ret = SQL_SUCCESS;
-    s->rowp = -1;
+    s->rowp = s->rowprs = -1;
     s->paramset_count++;
     s->paramset_nrows = s->nrows;
     if (s->paramset_count < s->paramset_size) {
@@ -18181,6 +19608,14 @@ dls_0(void)
     return 0;
 }
 
+#if 0
+static sqlite4_int64
+dls_0LL(void)
+{
+    return 0;
+}
+#endif
+
 static double
 dls_00(void)
 {
@@ -18247,6 +19682,9 @@ static struct {
     DLS_ENT(finalize, dls_error),
     DLS_ENT(free, free),
     DLS_ENT(interrupt, dls_void),
+#if 0
+    DLS_ENT(last_insert_rowid, dls_0LL),
+#endif
     DLS_ENT(libversion, dls_empty),
 #if 0
     DLS_ENT(load_extension, dls_error),

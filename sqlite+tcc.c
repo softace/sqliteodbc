@@ -301,7 +301,7 @@ static void tcc_compile(
       tcc_add_file(t, p);
     }
   }
-  if( tcc_compile_string(t, sqlite3_value_text(argv[0])) ){
+  if( tcc_compile_string(t, (char *) sqlite3_value_text(argv[0])) ){
     sqlite3_result_error(ctx, "compile error", -1);
     goto error;
   }

@@ -15,7 +15,7 @@
  * @file sqlite4odbc.h
  * Header file for SQLite4 ODBC driver.
  *
- * $Id: sqlite4odbc.h,v 1.1 2013/01/22 08:23:54 chw Exp chw $
+ * $Id: sqlite4odbc.h,v 1.2 2013/09/23 09:20:26 chw Exp chw $
  *
  * Copyright (c) 2013 Christian Werner <chw@ch-werner.de>
  *
@@ -170,6 +170,8 @@ typedef struct {
     int prec;			/**< Precision of column */
     int autoinc;		/**< AUTO_INCREMENT column */
     int notnull;		/**< NOT NULL constraint on column */
+    int ispk;			/**< Flag for primary key (> 0) */
+    int isrowid;		/**< Flag for ROWID column (> 0) */
     char *typename;		/**< Column type name or NULL */
     char *label;		/**< Column label or NULL */
 } COL;
@@ -236,6 +238,7 @@ typedef struct stmt {
     COL *dyncols;		/**< Column array, but malloc()ed */
     int dcols;			/**< Number of entries in dyncols */
     int bkmrk;			/**< True when bookmarks used */
+    SQLINTEGER *bkmrkptr;	/**< SQL_ATTR_FETCH_BOOKMARK_PTR */
     BINDCOL bkmrkcol;		/**< Bookmark bound column */
     BINDCOL *bindcols;		/**< Array of bound columns */
     int nbindcols;		/**< Number of entries in bindcols */
@@ -245,6 +248,7 @@ typedef struct stmt {
     int pdcount;		/**< SQLParamData() counter */
     int nrows;			/**< Number of result rows */
     int rowp;			/**< Current result row */
+    int rowprs;			/**< Current start row of rowset */
     char **rows;		/**< 2-dim array, result set */
     void (*rowfree)();		/**< Free function for rows */
     int naterr;			/**< Native error code */
@@ -280,6 +284,9 @@ typedef struct stmt {
     char *bincache;		/**< Cache for blob data */
     int binlen;			/**< Length of blob data */
     int guessed_types;		/**< Flag for drvprepare()/drvexecute() */
+    int one_tbl;		/**< Flag for single table (> 0) */
+    int has_pk;			/**< Flag for primary key (> 0) */
+    int has_rowid;		/**< Flag for ROWID (>= 0 or -1) */
 } STMT;
 
 #endif

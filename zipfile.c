@@ -48,8 +48,9 @@ static SQLITE_EXTENSION_INIT1
 
 #define ZIP_LOCAL_HEADER_SIG		0x04034b50
 #define ZIP_LOCAL_HEADER_FLAGS		6
-#define ZIP_LOCAL_HEADER_LEN		30
+#define ZIP_LOCAL_PATHLEN_OFFS		26
 #define ZIP_LOCAL_EXTRA_OFFS		28
+#define ZIP_LOCAL_HEADER_LEN		30
 
 #define ZIP_CENTRAL_HEADER_SIG		0x02014b50
 #define ZIP_CENTRAL_HEADER_FLAGS	8
@@ -68,6 +69,7 @@ static SQLITE_EXTENSION_INIT1
 #define ZIP_CENTRAL_END_SIG		0x06054b50
 #define ZIP_CENTRAL_END_LEN		22
 #define ZIP_CENTRAL_ENTS_OFFS		8
+#define ZIP_CENTRAL_DIRSIZE_OFFS	12
 #define ZIP_CENTRAL_DIRSTART_OFFS	16
 
 #define ZIP_COMPMETH_STORED		0
@@ -91,6 +93,7 @@ typedef struct zip_file {
     HANDLE h;			/**< Windows file handle */
     HANDLE mh;			/**< Windows file mapping */
 #endif
+    int baseoffs;		/**< Global offset for embedded ZIP files */
     int nentries;		/**< Number of directory entries */
     unsigned char *entries[1];	/**< Pointer to first entry */
 } zip_file;
@@ -118,6 +121,7 @@ typedef struct zip_vtab {
 typedef struct {
     sqlite3_vtab_cursor cursor;		/**< SQLite virtual table cursor */
     int pos;				/**< ZIP file position */
+    int usematches;			/**< For filter EQ */
     int nmatches;			/**< For filter EQ */
     int *matches;			/**< For filter EQ */
 } zip_cursor;
@@ -181,16 +185,16 @@ zip_open(const char *filename)
 {
 #if defined(_WIN32) || defined(_WIN64)
     HANDLE h, mh = INVALID_HANDLE_VALUE;
-    DWORD n, length;
+    DWORD length;
     unsigned char *data = 0;
 #else
     int fd;
     off_t length;
     unsigned char *data = MAP_FAILED;
 #endif
-    int nentries, i;
+    int nentries, baseoffs = 0, i;
     zip_file *zip = 0;
-    unsigned char *p, *q, magic[ZIP_SIG_LEN];
+    unsigned char *p, *q;
 
     if (!filename) {
 	return 0;
@@ -198,13 +202,6 @@ zip_open(const char *filename)
 #if defined(_WIN32) || defined(_WIN64)
     h = CreateFile(filename, GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
     if (h == INVALID_HANDLE_VALUE) {
-	goto error;
-    }
-    if (!ReadFile(h, magic, sizeof (magic), &n, 0) ||
-	(n != sizeof (magic))) {
-	goto error;
-    }
-    if (zip_read_int(magic) != ZIP_LOCAL_HEADER_SIG) {
 	goto error;
     }
     length = GetFileSize(h, 0);
@@ -222,12 +219,6 @@ zip_open(const char *filename)
 #else
     fd = open(filename, O_RDONLY);
     if (fd < 0) {
-	goto error;
-    }
-    if (read(fd, magic, ZIP_SIG_LEN) != ZIP_SIG_LEN) {
-	goto error;
-    }
-    if (zip_read_int(magic) != ZIP_LOCAL_HEADER_SIG) {
 	goto error;
     }
     length = lseek(fd, 0, SEEK_END);
@@ -260,7 +251,12 @@ zip_open(const char *filename)
     if (nentries == 0) {
 	goto error;
     }
-    p = data + zip_read_int(p + ZIP_CENTRAL_DIRSTART_OFFS);
+    q = data + zip_read_int(p + ZIP_CENTRAL_DIRSTART_OFFS);
+    p -= zip_read_int(p + ZIP_CENTRAL_DIRSIZE_OFFS);
+    if (p < data || p > data + length || q < data || q > data + length) {
+	goto error;
+    }
+    baseoffs = p - q;
     q = p;
     for (i = 0; i < nentries; i++) {
 	int pathlen, comlen, extra;
@@ -286,6 +282,7 @@ zip_open(const char *filename)
 #endif
     zip->length = length;
     zip->data = data;
+    zip->baseoffs = baseoffs;
     zip->nentries = nentries;
     q = p;
     for (i = 0; i < nentries; i++) {
@@ -449,7 +446,7 @@ zip_vtab_connect(sqlite3* db, void *aux, int argc, const char * const *argv,
     vtab->db = db;
     vtab->zip = zip;
     rc = sqlite3_declare_vtab(db, "CREATE TABLE x(path, comp, mtime, "
-			      "crc32, length, data, clength, cdata)");
+			      "crc32, length, data, clength, cdata, isdir)");
     if (rc != SQLITE_OK) {
 	zip_close(zip);
 	sqlite3_free(vtab);
@@ -617,6 +614,7 @@ zip_vtab_open(sqlite3_vtab *vtab, sqlite3_vtab_cursor **cursorp)
     }
     cur->cursor.pVtab = vtab;
     cur->pos = -1;
+    cur->usematches = 0;
     cur->nmatches = 0;
     cur->matches = 0;
     *cursorp = &cur->cursor;
@@ -679,6 +677,7 @@ zip_vtab_filter(sqlite3_vtab_cursor *cursor, int idxNum,
 	sqlite3_free(cur->matches);
 	cur->matches = 0;
     }
+    cur->usematches = 0;
     cur->nmatches = 0;
     /* if EQ or MATCH constraint is active, add match array to cursor */
     if (idxNum && (argc > 0)) {
@@ -708,6 +707,7 @@ zip_vtab_filter(sqlite3_vtab_cursor *cursor, int idxNum,
 	if (!cur->matches) {
 	    return SQLITE_NOMEM;
 	}
+	cur->usematches = 1;
 	memset(cur->matches, 0, tab->zip->nentries * sizeof (int));
 	for (k = found = 0; k < tab->zip->nentries; k++) {
 	    len = zip_read_short(tab->zip->entries[k] +
@@ -758,7 +758,7 @@ zip_vtab_eof(sqlite3_vtab_cursor *cursor)
     if (cur->nmatches < 0) {
 	return 1;
     }
-    if (cur->nmatches) {
+    if (cur->usematches) {
 	return cur->pos >= cur->nmatches;
     }
     return cur->pos >= tab->zip->nentries;
@@ -781,7 +781,7 @@ zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
     unsigned char *dest = 0;
     int length;
 
-    if (cur->nmatches) {
+    if (cur->usematches) {
 	int pos;
 
 	if ((cur->pos < 0) || (cur->pos >= cur->nmatches)) {
@@ -831,13 +831,15 @@ zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
 	{
 	    int clength, offs, extra, pathlen, cmeth;
 
-	    offs = zip_read_int(data + ZIP_CENTRAL_LOCALHDR_OFFS);
+	    offs = tab->zip->baseoffs +
+		zip_read_int(data + ZIP_CENTRAL_LOCALHDR_OFFS);
 	    if ((offs + ZIP_LOCAL_HEADER_LEN) > tab->zip->length) {
 		goto donull;
 	    }
-	    extra = zip_read_short(tab->zip->data +
-				   offs + ZIP_LOCAL_EXTRA_OFFS);
-	    pathlen = zip_read_short(data + ZIP_CENTRAL_PATHLEN_OFFS);
+	    extra = zip_read_short(tab->zip->data + offs +
+				   ZIP_LOCAL_EXTRA_OFFS);
+	    pathlen = zip_read_short(tab->zip->data + offs +
+				     ZIP_LOCAL_PATHLEN_OFFS);
 	    length = zip_read_int(data + ZIP_CENTRAL_UNCOMPLEN_OFFS);
 	    clength = zip_read_int(data + ZIP_CENTRAL_COMPLEN_OFFS);
 	    cmeth = zip_read_short(data + ZIP_CENTRAL_COMPMETH_OFFS);
@@ -889,13 +891,15 @@ zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
 	{
 	    int clength, offs, extra, pathlen;
 
-	    offs = zip_read_int(data + ZIP_CENTRAL_LOCALHDR_OFFS);
+	    offs = tab->zip->baseoffs +
+		zip_read_int(data + ZIP_CENTRAL_LOCALHDR_OFFS);
 	    if ((offs + ZIP_LOCAL_HEADER_LEN) > tab->zip->length) {
 		goto donull;
 	    }
-	    extra = zip_read_short(tab->zip->data +
-				   offs + ZIP_LOCAL_EXTRA_OFFS);
-	    pathlen = zip_read_short(data + ZIP_CENTRAL_PATHLEN_OFFS);
+	    extra = zip_read_short(tab->zip->data + offs +
+				   ZIP_LOCAL_EXTRA_OFFS);
+	    pathlen = zip_read_short(tab->zip->data + offs +
+				     ZIP_LOCAL_PATHLEN_OFFS);
 	    length = zip_read_int(data + ZIP_CENTRAL_UNCOMPLEN_OFFS);
 	    clength = zip_read_int(data + ZIP_CENTRAL_COMPLEN_OFFS);
 	    offs += ZIP_LOCAL_HEADER_LEN + pathlen + extra;
@@ -906,6 +910,11 @@ zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
 	    sqlite3_result_blob(ctx, data, clength, SQLITE_TRANSIENT);
 	    return SQLITE_OK;
 	}
+    case 8:	/* "isdir": directory indicator */
+	length = zip_read_short(data + ZIP_CENTRAL_PATHLEN_OFFS);
+	data += ZIP_CENTRAL_HEADER_LEN;
+	sqlite3_result_int(ctx, (length > 0 && data[length - 1] == '/'));
+	return SQLITE_OK;
     }
     sqlite3_result_error(ctx, "invalid column number", -1);
     return SQLITE_ERROR;
@@ -925,8 +934,12 @@ zip_vtab_rowid(sqlite3_vtab_cursor *cursor, sqlite_int64 *rowidp)
 
     if (cur->nmatches < 0) {
 	*rowidp = -1;
-    } else if ((cur->pos >= 0) && (cur->nmatches > 0)) {
-	*rowidp = cur->matches[cur->pos];
+    } else if ((cur->pos >= 0) && (cur->usematches > 0)) {
+	if (cur->pos < cur->nmatches) {
+	    *rowidp = cur->matches[cur->pos];
+	} else {
+	    *rowidp = -1;
+	}
     } else {
 	*rowidp = cur->pos;
     }
