@@ -2,9 +2,9 @@
  * @file sqlite4odbc.c
  * SQLite4 ODBC Driver main module.
  *
- * $Id: sqlite4odbc.c,v 1.8 2013/12/08 07:18:56 chw Exp chw $
+ * $Id: sqlite4odbc.c,v 1.9 2014/03/28 09:33:49 chw Exp chw $
  *
- * Copyright (c) 2013 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2014 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -392,6 +392,11 @@ xstrdup_(const char *str, char *file, int line)
 #define snprintf    _snprintf
 #define strcasecmp  _stricmp
 #define strncasecmp _strnicmp
+
+#ifdef _MSC_VER
+#define strtoll     _strtoi64
+#define strtoull    _strtoui64
+#endif
 
 static HINSTANCE NEAR hModule;	/* Saved module handle for resources */
 
@@ -2358,8 +2363,12 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
     }
     if (m && typename) {
 	int mm, dd;
+	char clbr[4];
 
-	if (sscanf(typename, "%*[^(](%d)", &mm) == 1) {
+	if (sscanf(typename, "%*[^(](%d,%d %1[)]", &mm, &dd, &clbr) == 3) {
+	    m = mm;
+	    d = dd;
+	} else if (sscanf(typename, "%*[^(](%d %1[)]", &mm, &clbr) == 2) {
 	    if (sqltype == SQL_TIMESTAMP) {
 		d = mm;
 	    }
@@ -2371,9 +2380,6 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 	    else {
 		m = d = mm;
 	    }
-	} else if (sscanf(typename, "%*[^(](%d,%d)", &mm, &dd) == 2) {
-	    m = mm;
-	    d = dd;
 	}
     }
     if (mp) {
@@ -12570,19 +12576,13 @@ SQLCancel(SQLHSTMT stmt)
 	DBC *d = (DBC *) ((STMT *) stmt)->dbc;
 #if defined(_WIN32) || defined(_WIN64)
 	/* interrupt when other thread owns critical section */
-	int i;
-
-	for (i = 0; i < 2; i++) {
-	    if (d->magic == DBC_MAGIC && d->env &&
-		d->env->magic == ENV_MAGIC &&
-		d->env->owner != GetCurrentThreadId() &&
-		d->env->owner != 0) {
-		d->busyint = 1;
-		sqlite4_interrupt(d->sqlite);
-	    }
-	    Sleep(1);
+	if (d->magic == DBC_MAGIC && d->env &&
+	    d->env->magic == ENV_MAGIC &&
+	    d->env->owner != GetCurrentThreadId() &&
+	    d->env->owner != 0) {
+	    d->busyint = 1;
+	    sqlite4_interrupt(d->sqlite);
 	}
-
 #else
 	if (d->magic == DBC_MAGIC) {
 	    d->busyint = 1;
@@ -13129,11 +13129,15 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 	    break;
 	case SQL_C_BINARY:
 	case SQL_C_CHAR:
-	    *((SQLCHAR *) val) = '\0';
+	    if (len > 0) {
+		*((SQLCHAR *) val) = '\0';
+	    }
 	    break;
 #ifdef WCHARSUPPORT
 	case SQL_C_WCHAR:
-	    *((SQLWCHAR *) val) = '\0';
+	    if (len > 0) {
+		*((SQLWCHAR *) val) = '\0';
+	    }
 	    break;
 #endif
 #ifdef SQL_C_TYPE_DATE
@@ -19243,7 +19247,7 @@ InUn(int remove, char *cmdline)
 			       MB_SETFOREGROUND);
 		}
 	    }
-	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	    sprintf(attr, "DSN=%s;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -19270,7 +19274,7 @@ InUn(int remove, char *cmdline)
 	    InUnError("SQLInstallDriverEx");
 	    return FALSE;
 	}
-	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	sprintf(attr, "DSN=%s;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {

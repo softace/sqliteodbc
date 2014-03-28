@@ -2,9 +2,9 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.19 2013/01/22 16:37:30 chw Exp chw $
+ * $Id: inst.c,v 1.20 2014/03/28 09:28:03 chw Exp chw $
  *
- * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -219,7 +219,7 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 	    if (nosys) {
 		goto done;
 	    }
-	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	    sprintf(attr, "DSN=%s;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -260,7 +260,7 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 	if (nosys) {
 	    goto done;
 	}
-	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	sprintf(attr, "DSN=%s;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {

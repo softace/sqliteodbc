@@ -1,6 +1,15 @@
 SQLite ODBC Driver
 ------------------
 
+Fri Mar 28 2014 version 0.997 released
+
+	* update to SQLite 3.8.4.2
+	* Win32 inst.exe does not provide default database name
+	  for system DSN anymore (thanks Walter Tsui for suggestion)
+	* improved parsing width/precision in schema
+	  (thanks Jean-Louis Charton for initial fix)
+	* removed artificial delay in SQLCancel()
+
 Sun Dec 08 2013 version 0.996 released
 
 	* update to SQLite 3.8.2

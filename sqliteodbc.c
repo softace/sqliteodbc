@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.209 2013/12/08 07:18:56 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.210 2014/03/28 09:33:49 chw Exp chw $
  *
- * Copyright (c) 2001-2013 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -1544,8 +1544,12 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
     }
     if (m && typename) {
 	int mm, dd;
+	char clbr[4];
 
-	if (sscanf(typename, "%*[^(](%d)", &mm) == 1) {
+	if (sscanf(typename, "%*[^(](%d,%d %1[)]", &mm, &dd, &clbr) == 3) {
+	    m = mm;
+	    d = dd;
+	} else if (sscanf(typename, "%*[^(](%d %1[)]", &mm, &clbr) == 2) {
 	    if (sqltype == SQL_TIMESTAMP) {
 		d = mm;
 	    }
@@ -1557,9 +1561,6 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 	    else {
 		m = d = mm;
 	    }
-	} else if (sscanf(typename, "%*[^(](%d,%d)", &mm, &dd) == 2) {
-	    m = mm;
-	    d = dd;
 	}
     }
     if (mp) {
@@ -16124,7 +16125,7 @@ InUn(int remove, char *cmdline)
 			       MB_SETFOREGROUND);
 		}
 	    }
-	    sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	    sprintf(attr, "DSN=%s;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -16151,7 +16152,7 @@ InUn(int remove, char *cmdline)
 	    InUnError("SQLInstallDriverEx");
 	    return FALSE;
 	}
-	sprintf(attr, "DSN=%s;Database=sqlite.db;", dsname);
+	sprintf(attr, "DSN=%s;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {

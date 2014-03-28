@@ -116,7 +116,7 @@ BEGIN
             VALUE "FileDescription", "SQLite4 ODBC Driver\0"
             VALUE "FileVersion", VERSION "\0"
             VALUE "InternalName", "SQLITE4ODBC\0"
-            VALUE "LegalCopyright", "Copyright © 2013 <chw@ch-werner.de>\0"
+            VALUE "LegalCopyright", "Copyright © 2013-2014 <chw@ch-werner.de>\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SQLITE4ODBC.DLL\0"
             VALUE "PrivateBuild", "\0"
