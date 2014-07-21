@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.163 2014/03/28 09:33:49 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.164 2014/07/21 06:06:21 chw Exp chw $
  *
  * Copyright (c) 2004-2014 Christian Werner <chw@ch-werner.de>
  *
@@ -2358,6 +2358,7 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
     case SQL_WLONGVARCHAR:  m = 65536; d = 0; break;
 #endif
 #endif
+    case SQL_BINARY:
     case SQL_VARBINARY:     m = 255; d = 0; break;
     case SQL_LONGVARBINARY: m = 65536; d = 0; break;
 #ifdef SQL_BIGINT
@@ -12103,11 +12104,12 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	} else if (!d->autocommit) {
 	    s3stmt_end(d->cur_s3stmt);
 	}
+	break;
 	return SQL_SUCCESS;
 #ifdef SQL_ATTR_METADATA_ID
     case SQL_ATTR_METADATA_ID:
 	if (val == (SQLPOINTER) SQL_FALSE) {
-	    return SQL_SUCCESS;
+	    break;
 	}
 	/* fall through */
 #endif
@@ -13920,12 +13922,13 @@ getrowdata(STMT *s, SQLUSMALLINT col, SQLSMALLINT otype,
 		dlen -= 2;
 		dp += 2;
 		dlen = dlen / 2;
-		s->bincache = bin = xmalloc(dlen);
+		s->bincache = bin = xmalloc(dlen + 1);
 		if (!bin) {
 		    return nomem(s);
 		}
 		s->binlen = dlen;
-		memset(s->bincache, 0, dlen);
+		memset(bin, 0, dlen);
+		bin[dlen] = '\0';	/* terminator, just in case */
 		for (i = 0; i < dlen; i++) {
 		    char *x;
 		    int v;
@@ -16983,8 +16986,11 @@ checkLen:
 	}
 	return SQL_SUCCESS;
 #ifdef SQL_DESC_BASE_COLUMN_NAME
+     case SQL_DESC_BASE_COLUMN_NAME:
 	if (strchr(c->column, '(') || strchr(c->column, ')')) {
-	    valc[0] = '\0';
+	    if (valc && valMax > 0) {
+		valc[0] = '\0';
+	    }
 	    *valLen = 0;
 	} else if (valc && valMax > 0) {
 	    strncpy(valc, c->column, valMax);
@@ -19958,7 +19964,7 @@ InUn(int remove, char *cmdline)
 			       MB_SETFOREGROUND);
 		}
 	    }
-	    sprintf(attr, "DSN=%s;", dsname);
+	    sprintf(attr, "DSN=%s;Database=;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -19985,7 +19991,7 @@ InUn(int remove, char *cmdline)
 	    InUnError("SQLInstallDriverEx");
 	    return FALSE;
 	}
-	sprintf(attr, "DSN=%s;", dsname);
+	sprintf(attr, "DSN=%s;Database=;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {

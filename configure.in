@@ -302,8 +302,8 @@ fi
 
 SQLITE4_INC=UNKNOWN
 
+AC_MSG_CHECKING([for SQLite4 header and library])
 if test -n "$SQLITE4_DIR" ; then
-   AC_MSG_CHECKING([for SQLite4 header and library])
    for i in $SQLITE4_DIR ; do
       if test -r "$i/sqlite4.h" ; then
          if test -r "$i/sqlite4.c" ; then
@@ -315,6 +315,7 @@ if test -n "$SQLITE4_DIR" ; then
       fi
    done
 fi
+
 if test "$SQLITE4_INC" = "UNKNOWN" ; then
    AC_MSG_RESULT(no)
    AC_MSG_WARN([SQLite4 header file and source not found])

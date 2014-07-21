@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.210 2014/03/28 09:33:49 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.211 2014/07/21 06:06:21 chw Exp chw $
  *
  * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1535,6 +1535,7 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 #endif
 #endif
 #if (HAVE_ENCDEC)
+    case SQL_BINARY:
     case SQL_VARBINARY: m = 255; d = 0; break;
     case SQL_LONGVARBINARY: m = 65536; d = 0; break;
 #endif
@@ -9113,7 +9114,7 @@ drvsetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	} else if (!d->autocommit) {
 	    vm_end(d->vm_stmt);
 	}
-	return SQL_SUCCESS;
+	break;
     default:
 	setstatd(d, -1, "option value changed", "01S02");
 	return SQL_SUCCESS_WITH_INFO;
@@ -13310,7 +13311,9 @@ checkLen:
 #ifdef SQL_DESC_BASE_COLUMN_NAME
     case SQL_DESC_BASE_COLUMN_NAME:
 	if (strchr(c->column, '(') || strchr(c->column, ')')) {
-	    valc[0] = '\0';
+	    if (valc && valMax > 0) {
+		valc[0] = '\0';
+	    }
 	    *valLen = 0;
 	} else if (valc && valMax > 0) {
 	    strncpy(valc, c->column, valMax);
@@ -16125,7 +16128,7 @@ InUn(int remove, char *cmdline)
 			       MB_SETFOREGROUND);
 		}
 	    }
-	    sprintf(attr, "DSN=%s;", dsname);
+	    sprintf(attr, "DSN=%s;Database=;", dsname);
 	    p = attr;
 	    while (*p) {
 		if (*p == ';') {
@@ -16152,7 +16155,7 @@ InUn(int remove, char *cmdline)
 	    InUnError("SQLInstallDriverEx");
 	    return FALSE;
 	}
-	sprintf(attr, "DSN=%s;", dsname);
+	sprintf(attr, "DSN=%s;Database=;", dsname);
 	p = attr;
 	while (*p) {
 	    if (*p == ';') {

@@ -1,6 +1,16 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Jul 21 2014 version 0.998 released
+
+	* update to SQLite 3.8.5
+	* no more out of memory condition for zero length
+	  blobs, thanks Dan Kennedy for initial fix
+	* default SQL_BINARY columns to width 255
+	* provide default database name as empty string,
+	  i.e. don't omit "Database=" in connect strings
+
+
 Fri Mar 28 2014 version 0.997 released
 
 	* update to SQLite 3.8.4.2
