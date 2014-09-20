@@ -137,6 +137,7 @@ ifeq ($(MSVCRT),100)
 	LMSVCRT = -nodefaultlibs -lmingw32 -lgcc_eh -lmoldname -lmingwex -lgcc -lmsvcr100 -lmsvcrt
 endif
 ifeq ($(LMSVCRT),)
+	TCCX   += -D_USE_32BIT_TIME_T=1
 	LMSVCRT = -lmsvcrt
 endif
 

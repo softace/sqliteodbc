@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.211 2014/07/21 06:06:21 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.213 2014/09/17 03:48:43 chw Exp chw $
  *
  * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -1547,10 +1547,10 @@ getmd(const char *typename, int sqltype, int *mp, int *dp)
 	int mm, dd;
 	char clbr[4];
 
-	if (sscanf(typename, "%*[^(](%d,%d %1[)]", &mm, &dd, &clbr) == 3) {
+	if (sscanf(typename, "%*[^(](%d,%d %1[)]", &mm, &dd, clbr) == 3) {
 	    m = mm;
 	    d = dd;
-	} else if (sscanf(typename, "%*[^(](%d %1[)]", &mm, &clbr) == 2) {
+	} else if (sscanf(typename, "%*[^(](%d %1[)]", &mm, clbr) == 2) {
 	    if (sqltype == SQL_TIMESTAMP) {
 		d = mm;
 	    }
@@ -4696,20 +4696,20 @@ doit:
 				 "(type = 'table' or type = 'view') "
 				 "and tbl_name %s '%q'",
 				 &s->rows, &s->nrows, &ncols, &errp,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 npatt ? "like" : "=", tname);
 #else
     rc = sqlite_get_table_printf(d->sqlite,
@@ -5144,10 +5144,11 @@ drvprimarykeys(SQLHSTMT stmt,
 	    if (*rowp[i * ncols + uniquec] != '0') {
 		char buf[32];
 
-		s->rows[offs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-		s->rows[offs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[offs + 0] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[offs + 1] = xstrdup("");
 #else
+		s->rows[offs + 0] = xstrdup("");
 		s->rows[offs + 1] = xstrdup("");
 #endif
 		s->rows[offs + 2] = xstrdup(tname);
@@ -5185,11 +5186,12 @@ drvprimarykeys(SQLHSTMT stmt,
 			for (m = 1; m <= nnrows; m++) {
 			    int roffs = offs + (m - 1) * s->ncols;
 
-			    s->rows[roffs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-			    s->rows[roffs + 1] =
+			    s->rows[roffs + 0] =
 				xstrdup(d->xcelqrx ? "main" : "");
+			    s->rows[roffs + 1] = xstrdup("");
 #else
+			    s->rows[roffs + 0] = xstrdup("");
 			    s->rows[roffs + 1] = xstrdup("");
 #endif
 			    s->rows[roffs + 2] = xstrdup(tname);
@@ -5862,10 +5864,11 @@ nodata:
 		    continue;
 		}
 	    }
-	    s->rows[roffs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+	    s->rows[roffs + 0] = xstrdup(d->xcelqrx ? "main" : "");
+	    s->rows[roffs + 1] = xstrdup("");
 #else
+	    s->rows[roffs + 0] = xstrdup("");
 	    s->rows[roffs + 1] = xstrdup("");
 #endif
 	    s->rows[roffs + 2] = xstrdup(ptab);
@@ -5995,10 +5998,11 @@ nodata:
 			continue;
 		    }
 		}
-		s->rows[roffs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-		s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[roffs + 0] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[roffs + 1] = xstrdup("");
 #else
+		s->rows[roffs + 0] = xstrdup("");
 		s->rows[roffs + 1] = xstrdup("");
 #endif
 		s->rows[roffs + 2] = xstrdup(ptab);
@@ -8307,7 +8311,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_GROUP_BY:
-	*((SQLSMALLINT *) val) = 0;
+	*((SQLSMALLINT *) val) = SQL_GB_GROUP_BY_EQUALS_SELECT;
 	*valLen = sizeof (SQLSMALLINT);
 	break;
     case SQL_KEYWORDS:
@@ -8460,8 +8464,12 @@ SQLGetInfoW(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 			int vmax = valMax / sizeof (SQLWCHAR);
 
 			uc_strncpy(val, v, vmax);
-			v[len] = 0;
-			len = min(vmax, uc_strlen(v));
+			if (len < vmax) {
+			    len = min(vmax, uc_strlen(v));
+			    v[len] = 0;
+			} else {
+			    len = vmax;
+			}
 			uc_free(v);
 			len *= sizeof (SQLWCHAR);
 		    } else {
@@ -8960,8 +8968,20 @@ drvgetconnectattr(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 	*buflen = sizeof (SQLINTEGER);
 	break;
     case SQL_ATTR_TRACEFILE:
-    case SQL_ATTR_CURRENT_CATALOG:
     case SQL_ATTR_TRANSLATE_LIB:
+	*((SQLCHAR *) val) = 0;
+	*buflen = 0;
+	break;
+    case SQL_ATTR_CURRENT_CATALOG:
+#if defined(_WIN32) || defined(_WIN64)
+	if (d->xcelqrx) {
+	    if ((bufmax > 4) && (val != (SQLPOINTER) &dummy)) {
+		strcpy((char *) val, "main");
+		*buflen = 4;
+		break;
+	    }
+	}
+#endif
 	*((SQLCHAR *) val) = 0;
 	*buflen = 0;
 	break;
@@ -9068,18 +9088,49 @@ SQLGetConnectAttrW(SQLHDBC dbc, SQLINTEGER attr, SQLPOINTER val,
 		   SQLINTEGER bufmax, SQLINTEGER *buflen)
 {
     SQLRETURN ret;
+    SQLINTEGER len = 0;
 
     HDBC_LOCK(dbc);
-    ret = drvgetconnectattr(dbc, attr, val, bufmax, buflen);
-    if (SQL_SUCCEEDED(ret)) {
+    ret = drvgetconnectattr(dbc, attr, val, bufmax, &len);
+    if (ret == SQL_SUCCESS) {
+	SQLWCHAR *v = NULL;
+
 	switch (attr) {
 	case SQL_ATTR_TRACEFILE:
 	case SQL_ATTR_CURRENT_CATALOG:
 	case SQL_ATTR_TRANSLATE_LIB:
-	    if (val && bufmax >= sizeof (SQLWCHAR)) {
-		*(SQLWCHAR *) val = 0;
+	    if (val) {
+		if (len > 0) {
+		    v = uc_from_utf((SQLCHAR *) val, len);
+		    if (v) {
+			int vmax = bufmax / sizeof (SQLWCHAR);
+
+			uc_strncpy(val, v, vmax);
+			if (len < vmax) {
+			    len = min(vmax, uc_strlen(v));
+			    v[len] = 0;
+			} else {
+			    len = vmax;
+			}
+			uc_free(v);
+			len *= sizeof (SQLWCHAR);
+		    } else {
+			len = 0;
+		    }
+		}
+		if (len <= 0) {
+		    len = 0;
+		    if (bufmax >= sizeof (SQLWCHAR)) {
+			*((SQLWCHAR *)val) = 0;
+		    }
+		}
+	    } else {
+		len *= sizeof (SQLWCHAR);
 	    }
 	    break;
+	}
+	if (buflen) {
+	    *buflen = len;
 	}
     }
     HDBC_UNLOCK(dbc);
@@ -11190,8 +11241,8 @@ doit:
 				 "from sqlite_master where %s "
 				 "and tbl_name %s '%q'",
 				 &s->rows, &s->nrows, &ncols, &errp,
-				 d->xcelqrx ? "''" : "NULL",
 				 d->xcelqrx ? "'main'" : "NULL",
+				 d->xcelqrx ? "''" : "NULL",
 				 where, npatt ? "like" : "=", tname);
 #else
     rc = sqlite_get_table_printf(d->sqlite,
@@ -11547,10 +11598,11 @@ drvcolumns(SQLHSTMT stmt,
 	    }
 	    for (k = 0; k < nr; k++) {
 		m = asize * (roffs + k);
-		s->rows[m + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-		s->rows[m + 1] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[m + 0] = xstrdup(d->xcelqrx ? "main" : "");
+		s->rows[m + 1] = xstrdup("");
 #else
+		s->rows[m + 0] = xstrdup("");
 		s->rows[m + 1] = xstrdup("");
 #endif
 		s->rows[m + 2] = xstrdup(trows[i]);
@@ -12437,10 +12489,11 @@ nodata:
 		goto nodata2;
 	    }
 	    roffs = s->ncols;
-	    s->rows[roffs + 0] = xstrdup("");
 #if defined(_WIN32) || defined(_WIN64)
-	    s->rows[roffs + 1] = xstrdup(d->xcelqrx ? "main" : "");
+	    s->rows[roffs + 0] = xstrdup(d->xcelqrx ? "main" : "");
+	    s->rows[roffs + 1] = xstrdup("");
 #else
+	    s->rows[roffs + 0] = xstrdup("");
 	    s->rows[roffs + 1] = xstrdup("");
 #endif
 	    s->rows[roffs + 2] = xstrdup(tname);
@@ -16415,3 +16468,12 @@ ODBCINSTGetProperties(HODBCINSTPROPERTY prop)
 }
 
 #endif /* HAVE_ODBCINSTEXT_H */
+
+/*
+ * Local Variables:
+ * mode: c
+ * c-basic-offset: 4
+ * fill-column: 78
+ * tab-width: 8
+ * End:
+ */

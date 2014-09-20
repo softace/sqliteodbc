@@ -42,6 +42,7 @@ ifeq ($(MSVCRT),100)
 	    -ladvapi32 -lshell32 -luser32 -lkernel32
 endif
 ifeq ($(LMSVCRT),)
+	TCCX   += -D_USE_32BIT_TIME_T=1
 	LMSVCRT = -lmsvcrt
 endif
 
