@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.23 2014/03/28 09:27:46 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.24 2014/12/29 09:53:56 chw Exp chw $
  *
  * Copyright (c) 2007-2014 Christian Werner <chw@ch-werner.de>
  *
@@ -1295,7 +1295,7 @@ print_strbuf(strbuf *sb, const char *fmt, ...)
 	if (sb->max - (sb->idx + 1) < 256) {
 	    rc = expand_strbuf(sb);
 	    if (rc != SQLITE_OK) {
-		return rc;
+		goto done;
 	    }
 	}
 	rc = SQLITE_NOMEM;
@@ -1306,6 +1306,7 @@ print_strbuf(strbuf *sb, const char *fmt, ...)
 	    break;
 	}
     }
+done:
     va_end(ap);
     return rc;
 }
@@ -1899,3 +1900,12 @@ sqlite3_extension_init(sqlite3 *db, char **errmsg,
 }
 
 #endif
+
+/*
+ * Local Variables:
+ * mode: c
+ * c-basic-offset: 4
+ * fill-column: 78
+ * tab-width: 8
+ * End:
+ */

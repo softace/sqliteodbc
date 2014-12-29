@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.21 2014/07/21 06:05:16 chw Exp chw $
+ * $Id: inst.c,v 1.22 2014/12/29 09:52:55 chw Exp chw $
  *
  * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
  *
@@ -294,7 +294,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 {
     char path[300], *p;
     int i, remove;
-    BOOL ret[3];
+    BOOL ret[NUMDRVS];
 
     GetModuleFileName(NULL, path, sizeof (path));
     p = path;
@@ -333,3 +333,11 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     exit(0);
 }
 
+/*
+ * Local Variables:
+ * mode: c
+ * c-basic-offset: 4
+ * fill-column: 78
+ * tab-width: 8
+ * End:
+ */

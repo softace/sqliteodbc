@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Dec 29 2014 version 0.9991 released
+
+	* update to SQLite 3.8.7.4
+	* Win32 now uses per SQLHDBC locking, thanks
+	  Bruno Schw"agli for testing
+	* fixed crashes in sqlite3_table_column_metadata() use
+	* added transaction patches from Jean-Louis Charton
+
 Sat Sep 20 2014 version 0.999 released
 
 	* update to SQLite 3.8.6

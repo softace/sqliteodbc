@@ -2,7 +2,7 @@
  * @file sqlite4odbc.c
  * SQLite4 ODBC Driver main module.
  *
- * $Id: sqlite4odbc.c,v 1.12 2014/09/17 03:48:43 chw Exp chw $
+ * $Id: sqlite4odbc.c,v 1.13 2014/12/29 09:58:12 chw Exp chw $
  *
  * Copyright (c) 2014 Christian Werner <chw@ch-werner.de>
  *
@@ -426,7 +426,8 @@ static int strcasecmp_(const char *a, const char *b)
 
 /*
  * SQLHENV, SQLHDBC, and SQLHSTMT synchronization
- * is done using a critical section in ENV structure.
+ * is done using a critical section in ENV and DBC
+ * structures.
  */
 
 #define HDBC_LOCK(hdbc)				\
@@ -437,14 +438,11 @@ static int strcasecmp_(const char *a, const char *b)
 	return SQL_INVALID_HANDLE;		\
     }						\
     d = (DBC *) (hdbc);				\
-    if (d->magic != DBC_MAGIC || !d->env) {	\
+    if (d->magic != DBC_MAGIC) {		\
 	return SQL_INVALID_HANDLE;		\
     }						\
-    if (d->env->magic != ENV_MAGIC) {		\
-	return SQL_INVALID_HANDLE;		\
-    }						\
-    EnterCriticalSection(&d->env->cs);		\
-    d->env->owner = GetCurrentThreadId();	\
+    EnterCriticalSection(&d->cs);		\
+    d->owner = GetCurrentThreadId();		\
 }
 
 #define HDBC_UNLOCK(hdbc)			\
@@ -452,10 +450,8 @@ static int strcasecmp_(const char *a, const char *b)
 	DBC *d;					\
 						\
 	d = (DBC *) (hdbc);			\
-	if (d->magic == DBC_MAGIC && d->env &&	\
-	    d->env->magic == ENV_MAGIC) {	\
-	    d->env->owner = 0;			\
-	    LeaveCriticalSection(&d->env->cs);	\
+	if (d->magic == DBC_MAGIC) {		\
+	    LeaveCriticalSection(&d->cs);	\
 	}					\
     }
 
@@ -467,14 +463,14 @@ static int strcasecmp_(const char *a, const char *b)
 	return SQL_INVALID_HANDLE;		\
     }						\
     d = (DBC *) ((STMT *) (hstmt))->dbc;	\
-    if (d->magic != DBC_MAGIC || !d->env) {	\
+    if (d->magic != DBC_MAGIC) {		\
 	return SQL_INVALID_HANDLE;		\
     }						\
     if (d->env->magic != ENV_MAGIC) {		\
 	return SQL_INVALID_HANDLE;		\
     }						\
-    EnterCriticalSection(&d->env->cs);		\
-    d->env->owner = GetCurrentThreadId();	\
+    EnterCriticalSection(&d->cs);		\
+    d->owner = GetCurrentThreadId();		\
 }
 
 #define HSTMT_UNLOCK(hstmt)			\
@@ -482,10 +478,8 @@ static int strcasecmp_(const char *a, const char *b)
 	DBC *d;					\
 						\
 	d = (DBC *) ((STMT *) (hstmt))->dbc;	\
-	if (d->magic == DBC_MAGIC && d->env &&	\
-	    d->env->magic == ENV_MAGIC) {	\
-	    d->env->owner = 0;			\
-	    LeaveCriticalSection(&d->env->cs);	\
+	if (d->magic == DBC_MAGIC) {		\
+	    LeaveCriticalSection(&d->cs);	\
 	}					\
     }
 
@@ -3912,9 +3906,11 @@ s4stmt_addmeta(sqlite4_stmt *s4stmt, int col, DBC *d, COL *ci)
     cn = sqlite4_column_origin_name(s4stmt, col);
     dummy[0] = dummy[1] = 0;
 #if 0
-    sqlite4_table_column_metadata(d->sqlite, dn, tn, cn,
-				  dummy, dummy + 1,
-				  &nn, &pk, &ai);
+    if (tn && cn) {
+	sqlite4_table_column_metadata(d->sqlite, dn, tn, cn,
+				      dummy, dummy + 1,
+				      &nn, &pk, &ai);
+    }
 #endif
     ci->autoinc = ai ? SQL_TRUE: SQL_FALSE;
     ci->notnull = nn ? SQL_NO_NULLS : SQL_NULLABLE;
@@ -3928,7 +3924,7 @@ s4stmt_addmeta(sqlite4_stmt *s4stmt, int col, DBC *d, COL *ci)
 	fflush(d->trace);
     }
     ci->isrowid = 0;
-    if (ci->ispk) {
+    if (ci->ispk && tn) {
 	nn = pk = ai = 0;
 	dummy[2] = dummy[3] = 0;
   
@@ -7523,7 +7519,6 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
     doit:
 	ret = sqlite4_exec(d->sqlite, sql, NULL, NULL);
 	dbtracerc(d, ret, NULL);
-	d->intrans = 0;
 	if (ret != SQLITE4_OK) {
 	    setstatd(d, ret, "%s", (*d->ov3) ? "HY000" : "S1000",
 		     errp ? errp : "transaction failed");
@@ -7537,6 +7532,7 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 	    sqlite4_free(0, errp);
 	    errp = NULL;
 	}
+	d->intrans = 0;
 	return SQL_SUCCESS;
     }
     setstatd(d, -1, "invalid completion type", (*d->ov3) ? "HY000" : "S1000");
@@ -7581,18 +7577,18 @@ drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 	    return SQL_INVALID_HANDLE;
 	}
 	EnterCriticalSection(&e->cs);
-	e->owner = GetCurrentThreadId();
 #endif
 	d = ((ENV *) handle)->dbcs;
 	while (d) {
+	    HDBC_LOCK((SQLHDBC) d);
 	    ret = endtran(d, comptype, 0);
+	    HDBC_UNLOCK((SQLHDBC) d);
 	    if (ret != SQL_SUCCESS) {
 		fail++;
 	    }
 	    d = d->next;
 	}
 #if defined(_WIN32) || defined(_WIN64)
-	e->owner = 0;
 	LeaveCriticalSection(&e->cs);
 #endif
 	return fail ? SQL_ERROR : SQL_SUCCESS;
@@ -7625,10 +7621,10 @@ SQLEndTran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 SQLRETURN SQL_API
 SQLTransact(SQLHENV env, SQLHDBC dbc, SQLUSMALLINT type)
 {
-    if (env != SQL_NULL_HENV) {
-	return drvendtran(SQL_HANDLE_ENV, (SQLHANDLE) env, type);
+    if (dbc != SQL_NULL_HDBC) {
+	return drvendtran(SQL_HANDLE_DBC, (SQLHANDLE) dbc, type);
     }
-    return drvendtran(SQL_HANDLE_DBC, (SQLHANDLE) dbc, type);
+    return drvendtran(SQL_HANDLE_ENV, (SQLHANDLE) env, type);
 }
 
 /**
@@ -7952,7 +7948,6 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
     }
 #if defined(_WIN32) || defined(_WIN64)
     EnterCriticalSection(&e->cs);
-    e->owner = GetCurrentThreadId();
 #endif
     switch (attr) {
     case SQL_ATTR_CONNECTION_POOLING:
@@ -7981,7 +7976,6 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
 	break;
     }
 #if defined(_WIN32) || defined(_WIN64)
-    e->owner = 0;
     LeaveCriticalSection(&e->cs);
 #endif
     return ret;
@@ -8011,7 +8005,6 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
     }
 #if defined(_WIN32) || defined(_WIN64)
     EnterCriticalSection(&e->cs);
-    e->owner = GetCurrentThreadId();
 #endif
     switch (attr) {
     case SQL_ATTR_CONNECTION_POOLING:
@@ -8040,7 +8033,6 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 	break;
     }
 #if defined(_WIN32) || defined(_WIN64)
-    e->owner = 0;
     LeaveCriticalSection(&e->cs);
 #endif
     return ret;
@@ -11053,7 +11045,6 @@ drvallocenv(SQLHENV *env)
     e->ov3 = 0;
 #if defined(_WIN32) || defined(_WIN64)
     InitializeCriticalSection(&e->cs);
-    e->owner = 0;
 #endif
     e->dbcs = NULL;
     *env = (SQLHENV) e;
@@ -11092,18 +11083,15 @@ drvfreeenv(SQLHENV env)
     }
 #if defined(_WIN32) || defined(_WIN64)
     EnterCriticalSection(&e->cs);
-    e->owner = GetCurrentThreadId();
 #endif
     if (e->dbcs) {
 #if defined(_WIN32) || defined(_WIN64)
 	LeaveCriticalSection(&e->cs);
-	e->owner = 0;
 #endif
 	return SQL_ERROR;
     }
     e->magic = DEAD_MAGIC;
 #if defined(_WIN32) || defined(_WIN64)
-    e->owner = 0;
     LeaveCriticalSection(&e->cs);
     DeleteCriticalSection(&e->cs);
 #endif
@@ -11156,7 +11144,6 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
 #if defined(_WIN32) || defined(_WIN64)
     if (e->magic == ENV_MAGIC) {
 	EnterCriticalSection(&e->cs);
-	e->owner = GetCurrentThreadId();
     }
 #endif
     if (e->magic == ENV_MAGIC) {
@@ -11177,8 +11164,9 @@ drvallocconnect(SQLHENV env, SQLHDBC *dbc)
 	}
     }
 #if defined(_WIN32) || defined(_WIN64)
+    InitializeCriticalSection(&d->cs);
+    d->owner = 0;
     if (e->magic == ENV_MAGIC) {
-	e->owner = 0;
 	LeaveCriticalSection(&e->cs);
     }
     d->oemcp = 1;
@@ -11227,13 +11215,14 @@ drvfreeconnect(SQLHDBC dbc)
     if (e && e->magic == ENV_MAGIC) {
 #if defined(_WIN32) || defined(_WIN64)
 	EnterCriticalSection(&e->cs);
-	e->owner = GetCurrentThreadId();
 #endif
     } else {
 	e = NULL;
     }
+    HDBC_LOCK(dbc);
     if (d->sqlite) {
 	setstatd(d, -1, "not disconnected", (*d->ov3) ? "HY000" : "S1000");
+	HDBC_UNLOCK(dbc);
 	goto done;
     }
     while (d->stmt) {
@@ -11264,12 +11253,16 @@ drvfreeconnect(SQLHDBC dbc)
     if (d->trace) {
 	fclose(d->trace);
     }
+#if defined(_WIN32) || defined(_WIN64)
+    d->owner = 0;
+    LeaveCrititcalSection(&d->cs);
+    DeleteCriticalSection(&d->cs);
+#endif
     xfree(d);
     ret = SQL_SUCCESS;
 done:
 #if defined(_WIN32) || defined(_WIN64)
     if (e) {
-	e->owner = 0;
 	LeaveCriticalSection(&e->cs);
     }
 #endif
@@ -12628,12 +12621,11 @@ SQLCancel(SQLHSTMT stmt)
 	DBC *d = (DBC *) ((STMT *) stmt)->dbc;
 #if defined(_WIN32) || defined(_WIN64)
 	/* interrupt when other thread owns critical section */
-	if (d->magic == DBC_MAGIC && d->env &&
-	    d->env->magic == ENV_MAGIC &&
-	    d->env->owner != GetCurrentThreadId() &&
-	    d->env->owner != 0) {
+	if (d->magic == DBC_MAGIC && d->owner != GetCurrentThreadId() &&
+	    d->owner != 0) {
 	    d->busyint = 1;
 	    sqlite4_interrupt(d->sqlite);
+	    return SQL_SUCCESS;
 	}
 #else
 	if (d->magic == DBC_MAGIC) {
@@ -17524,7 +17516,7 @@ SQLMoreResults(SQLHSTMT stmt)
  * Internal function to setup column name/type information
  * @param s statement poiner
  * @param s4stmt sqlite4 statement pointer
- * @param ncolsp pointer to preinitialized number of colums
+ * @param ncolsp pointer to preinitialized number of columns
  * @result ODBC error code
  */
 
