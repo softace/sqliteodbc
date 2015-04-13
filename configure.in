@@ -336,20 +336,36 @@ AC_SUBST(SQLITE4_A10N_FLAGS)
 
 #########
 # libxml2 support for XPath virtual table module
+AC_ARG_WITH(libxml2, [  --with-libxml2=SCR      use xml2-config script SCR],
+   XML2_CONFIG=$withval)
 XML2_FLAGS=""
 XML2_LIBS=""
 EXT_XPATH=""
 if test "$SQLITE3_LOADEXTENSION" = "1" ; then
-   AC_MSG_CHECKING([for libxml2 header and library])
-   XML2_CONFIG="`which xml2-config 2>/dev/null`"
-   if test -n "$XML2_CONFIG" ; then
-      XML2_FLAGS="`xml2-config --cflags`"
-      XML2_LIBS="`xml2-config --libs`"
-      EXT_XPATH=libsqlite3_mod_xpath.la
-      LIB_TARGETS="$LIB_TARGETS $EXT_XPATH"
-      AC_MSG_RESULT(yes)
+   if test "$with_libxml2" = "no" ; then
+      XML2_CONFIG=""
    else
-      AC_MSG_RESULT(no)
+      AC_MSG_CHECKING([for libxml2 header and library])
+      if test "$with_libxml2" != "no" ; then
+         if test -z "$XML2_CONFIG" ; then
+            XML2_CONFIG=`which xml2-config 2>/dev/null`
+         fi
+      fi
+      xml2_err1=1
+      xml2_err2=1
+      if test -n "$XML2_CONFIG" ; then
+         XML2_FLAGS="`$XML2_CONFIG --cflags 2>/dev/null`"
+         xml2_err1=$?
+         XML2_LIBS="`$XML2_CONFIG --libs 2>/dev/null`"
+         xml2_err2=$?
+      fi
+      if test $xml2_err1 -eq 0 -a $xml2_err2 -eq 0 ; then
+         EXT_XPATH=libsqlite3_mod_xpath.la
+         LIB_TARGETS="$LIB_TARGETS $EXT_XPATH"
+         AC_MSG_RESULT(yes)
+      else
+         AC_MSG_RESULT(no)
+      fi
    fi
 fi
 AC_SUBST(XML2_FLAGS)

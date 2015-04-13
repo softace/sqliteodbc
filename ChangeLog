@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Apr 13 2015 version 0.9992 released
+
+	* update to SQLite 3.8.9
+	* fixed buffer length return in SQLGetStmtAttr*()
+	* report SQL_SC_SQL92_ENTRY level for
+	  SQLGetInfo(...SQL_SQL_CONFORMANCE...)
+	* improved configure for cross-compiling
+
 Mon Dec 29 2014 version 0.9991 released
 
 	* update to SQLite 3.8.7.4

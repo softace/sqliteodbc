@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.214 2014/12/29 09:56:27 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.216 2015/04/13 06:31:52 chw Exp chw $
  *
- * Copyright (c) 2001-2014 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2015 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
@@ -7240,21 +7240,33 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
     STMT *s = (STMT *) stmt;
     DBC *d = (DBC *) s->dbc;
     SQLUINTEGER *uval = (SQLUINTEGER *) val;
+    SQLINTEGER dummy;
+    char dummybuf[16];
 
+    if (!buflen) {
+	buflen = &dummy;
+    }
+    if (!uval) {
+	uval = (SQLPOINTER) dummybuf;
+    }
     switch (attr) {
     case SQL_QUERY_TIMEOUT:
 	*uval = 0;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_TYPE:
 	*uval = s->curtype;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_CURSOR_SCROLLABLE:
 	*uval = (s->curtype != SQL_CURSOR_FORWARD_ONLY) ?
 	    SQL_SCROLLABLE : SQL_NONSCROLLABLE;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
 #ifdef SQL_ATTR_CURSOR_SENSITIVITY
     case SQL_ATTR_CURSOR_SENSITIVITY:
 	*uval = SQL_UNSPECIFIED;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
 #endif
     case SQL_ATTR_ROW_NUMBER:
@@ -7264,69 +7276,91 @@ drvgetstmtattr(SQLHSTMT stmt, SQLINTEGER attr, SQLPOINTER val,
 	} else {
 	    *uval = (s->rowp < 0) ? SQL_ROW_NUMBER_UNKNOWN : (s->rowp + 1);
 	}
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_ASYNC_ENABLE:
 	*uval = SQL_ASYNC_ENABLE_OFF;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_CONCURRENCY:
 	*uval = SQL_CONCUR_LOCK;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_RETRIEVE_DATA:
 	*uval = s->retr_data;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ROWSET_SIZE:
     case SQL_ATTR_ROW_ARRAY_SIZE:
 	*uval = s->rowset_size;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     /* Needed for some driver managers, but dummies for now */
     case SQL_ATTR_IMP_ROW_DESC:
     case SQL_ATTR_APP_ROW_DESC:
     case SQL_ATTR_IMP_PARAM_DESC:
     case SQL_ATTR_APP_PARAM_DESC:
-	*((SQLHDESC *) val) = (SQLHDESC) DEAD_MAGIC;
+	*((SQLHDESC *) uval) = (SQLHDESC) DEAD_MAGIC;
+	*buflen = sizeof (SQLHDESC);
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_STATUS_PTR:
-	*((SQLUSMALLINT **) val) = s->row_status;
+	*((SQLUSMALLINT **) uval) = s->row_status;
+	*buflen = sizeof (SQLUSMALLINT *);
 	return SQL_SUCCESS;
     case SQL_ATTR_ROWS_FETCHED_PTR:
-	*((SQLULEN **) val) = s->row_count;
+	*((SQLULEN **) uval) = s->row_count;
+	*buflen = sizeof (SQLULEN *);
 	return SQL_SUCCESS;
     case SQL_ATTR_USE_BOOKMARKS: {
 	STMT *s = (STMT *) stmt;
 
-	*(SQLUINTEGER *) val = s->bkmrk ? SQL_UB_ON : SQL_UB_OFF;
+	*(SQLUINTEGER *) uval = s->bkmrk ? SQL_UB_ON : SQL_UB_OFF;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     }
     case SQL_ATTR_PARAM_BIND_OFFSET_PTR:
-	*((SQLULEN **) val) = s->parm_bind_offs;
+	*((SQLULEN **) uval) = s->parm_bind_offs;
+	*buflen = sizeof (SQLULEN *);
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_BIND_TYPE:
-	*((SQLUINTEGER *) val) = SQL_PARAM_BIND_BY_COLUMN;
+	*((SQLUINTEGER *) uval) = SQL_PARAM_BIND_BY_COLUMN;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_OPERATION_PTR:
-	*((SQLUSMALLINT **) val) = s->parm_oper;
+	*((SQLUSMALLINT **) uval) = s->parm_oper;
+	*buflen = sizeof (SQLUSMALLINT *);
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAM_STATUS_PTR:
-	*((SQLUSMALLINT **) val) = s->parm_status;
+	*((SQLUSMALLINT **) uval) = s->parm_status;
+	*buflen = sizeof (SQLUSMALLINT *);
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMS_PROCESSED_PTR:
-	*((SQLULEN **) val) = s->parm_proc;
+	*((SQLULEN **) uval) = s->parm_proc;
+	*buflen = sizeof (SQLULEN *);
 	return SQL_SUCCESS;
     case SQL_ATTR_PARAMSET_SIZE:
-	*((SQLUINTEGER *) val) = s->paramset_size;
+	*((SQLUINTEGER *) uval) = s->paramset_size;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_TYPE:
-	*(SQLUINTEGER *) val = s->bind_type;
+	*(SQLUINTEGER *) uval = s->bind_type;
+	*buflen = sizeof (SQLUINTEGER);
 	return SQL_SUCCESS;
     case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-	*((SQLULEN **) val) = s->bind_offs;
+	*((SQLULEN **) uval) = s->bind_offs;
+	*buflen = sizeof (SQLULEN *);
 	return SQL_SUCCESS;
     case SQL_ATTR_NOSCAN:
-	*((SQLUINTEGER **) val) = SQL_NOSCAN_OFF;
+	*((SQLUINTEGER **) uval) = SQL_NOSCAN_OFF;
+	*buflen = sizeof (SQLUINTEGER *);
 	return SQL_SUCCESS;
     case SQL_ATTR_MAX_ROWS:
+	*((SQLULEN *) uval) = 1000000000;
+	*buflen = sizeof (SQLULEN);
+	return SQL_SUCCESS;
     case SQL_ATTR_MAX_LENGTH:
-	*((SQLINTEGER *) val) = 1000000000;
+	*((SQLULEN *) uval) = 1000000000;
+	*buflen = sizeof (SQLULEN);
 	return SQL_SUCCESS;
     }
     return drvunimplstmt(stmt);
@@ -8002,6 +8036,10 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_STANDARD_CLI_CONFORMANCE:
 	*((SQLUINTEGER *) val) = SQL_SCC_XOPEN_CLI_VERSION1;
+	*valLen = sizeof (SQLUINTEGER);
+	break;
+    case SQL_SQL_CONFORMANCE:
+	*((SQLUINTEGER *) val) = SQL_SC_SQL92_ENTRY;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
     case SQL_SERVER_NAME:

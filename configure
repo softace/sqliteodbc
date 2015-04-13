@@ -921,6 +921,7 @@ enable_libtool_lock
 with_sqlite
 with_sqlite3
 with_sqlite4
+with_libxml2
 with_odbc
 enable_winterface
 with_dls
@@ -1573,6 +1574,7 @@ Optional Packages:
   --with-sqlite=DIR       use SQLite header/lib from DIR
   --with-sqlite3=DIR      use SQLite3 hdr/lib from DIR
   --with-sqlite4=DIR      use SQLite4 hdr/src from DIR
+  --with-libxml2=SCR      use xml2-config script SCR
   --with-odbc=DIR         use ODBC header/libs from DIR
   --with-dls              dlopen SQLite3/SQLite4 lib
 
@@ -3691,13 +3693,13 @@ if test "${lt_cv_nm_interface+set}" = set; then
 else
   lt_cv_nm_interface="BSD nm"
   echo "int some_variable = 0;" > conftest.$ac_ext
-  (eval echo "\"\$as_me:3694: $ac_compile\"" >&5)
+  (eval echo "\"\$as_me:3696: $ac_compile\"" >&5)
   (eval "$ac_compile" 2>conftest.err)
   cat conftest.err >&5
-  (eval echo "\"\$as_me:3697: $NM \\\"conftest.$ac_objext\\\"\"" >&5)
+  (eval echo "\"\$as_me:3699: $NM \\\"conftest.$ac_objext\\\"\"" >&5)
   (eval "$NM \"conftest.$ac_objext\"" 2>conftest.err > conftest.out)
   cat conftest.err >&5
-  (eval echo "\"\$as_me:3700: output\"" >&5)
+  (eval echo "\"\$as_me:3702: output\"" >&5)
   cat conftest.out >&5
   if $GREP 'External.*some_variable' conftest.out > /dev/null; then
     lt_cv_nm_interface="MS dumpbin"
@@ -4903,7 +4905,7 @@ ia64-*-hpux*)
   ;;
 *-*-irix6*)
   # Find out which ABI we are using.
-  echo '#line 4906 "configure"' > conftest.$ac_ext
+  echo '#line 4908 "configure"' > conftest.$ac_ext
   if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -6760,11 +6762,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6763: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6765: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:6767: \$? = $ac_status" >&5
+   echo "$as_me:6769: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -7099,11 +7101,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:7102: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:7104: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:7106: \$? = $ac_status" >&5
+   echo "$as_me:7108: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -7204,11 +7206,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:7207: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:7209: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:7211: \$? = $ac_status" >&5
+   echo "$as_me:7213: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -7259,11 +7261,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:7262: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:7264: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:7266: \$? = $ac_status" >&5
+   echo "$as_me:7268: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -10062,7 +10064,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 10065 "configure"
+#line 10067 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -10158,7 +10160,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 10161 "configure"
+#line 10163 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -12306,23 +12308,43 @@ fi
 
 #########
 # libxml2 support for XPath virtual table module
+
+# Check whether --with-libxml2 was given.
+if test "${with_libxml2+set}" = set; then
+  withval=$with_libxml2; XML2_CONFIG=$withval
+fi
+
 XML2_FLAGS=""
 XML2_LIBS=""
 EXT_XPATH=""
 if test "$SQLITE3_LOADEXTENSION" = "1" ; then
-   { $as_echo "$as_me:$LINENO: checking for libxml2 header and library" >&5
-$as_echo_n "checking for libxml2 header and library... " >&6; }
-   XML2_CONFIG="`which xml2-config 2>/dev/null`"
-   if test -n "$XML2_CONFIG" ; then
-      XML2_FLAGS="`xml2-config --cflags`"
-      XML2_LIBS="`xml2-config --libs`"
-      EXT_XPATH=libsqlite3_mod_xpath.la
-      LIB_TARGETS="$LIB_TARGETS $EXT_XPATH"
-      { $as_echo "$as_me:$LINENO: result: yes" >&5
-$as_echo "yes" >&6; }
+   if test "$with_libxml2" = "no" ; then
+      XML2_CONFIG=""
    else
-      { $as_echo "$as_me:$LINENO: result: no" >&5
+      { $as_echo "$as_me:$LINENO: checking for libxml2 header and library" >&5
+$as_echo_n "checking for libxml2 header and library... " >&6; }
+      if test "$with_libxml2" != "no" ; then
+         if test -z "$XML2_CONFIG" ; then
+            XML2_CONFIG=`which xml2-config 2>/dev/null`
+         fi
+      fi
+      xml2_err1=1
+      xml2_err2=1
+      if test -n "$XML2_CONFIG" ; then
+         XML2_FLAGS="`$XML2_CONFIG --cflags 2>/dev/null`"
+         xml2_err1=$?
+         XML2_LIBS="`$XML2_CONFIG --libs 2>/dev/null`"
+         xml2_err2=$?
+      fi
+      if test $xml2_err1 -eq 0 -a $xml2_err2 -eq 0 ; then
+         EXT_XPATH=libsqlite3_mod_xpath.la
+         LIB_TARGETS="$LIB_TARGETS $EXT_XPATH"
+         { $as_echo "$as_me:$LINENO: result: yes" >&5
+$as_echo "yes" >&6; }
+      else
+         { $as_echo "$as_me:$LINENO: result: no" >&5
 $as_echo "no" >&6; }
+      fi
    fi
 fi
 
