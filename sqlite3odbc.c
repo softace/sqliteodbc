@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.169 2015/04/13 06:31:52 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.172 2016/01/05 17:51:07 chw Exp chw $
  *
- * Copyright (c) 2004-2015 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2016 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -236,6 +236,18 @@ static struct dl_sqlite3_funcs {
 #define stringify(s) stringify1(s)
 
 #define verinfo(maj, min, lev) ((maj) << 16 | (min) << 8 | (lev))
+
+/* Column meta data from SQLite support */
+#undef FULL_METADATA
+#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+#if defined(HAVE_SQLITE3COLUMNTABLENAME) && (HAVE_SQLITE3COLUMNTABLENAME)
+#if defined(HAVE_SQLITE3COLUMNORIGINNAME) && (HAVE_SQLITE3COLUMNORIGINNAME)
+#define FULL_METADATA 1
+#endif
+#endif
+#endif
+#endif
 
 /* Column types for static string column descriptions (SQLTables etc.) */
 
@@ -1261,7 +1273,10 @@ drvgetgpps(DBC *d)
     void *lib;
     int (*gpps)();
 
-    lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    lib = dlopen("libodbcinst.so.2", RTLD_LAZY);
+    if (!lib) {
+	lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    }
     if (!lib) {
 	lib = dlopen("libodbcinst.so", RTLD_LAZY);
     }
@@ -1903,11 +1918,13 @@ unquote(char *str)
 	int len = strlen(str);
 
 	if (len > 1) {
-	    if ((str[0] == '\'' && str[len - 1] == '\'') ||
-		(str[0] == '"' && str[len - 1] == '"') ||
-		(str[0] == '[' && str[len - 1] == ']')) {
-		str[len - 1] = '\0';
-		strcpy(str, str + 1);
+	    int end = len - 1;
+
+	    if ((str[0] == '\'' && str[end] == '\'') ||
+		(str[0] == '"' && str[end] == '"') ||
+		(str[0] == '[' && str[end] == ']')) {
+		memmove(str, str + 1, end - 1);
+		str[end - 1] = '\0';
 	    }
 	}
     }
@@ -1944,7 +1961,7 @@ unescpat(char *str)
     p = str;
     while ((q = strchr(p, '\\')) != NULL) {
 	if (q[1] == '\\' || q[1] == '_' || q[1] == '%') {
-	    strcpy(q, q + 1);
+	    memmove(q, q + 1, strlen(q));
 	}
 	p = q + 1;
     }
@@ -2791,7 +2808,7 @@ static void
 fixupdyncols(STMT *s, DBC *d)
 {
     int i, k;
-#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !(HAVE_SQLITE3TABLECOLUMNMETADATA)
+#ifndef FULL_METADATA
     int pk, nn, t, r, nrows, ncols;
     char **rowp, *flagp, flags[128];
 #endif
@@ -2843,7 +2860,7 @@ fixupdyncols(STMT *s, DBC *d)
 	    s->dyncols[i].type = SQL_LONGVARBINARY;
 	}
     }
-#if !defined(HAVE_SQLITE3TABLECOLUMNMETADATA) || !(HAVE_SQLITE3TABLECOLUMNMETADATA)
+#ifndef FULL_METADATA
     if (s->dcols > array_size(flags)) {
 	flagp = xmalloc(sizeof (flags[0]) * s->dcols);
 	if (flagp == NULL) {
@@ -4222,7 +4239,7 @@ s3stmt_coltype(sqlite3_stmt *s3stmt, int col, DBC *d, int *guessed_types)
     return typename;
 }
 
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
+#ifdef FULL_METADATA
 
 /**
  * Add meta data for column
@@ -4236,7 +4253,7 @@ static void
 s3stmt_addmeta(sqlite3_stmt *s3stmt, int col, DBC *d, COL *ci)
 {
     int nn = 0, pk = 0, ai = 0;
-    const char *dn, *tn, *cn, *dummy[4];
+    const char *dn = NULL, *tn = NULL, *cn = NULL, *dummy[4];
 
     dn = sqlite3_column_database_name(s3stmt, col);
     tn = sqlite3_column_table_name(s3stmt, col);
@@ -4396,13 +4413,12 @@ s3stmt_step(STMT *s)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
-		s3stmt_addmeta(s->s3stmt, i, d, &dyncols[i]);
-#else
 		dyncols[i].autoinc = SQL_FALSE;
 		dyncols[i].notnull = SQL_NULLABLE;
 		dyncols[i].ispk = -1;
 		dyncols[i].isrowid = -1;
+#ifdef FULL_METADATA
+		s3stmt_addmeta(s->s3stmt, i, d, &dyncols[i]);
 #endif
 		dyncols[i].typename = xstrdup(typename);
 	    }
@@ -7981,7 +7997,7 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 static SQLRETURN
 drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 {
-    DBC *d;
+    DBC *d = NULL;
     int fail = 0;
     SQLRETURN ret;
 #if defined(_WIN32) || defined(_WIN64)
@@ -15878,7 +15894,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 	    sqlite3_free(sql);
 	}
 	if (ret == SQLITE_OK) {
-	    int colid, typec, npk = 0;
+	    int colid, typec, npk = 0, npkint = 0;
 
 	    namec = findcol(rowp, ncols, "name");
 	    uniquec = findcol(rowp, ncols, "pk");
@@ -15888,14 +15904,16 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 		goto noipk;
 	    }
 	    for (i = 1; i <= nrows; i++) {
-		if (*rowp[i * ncols + uniquec] != '0' &&
-		    strlen(rowp[i * ncols + typec]) == 7 &&
-		    strncasecmp(rowp[i * ncols + typec], "integer", 7)
-		    == 0) {
+		if (*rowp[i * ncols + uniquec] != '0') {
 		    npk++;
+		    if (strlen(rowp[i * ncols + typec]) == 7 &&
+			strncasecmp(rowp[i * ncols + typec], "integer", 7)
+			== 0) {
+			npkint++;
+		    }
 		}
 	    }
-	    if (npk == 1) {
+	    if (npkint == 1 && npk == npkint) {
 		addipk = 1;
 	    }
 	}
@@ -18291,13 +18309,12 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		dyncols[i].scale = 0;
 		dyncols[i].prec = 0;
 		dyncols[i].nosign = 1;
-#if defined(HAVE_SQLITE3TABLECOLUMNMETADATA) && (HAVE_SQLITE3TABLECOLUMNMETADATA)
-		s3stmt_addmeta(s3stmt, i, d, &dyncols[i]);
-#else
 		dyncols[i].autoinc = SQL_FALSE;
 		dyncols[i].notnull = SQL_NULLABLE;
 		dyncols[i].ispk = -1;
 		dyncols[i].isrowid = -1;
+#ifdef FULL_METADATA
+		s3stmt_addmeta(s3stmt, i, d, &dyncols[i]);
 #endif
 		dyncols[i].typename = xstrdup(typename);
 	    }
@@ -18830,7 +18847,7 @@ done:
 #define MAXPATHLEN      (259+1)           /* Max path length */
 #define MAXKEYLEN       (15+1)            /* Max keyword length */
 #define MAXDESC         (255+1)           /* Max description length */
-#define MAXDSNAME       (32+1)            /* Max data source name length */
+#define MAXDSNAME       (255+1)           /* Max data source name length */
 #define MAXTONAME       (32+1)            /* Max timeout length */
 #define MAXDBNAME       MAXPATHLEN
 

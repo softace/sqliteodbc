@@ -1,6 +1,18 @@
 SQLite ODBC Driver
 ------------------
 
+Mon Jan 11 2016 version 0.9993 released
+
+	* update to SQLite 3.10.0
+	* fixes in SQLStatistic() for decting unique indices
+	* for SQLGetPrivateProfileString() try to load libodbcinst.so.2
+	  first, then libodbcinst.so.1
+	* eliminated some valgrind warnings regarding strcpy()
+	* increased max. length for data source name in Win32
+	  config dialog
+	* configure: detect presence of sqlite3_columndatabasename()
+	  and sqlite3_columnoriginname()
+
 Mon Apr 13 2015 version 0.9992 released
 
 	* update to SQLite 3.8.9

@@ -4,9 +4,9 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.24 2014/12/29 09:53:56 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.25 2016/01/05 17:48:52 chw Exp chw $
  *
- * Copyright (c) 2007-2014 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2007-2016 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a

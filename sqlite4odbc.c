@@ -2,9 +2,9 @@
  * @file sqlite4odbc.c
  * SQLite4 ODBC Driver main module.
  *
- * $Id: sqlite4odbc.c,v 1.15 2015/04/13 06:31:52 chw Exp chw $
+ * $Id: sqlite4odbc.c,v 1.18 2016/01/05 17:51:07 chw Exp chw $
  *
- * Copyright (c) 2014-2015 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2014-2016 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -1246,7 +1246,10 @@ drvgetgpps(DBC *d)
     void *lib;
     int (*gpps)();
 
-    lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    lib = dlopen("libodbcinst.so.2", RTLD_LAZY);
+    if (!lib) {
+	lib = dlopen("libodbcinst.so.1", RTLD_LAZY);
+    }
     if (!lib) {
 	lib = dlopen("libodbcinst.so", RTLD_LAZY);
     }
@@ -1978,11 +1981,13 @@ unquote(char *str)
 	int len = strlen(str);
 
 	if (len > 1) {
-	    if ((str[0] == '\'' && str[len - 1] == '\'') ||
-		(str[0] == '"' && str[len - 1] == '"') ||
-		(str[0] == '[' && str[len - 1] == ']')) {
-		str[len - 1] = '\0';
-		strcpy(str, str + 1);
+	    int end = len - 1;
+
+	    if ((str[0] == '\'' && str[end] == '\'') ||
+		(str[0] == '"' && str[end] == '"') ||
+		(str[0] == '[' && str[end] == ']')) {
+		memmove(str, str + 1, end - 1);
+		str[end - 1] = '\0';
 	    }
 	}
     }
@@ -2019,7 +2024,7 @@ unescpat(char *str)
     p = str;
     while ((q = strchr(p, '\\')) != NULL) {
 	if (q[1] == '\\' || q[1] == '_' || q[1] == '%') {
-	    strcpy(q, q + 1);
+	    memmove(q, q + 1, strlen(q));
 	}
 	p = q + 1;
     }
@@ -7550,7 +7555,7 @@ endtran(DBC *d, SQLSMALLINT comptype, int force)
 static SQLRETURN
 drvendtran(SQLSMALLINT type, SQLHANDLE handle, SQLSMALLINT comptype)
 {
-    DBC *d;
+    DBC *d = NULL;
     int fail = 0;
     SQLRETURN ret;
 #if defined(_WIN32) || defined(_WIN64)
@@ -11293,7 +11298,7 @@ drvfreeconnect(SQLHDBC dbc)
     }
 #if defined(_WIN32) || defined(_WIN64)
     d->owner = 0;
-    LeaveCrititcalSection(&d->cs);
+    LeaveCriticalSection(&d->cs);
     DeleteCriticalSection(&d->cs);
 #endif
     xfree(d);
@@ -15249,7 +15254,7 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 	    sqlite4_free(0, sql);
 	}
 	if (ret == SQLITE4_OK) {
-	    int colid, typec, npk = 0;
+	    int colid, typec, npk = 0, npkint = 0;
 
 	    namec = findcol(rowp, ncols, "name");
 	    uniquec = findcol(rowp, ncols, "pk");
@@ -15259,14 +15264,16 @@ drvstatistics(SQLHSTMT stmt, SQLCHAR *cat, SQLSMALLINT catLen,
 		goto noipk;
 	    }
 	    for (i = 1; i <= nrows; i++) {
-		if (*rowp[i * ncols + uniquec] != '0' &&
-		    strlen(rowp[i * ncols + typec]) == 7 &&
-		    strncasecmp(rowp[i * ncols + typec], "integer", 7)
-		    == 0) {
+		if (*rowp[i * ncols + uniquec] != '0') {
 		    npk++;
+		    if (strlen(rowp[i * ncols + typec]) == 7 &&
+			strncasecmp(rowp[i * ncols + typec], "integer", 7)
+			== 0) {
+			npkint++;
+		    }
 		}
 	    }
-	    if (npk == 1) {
+	    if (npkint == 1 && npk == nkpint) {
 		addipk = 1;
 	    }
 	}
@@ -18147,7 +18154,7 @@ done:
 #define MAXPATHLEN      (259+1)           /* Max path length */
 #define MAXKEYLEN       (15+1)            /* Max keyword length */
 #define MAXDESC         (255+1)           /* Max description length */
-#define MAXDSNAME       (32+1)            /* Max data source name length */
+#define MAXDSNAME       (255+1)           /* Max data source name length */
 #define MAXTONAME       (32+1)            /* Max timeout length */
 #define MAXDBNAME       MAXPATHLEN
 
