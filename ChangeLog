@@ -1,6 +1,11 @@
 SQLite ODBC Driver
 ------------------
 
+Sun Jun 05 2016 version 0.9994 released
+
+	* update to SQLite 3.13.0
+	* fix to present file names with slashes to sqlite3_load_extension()
+
 Mon Jan 11 2016 version 0.9993 released
 
 	* update to SQLite 3.10.0

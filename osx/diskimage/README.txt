@@ -13,7 +13,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.13.0, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.8.9, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -26,7 +26,7 @@ on as an absolute pathname including the drive letter, eg as
 can be specified in the respective field. If empty a default value
 of 100000 milliseconds is used.
 
-The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.13.0,
+The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.8.9,
 MingW cross compiler and only rudimentary tested on Windows Vista 64.
 
 Other tests were made on Linux with the "isql" command line tool
@@ -352,42 +352,6 @@ Win64 notes
   must be used.
 
 
-MacOSX notes (thanks Steve Palm)
-
-  The driver requires that you have ODBC installed and set up on
-  your Mac. Some GUI tools are here:
-
-    http://www.iodbc.org/dataspace/iodbc/wiki/iODBC/Downloads
-    http://www.odbcmanager.net
-
-  The ODBC configuration files can be edited manually as on Linux.
-  The files are at:
-
-    /Library/ODBC/odbc.ini
-    /Library/ODBC/odbcinst.ini
-
-  Example for odbc.ini:
-
-    [ODBC Data Sources]
-    Mail            = SQLite3 Driver
-
-    [Mail]
-    Driver      = /usr/local/lib/libsqlite3odbc.dylib
-    Description = OSX Mail Database
-    database    = /Users/n9yty/Library/Mail/V3/MailData/Envelope Index
-
-  Example for odbcinst.ini
-
-    [ODBC Drivers]
-    SQLite3 Driver        = Installed
-
-    [SQLite3 Driver]
-    Driver = /usr/local/lib/libsqlite3odbc.dylib
-    Setup  = /usr/local/lib/libsqlite3odbc.dylib
-
-  The iODBC driver manages provides the utility programs iodbctest
-  and iodbctestw (UNICODE) which can be run in Terminal to verify
-  the installed data sources.
 
 
 TODO:
@@ -395,7 +359,7 @@ TODO:
 - improve documentation
 
 
-2016-06-05
+2015-04-13
 Christian Werner
 mailto:chw@ch-werner.de
 

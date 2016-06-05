@@ -2,7 +2,7 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.172 2016/01/05 17:51:07 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.173 2016/06/04 16:14:55 chw Exp chw $
  *
  * Copyright (c) 2004-2016 Christian Werner <chw@ch-werner.de>
  *
@@ -4159,6 +4159,7 @@ dbloadext(DBC *d, char *exts)
 	    char *errmsg = NULL;
 	    int rc;
 #if defined(_WIN32) || defined(_WIN64)
+	    int i;
 	    char *q;
 
 	    q = path + plen;
@@ -4166,6 +4167,12 @@ dbloadext(DBC *d, char *exts)
 		  ((q[1] == ':' && (q[2] == '\\' || q[2] == '/')) ||
 		   q[0] == '\\' || q[0] == '/' || q[0] == '.'))) {
 		q = path;
+	    }
+	    /* sqlite3_load_extension() dislikes backslashes */
+	    for (i = 0; q[i] != '\0'; i++) {
+		if (q[i] == '\\') {
+		    q[i] = '/';
+		}
 	    }
 	    rc = sqlite3_load_extension(d->sqlite, q, 0, &errmsg);
 #else

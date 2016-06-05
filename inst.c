@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.23 2016/01/05 17:48:52 chw Exp chw $
+ * $Id: inst.c,v 1.25 2016/06/05 03:16:49 chw Exp chw $
  *
  * Copyright (c) 2001-2016 Christian Werner <chw@ch-werner.de>
  *
@@ -63,10 +63,11 @@ static int nosys = 0;
 /**
  * Handler for ODBC installation error messages.
  * @param name name of API function for which to show error messages
+ * @param quiet when true suppress message box
  */
 
 static BOOL
-ProcessErrorMessages(char *name)
+ProcessErrorMessages(char *name, int quiet)
 {
     WORD err = 1;
     DWORD code;
@@ -79,8 +80,10 @@ ProcessErrorMessages(char *name)
 	errmsg[0] = '\0';
 	rc = SQLInstallerError(err, &code, errmsg, errmax, &errlen);
 	if (rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO) {
-	    MessageBox(NULL, errmsg, name,
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+	    if (!quiet) {
+		MessageBox(NULL, errmsg, name,
+			   MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
+	    }
 	    ret = TRUE;
 	}
 	err++;
@@ -200,8 +203,12 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 	}
 	if (remove) {
 	    if (!SQLRemoveDriver(driver, TRUE, &usecnt)) {
-		ProcessErrorMessages("SQLRemoveDriver");
-		return FALSE;
+		if (GetFileAttributes(dllname) != INVALID_FILE_ATTRIBUTES) {
+		    ProcessErrorMessages("SQLRemoveDriver", 0);
+		    return FALSE;
+		}
+		ProcessErrorMessages("SQLRemoveDriver", 1);
+		usecnt = 1;
 	    }
 	    if (!usecnt) {
 		char buf[512];
@@ -254,7 +261,7 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 	}
 	if (!SQLInstallDriverEx(driver, path, path, pathmax, &pathlen,
 				ODBC_INSTALL_COMPLETE, &usecnt)) {
-	    ProcessErrorMessages("SQLInstallDriverEx");
+	    ProcessErrorMessages("SQLInstallDriverEx", 0);
 	    return FALSE;
 	}
 	if (nosys) {
@@ -270,11 +277,11 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 	}
 	SQLConfigDataSource(NULL, ODBC_REMOVE_SYS_DSN, drivername, attr);
 	if (!SQLConfigDataSource(NULL, ODBC_ADD_SYS_DSN, drivername, attr)) {
-	    ProcessErrorMessages("SQLConfigDataSource");
+	    ProcessErrorMessages("SQLConfigDataSource", 0);
 	    return FALSE;
 	}
     } else {
-	ProcessErrorMessages("SQLInstallDriverManager");
+	ProcessErrorMessages("SQLInstallDriverManager", 0);
 	return FALSE;
     }
 done:

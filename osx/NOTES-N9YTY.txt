@@ -1,0 +1,1088 @@
+# A copy of SQLite3 (and maybe SQLite/SQLite2/SQLite4) should be compiled locally and used as part of building the sqlite3dobc library
+
+# Download and unpack the sqliteodbc code, and change into it's directory:
+
+wget http://www.ch-werner.de/sqliteodbc/sqliteodbc-0.9993.tar.gz
+tar xzvvf sqliteodbc-0.9993.tar.gz
+cd sqliteodbc-0.9993
+
+# Copy the osx build pieces.... Maybe I will see if they can be included in the distro.... ??
+cp ~/sqliteodbc_osx osx
+
+# Copy the source into the diskimage folder so it will be included in the distribution
+cp ../sqliteodbc-0.9993.tar.gz osx/diskimage/
+
+# Also copy the README for this version into the diskimage folder
+cp README osx/diskimage/README.txt
+
+
+# Now, to build sqliteodbc:
+
+# Download and unpack the sqlite3 code, build to install in the source directory itself....
+# Get the amalgamated autoconf build
+
+wget https://www.sqlite.org/2016/sqlite-autoconf-3100000.tar.gz
+tar xzvvf sqlite-autoconf-3100000.tar.gz
+mv sqlite-autoconf-3081101 sqlite3
+cd sqlite3
+export CFLAGS="-mmacosx-version-min=10.6 -arch i386 -arch x86_64 -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE-FTS5 -DSQLITE_ENABLE_ICU -DSQLITE_ENABLE_JSON1 -DSQLITE_ENABLE_DBSTAT_VTAB -DSQLITE_ENABLE_EXPLAIN_COMMENTS -DSQLITE_ENABLE_RTREE -DSQLITE_SOUNDEX -DSQLITE_ENABLE_RBU"
+export LDFLAGS="-mmacosx-version-min=10.6 -arch i386 -arch x86_64"
+./configure --prefix=`pwd` --enable-shared --enable-static
+make
+make install
+cd ..
+
+#Download and build the sqlite(2) code, buitl to install in the source directory itself....
+#NOTE: The libtool it uses does not know about OSX universal binary, so I had to build it for
+#each platform and manually combine the libraries....
+
+#I grabbed a copy of the source from the repo and extracted it into sqlite2:
+#   http://www.sqlite.org/cgi/src/tree?ci=version_2
+   
+cp -pvR ~/sqliteodbc_sqlite2_src sqlite2
+cd sqlite2
+# i386 build
+export CFLAGS="-mmacosx-version-min=10.6 -arch i386 -Wl,-arch,i386 -DSQLITE_ENABLE_COLUMN_METADATA=1"
+export LDFLAGS="-mmacosx-version-min=10.6 -arch i386 -Wl,-arch,i386"
+./configure --prefix=`pwd`
+make
+mkdir i386.libs
+cp -pvR .libs/* i386.libs
+
+# x86_64 build
+export CFLAGS="-mmacosx-version-min=10.6 -arch x86_64 -Wl,-arch,x86_64 -DSQLITE_ENABLE_COLUMN_METADATA=1"
+export LDFLAGS="-mmacosx-version-min=10.6 -arch x86_64 -Wl,-arch,x86_64"
+./configure --prefix=`pwd`
+make
+mkdir x86_64.libs
+cp -pvR .libs/* x86_64.libs
+
+# Use lipo to join them together
+FN=libsqlite.a; lipo -create -output $FN -arch i386 i386.libs/$FN -arch x86_64 x86_64.libs/$FN
+FN=libsqlite.0.8.6.dylib; lipo -create -output $FN -arch i386 i386.libs/$FN -arch x86_64 x86_64.libs/$FN
+cp libsqlite.a libsqlite.0.8.6.dylib .libs
+
+# Put in the local install area
+make install
+
+
+# Build the sqliteodbc library
+export CFLAGS="-mmacosx-version-min=10.6 -arch i386 -arch x86_64"
+export LDFLAGS="-mmacosx-version-min=10.6 -arch i386 -arch x86_64"
+./configure --with-sqlite="`pwd`/sqlite2" --with-sqlite3="`pwd`/sqlite3" --enable-shared --enable-static
+make
+
+# Build the disk image
+cd osx
+./make_package.sh
+
+# The notes about this are below:
+
+# Then made a directory that contained the original source distribution, the original README.txt, README-OSX.txt, a screen
+# capture of the ODBC Manager driver config screen, screen capture of connection setup, and the pkg file from
+# "Packages".
+#
+# http://s.sudre.free.fr/Software/Packages/about.html
+#
+
+# Now, how you distribute things is up to you.  I did "make install", which puts the files in /usr/local/lib, and then used "Packages" to build an installer package.
+# Packages file is below, replace ${VERSION} with your version number (i.e. 0.9992).
+#
+#   The template sqliteodbc.pkgproj.tmpl for Packages I used is below (just an XML file).
+#
+cd osx
+SRCDIR=`cd ..; pwd`
+SQLITE3LIB="$SRCDIR/sqlite3/lib"
+SQLITE2LIB="$SRCDIR/sqlite2/lib"
+MV=`grep "^VER_INFO\s*=" Makefile | tr -d ' \t'`
+set -- $MV
+eval "$1"
+cat sqliteodbc.pkgproj.tmpl | sed "s/\${VERSION}/${VER_INFO}/g" | \
+    sed "s/\${SQLITE3LIB}/${VER_INFO}/g" | \
+    sed "s/\${SQLITE2LIB}/${VER_INFO}/g" \ >sqliteodbc.pkgproj
+rm build/sqlite*.pkg
+packagesbuild -v sqliteodbc.pkgproj
+rm diskimage/sqlite*pkg
+cp build/sqliteodbc-${VER_INFO}.pkg diskimage
+hdiutil create sqliteodbc-${VER_INFO}.dmg -volname sqliteodbc-${VER_INFO} -srcfolder diskimage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PROJECT</key>
+	<dict>
+		<key>PACKAGE_FILES</key>
+		<dict>
+			<key>DEFAULT_INSTALL_LOCATION</key>
+			<string>/usr/local/lib</string>
+			<key>HIERARCHY</key>
+			<dict>
+				<key>CHILDREN</key>
+				<array>
+					<dict>
+						<key>CHILDREN</key>
+						<array>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>80</integer>
+								<key>PATH</key>
+								<string>Utilities</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+						</array>
+						<key>GID</key>
+						<integer>80</integer>
+						<key>PATH</key>
+						<string>Applications</string>
+						<key>PATH_TYPE</key>
+						<integer>0</integer>
+						<key>PERMISSIONS</key>
+						<integer>509</integer>
+						<key>TYPE</key>
+						<integer>1</integer>
+						<key>UID</key>
+						<integer>0</integer>
+					</dict>
+					<dict>
+						<key>CHILDREN</key>
+						<array>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>80</integer>
+								<key>PATH</key>
+								<string>Application Support</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Automator</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Documentation</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Filesystems</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Frameworks</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Input Methods</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Internet Plug-Ins</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>LaunchAgents</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>LaunchDaemons</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>PreferencePanes</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Preferences</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>80</integer>
+								<key>PATH</key>
+								<string>Printers</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>PrivilegedHelperTools</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>QuickLook</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>QuickTime</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Screen Savers</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Scripts</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Services</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Widgets</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+						</array>
+						<key>GID</key>
+						<integer>0</integer>
+						<key>PATH</key>
+						<string>Library</string>
+						<key>PATH_TYPE</key>
+						<integer>0</integer>
+						<key>PERMISSIONS</key>
+						<integer>493</integer>
+						<key>TYPE</key>
+						<integer>1</integer>
+						<key>UID</key>
+						<integer>0</integer>
+					</dict>
+					<dict>
+						<key>CHILDREN</key>
+						<array>
+							<dict>
+								<key>CHILDREN</key>
+								<array>
+									<dict>
+										<key>CHILDREN</key>
+										<array/>
+										<key>GID</key>
+										<integer>0</integer>
+										<key>PATH</key>
+										<string>Extensions</string>
+										<key>PATH_TYPE</key>
+										<integer>0</integer>
+										<key>PERMISSIONS</key>
+										<integer>493</integer>
+										<key>TYPE</key>
+										<integer>1</integer>
+										<key>UID</key>
+										<integer>0</integer>
+									</dict>
+								</array>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Library</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+						</array>
+						<key>GID</key>
+						<integer>0</integer>
+						<key>PATH</key>
+						<string>System</string>
+						<key>PATH_TYPE</key>
+						<integer>0</integer>
+						<key>PERMISSIONS</key>
+						<integer>493</integer>
+						<key>TYPE</key>
+						<integer>1</integer>
+						<key>UID</key>
+						<integer>0</integer>
+					</dict>
+					<dict>
+						<key>CHILDREN</key>
+						<array>
+							<dict>
+								<key>CHILDREN</key>
+								<array/>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>Shared</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>1023</integer>
+								<key>TYPE</key>
+								<integer>1</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+						</array>
+						<key>GID</key>
+						<integer>80</integer>
+						<key>PATH</key>
+						<string>Users</string>
+						<key>PATH_TYPE</key>
+						<integer>0</integer>
+						<key>PERMISSIONS</key>
+						<integer>493</integer>
+						<key>TYPE</key>
+						<integer>1</integer>
+						<key>UID</key>
+						<integer>0</integer>
+					</dict>
+					<dict>
+						<key>CHILDREN</key>
+						<array>
+							<dict>
+								<key>CHILDREN</key>
+								<array>
+									<dict>
+										<key>CHILDREN</key>
+										<array>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_blobtoxy-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_blobtoxy.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_csvtable-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_csvtable.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_impexp-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_impexp.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_xpath-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_xpath.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_zipfile-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqlite3_mod_zipfile.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>../.libs/libsqlite3odbc-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>1</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>../.libs/libsqlite3odbc.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>1</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqliteodbc-${VERSION}.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+											<dict>
+												<key>CHILDREN</key>
+												<array/>
+												<key>GID</key>
+												<integer>0</integer>
+												<key>PATH</key>
+												<string>/usr/local/lib/libsqliteodbc.dylib</string>
+												<key>PATH_TYPE</key>
+												<integer>0</integer>
+												<key>PERMISSIONS</key>
+												<integer>493</integer>
+												<key>TYPE</key>
+												<integer>3</integer>
+												<key>UID</key>
+												<integer>0</integer>
+											</dict>
+										</array>
+										<key>GID</key>
+										<integer>0</integer>
+										<key>PATH</key>
+										<string>lib</string>
+										<key>PATH_TYPE</key>
+										<integer>0</integer>
+										<key>PERMISSIONS</key>
+										<integer>493</integer>
+										<key>TYPE</key>
+										<integer>2</integer>
+										<key>UID</key>
+										<integer>0</integer>
+									</dict>
+								</array>
+								<key>GID</key>
+								<integer>0</integer>
+								<key>PATH</key>
+								<string>local</string>
+								<key>PATH_TYPE</key>
+								<integer>0</integer>
+								<key>PERMISSIONS</key>
+								<integer>493</integer>
+								<key>TYPE</key>
+								<integer>2</integer>
+								<key>UID</key>
+								<integer>0</integer>
+							</dict>
+						</array>
+						<key>GID</key>
+						<integer>0</integer>
+						<key>PATH</key>
+						<string>usr</string>
+						<key>PATH_TYPE</key>
+						<integer>0</integer>
+						<key>PERMISSIONS</key>
+						<integer>493</integer>
+						<key>TYPE</key>
+						<integer>2</integer>
+						<key>UID</key>
+						<integer>0</integer>
+					</dict>
+				</array>
+				<key>GID</key>
+				<integer>0</integer>
+				<key>PATH</key>
+				<string>/</string>
+				<key>PATH_TYPE</key>
+				<integer>0</integer>
+				<key>PERMISSIONS</key>
+				<integer>493</integer>
+				<key>TYPE</key>
+				<integer>1</integer>
+				<key>UID</key>
+				<integer>0</integer>
+			</dict>
+			<key>PAYLOAD_TYPE</key>
+			<integer>0</integer>
+			<key>SPLIT_FORKS</key>
+			<true/>
+			<key>VERSION</key>
+			<integer>3</integer>
+		</dict>
+		<key>PACKAGE_SCRIPTS</key>
+		<dict>
+			<key>RESOURCES</key>
+			<array/>
+		</dict>
+		<key>PACKAGE_SETTINGS</key>
+		<dict>
+			<key>AUTHENTICATION</key>
+			<integer>1</integer>
+			<key>CONCLUSION_ACTION</key>
+			<integer>0</integer>
+			<key>FOLLOW_SYMBOLIC_LINKS</key>
+			<true/>
+			<key>IDENTIFIER</key>
+			<string>com.n9yty.pkg.sqliteodbc</string>
+			<key>OVERWRITE_PERMISSIONS</key>
+			<false/>
+			<key>USE_HFS+_COMPRESSION</key>
+			<true/>
+			<key>VERSION</key>
+			<string>${VERSION}</string>
+		</dict>
+		<key>PROJECT_COMMENTS</key>
+		<dict>
+			<key>NOTES</key>
+			<data>
+			</data>
+		</dict>
+		<key>PROJECT_SETTINGS</key>
+		<dict>
+			<key>BUILD_PATH</key>
+			<dict>
+				<key>PATH</key>
+				<string></string>
+				<key>PATH_TYPE</key>
+				<integer>0</integer>
+			</dict>
+			<key>EXCLUDED_FILES</key>
+			<array>
+				<dict>
+					<key>PATTERNS_ARRAY</key>
+					<array>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.DS_Store</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+					</array>
+					<key>PROTECTED</key>
+					<true/>
+					<key>PROXY_NAME</key>
+					<string>Remove .DS_Store files</string>
+					<key>PROXY_TOOLTIP</key>
+					<string>Remove ".DS_Store" files created by the Finder.</string>
+					<key>STATE</key>
+					<true/>
+				</dict>
+				<dict>
+					<key>PATTERNS_ARRAY</key>
+					<array>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.pbdevelopment</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+					</array>
+					<key>PROTECTED</key>
+					<true/>
+					<key>PROXY_NAME</key>
+					<string>Remove .pbdevelopment files</string>
+					<key>PROXY_TOOLTIP</key>
+					<string>Remove ".pbdevelopment" files created by ProjectBuilder or Xcode.</string>
+					<key>STATE</key>
+					<true/>
+				</dict>
+				<dict>
+					<key>PATTERNS_ARRAY</key>
+					<array>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>CVS</string>
+							<key>TYPE</key>
+							<integer>1</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.cvsignore</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.cvspass</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.svn</string>
+							<key>TYPE</key>
+							<integer>1</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.git</string>
+							<key>TYPE</key>
+							<integer>1</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>.gitignore</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+					</array>
+					<key>PROTECTED</key>
+					<true/>
+					<key>PROXY_NAME</key>
+					<string>Remove SCM metadata</string>
+					<key>PROXY_TOOLTIP</key>
+					<string>Remove helper files and folders used by the CVS, SVN or Git Source Code Management systems.</string>
+					<key>STATE</key>
+					<true/>
+				</dict>
+				<dict>
+					<key>PATTERNS_ARRAY</key>
+					<array>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>classes.nib</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>designable.db</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>info.nib</string>
+							<key>TYPE</key>
+							<integer>0</integer>
+						</dict>
+					</array>
+					<key>PROTECTED</key>
+					<true/>
+					<key>PROXY_NAME</key>
+					<string>Optimize nib files</string>
+					<key>PROXY_TOOLTIP</key>
+					<string>Remove "classes.nib", "info.nib" and "designable.nib" files within .nib bundles.</string>
+					<key>STATE</key>
+					<true/>
+				</dict>
+				<dict>
+					<key>PATTERNS_ARRAY</key>
+					<array>
+						<dict>
+							<key>REGULAR_EXPRESSION</key>
+							<false/>
+							<key>STRING</key>
+							<string>Resources Disabled</string>
+							<key>TYPE</key>
+							<integer>1</integer>
+						</dict>
+					</array>
+					<key>PROTECTED</key>
+					<true/>
+					<key>PROXY_NAME</key>
+					<string>Remove Resources Disabled folders</string>
+					<key>PROXY_TOOLTIP</key>
+					<string>Remove "Resources Disabled" folders.</string>
+					<key>STATE</key>
+					<true/>
+				</dict>
+				<dict>
+					<key>SEPARATOR</key>
+					<true/>
+				</dict>
+			</array>
+			<key>NAME</key>
+			<string>sqliteodbc-${VERSION}</string>
+			<key>REFERENCE_FOLDER_PATH</key>
+			<string>/usr/local/lib</string>
+		</dict>
+	</dict>
+	<key>TYPE</key>
+	<integer>1</integer>
+	<key>VERSION</key>
+	<integer>2</integer>
+</dict>
+</plist>
