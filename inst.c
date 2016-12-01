@@ -2,7 +2,7 @@
  * @file inst.c
  * SQLite ODBC Driver installer/uninstaller for WIN32
  *
- * $Id: inst.c,v 1.25 2016/06/05 03:16:49 chw Exp chw $
+ * $Id: inst.c,v 1.26 2016/08/14 10:02:55 chw Exp chw $
  *
  * Copyright (c) 2001-2016 Christian Werner <chw@ch-werner.de>
  *
@@ -129,7 +129,7 @@ CopyOrDelModules(char *dllname, char *path, BOOL del)
 	    if (!CopyFile(fdata.cFileName, buf, 0)) {
 		sprintf(buf, "Copy %s to %s failed", fdata.cFileName, path);
 		MessageBox(NULL, buf, "CopyFile",
-			   MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+			   MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 		FindClose(h);
 		return FALSE;
 	    }
@@ -245,7 +245,7 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 
 	    sprintf(buf, "Copy %s to %s failed", dllname, inst);
 	    MessageBox(NULL, buf, "CopyFile",
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	    return FALSE;
 	}
 	if (dll2name != NULL && !CopyFile(dll2name, inst2, 0)) {
@@ -253,7 +253,7 @@ InUn(int remove, char *drivername, char *dllname, char *dll2name, char *dsname)
 
 	    sprintf(buf, "Copy %s to %s failed", dll2name, inst2);
 	    MessageBox(NULL, buf, "CopyFile",
-		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND); 
+		       MB_ICONSTOP|MB_OK|MB_TASKMODAL|MB_SETFOREGROUND);
 	    /* but go on hoping that an SQLite engine is in place */
 	}
 	if (!CopyOrDelModules(dllname, path, 0)) {

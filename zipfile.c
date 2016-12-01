@@ -770,7 +770,7 @@ zip_vtab_eof(sqlite3_vtab_cursor *cursor)
  * @param ctx SQLite function context
  * @param n column index
  * @result SQLite error code
- */ 
+ */
 
 static int
 zip_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
@@ -1395,7 +1395,7 @@ mem_close(sqlite3_file *file)
 	mb->opened--;
 	if (mb->opened <= 0) {
 	    mem_destroymb(mb);
-	} 
+	}
 #ifdef linux
 	else {
 	    sqlite3_mutex_leave(mb->mutex);
@@ -1464,7 +1464,7 @@ mem_truncate(sqlite3_file *file, sqlite_int64 offs)
     long psize = mb->psize;
     unsigned long length = offs;
     unsigned long size;
-    
+
     size = length + 1;
     if ((psize > 0) && (size / psize == mb->size / psize)) {
 	p = mb->data;
@@ -2143,7 +2143,7 @@ blob_attach_func(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 #ifdef linux
     sqlite3_mutex_leave(mb->mutex);
     if (isrw) {
-	sqlite3_snprintf(sqllen, sql, 
+	sqlite3_snprintf(sqllen, sql,
 			 "file:/%lX?vfs=%s&mode=rw&cache=private",
 			 (unsigned long) mb, mem_vfs_name);
 	sqlite3_result_text(ctx, sql, -1, sqlite3_free);

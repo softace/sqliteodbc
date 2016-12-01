@@ -455,7 +455,7 @@ xpath_eof(sqlite3_vtab_cursor *cursor)
  * @param ctx SQLite function context
  * @param n column index
  * @result SQLite error code
- */ 
+ */
 
 static int
 xpath_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
@@ -704,6 +704,7 @@ havedoc:
 		break;
 	    }
 	}
+	sqlite3_mutex_leave(xm->mutex);
     } else {
 	/* UPDATE */
 	if (vtab->zErrMsg) {
@@ -752,7 +753,7 @@ nomem:
  * The RHS of the xpath_* functions should be a constant string.
  */
 
-static void 
+static void
 xpath_vfunc_common(sqlite3_context *ctx, int conv, int argc,
 		   sqlite3_value **argv)
 {
@@ -948,7 +949,7 @@ done:
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_vfunc_string(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     return xpath_vfunc_common(ctx, 0, argc, argv);
@@ -961,7 +962,7 @@ xpath_vfunc_string(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_vfunc_boolean(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     return xpath_vfunc_common(ctx, 1, argc, argv);
@@ -974,7 +975,7 @@ xpath_vfunc_boolean(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_vfunc_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     return xpath_vfunc_common(ctx, 2, argc, argv);
@@ -987,7 +988,7 @@ xpath_vfunc_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_vfunc_xml(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     return xpath_vfunc_common(ctx, 3, argc, argv);
@@ -1101,7 +1102,7 @@ static sqlite3_module xpath_mod = {
  * &lt;base-url&gt; - base URL of the XML document<br>
  */
 
-static void 
+static void
 xpath_func_common(sqlite3_context *ctx, int conv,
 		  int argc, sqlite3_value **argv)
 {
@@ -1241,7 +1242,7 @@ done:
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_func_string(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     xpath_func_common(ctx, 0, argc, argv);
@@ -1254,7 +1255,7 @@ xpath_func_string(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_func_boolean(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     xpath_func_common(ctx, 1, argc, argv);
@@ -1267,7 +1268,7 @@ xpath_func_boolean(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_func_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     xpath_func_common(ctx, 2, argc, argv);
@@ -1280,7 +1281,7 @@ xpath_func_number(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * @param argv argument vector
  */
 
-static void 
+static void
 xpath_func_xml(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     xpath_func_common(ctx, 3, argc, argv);
@@ -1303,7 +1304,7 @@ xpath_func_xml(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * xmlDocDumpFormatMemoryEnc() libxml2 function.
  */
 
-static void 
+static void
 xpath_func_dump(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     XMOD *xm = (XMOD *) sqlite3_user_data(ctx);
@@ -1368,7 +1369,7 @@ xpath_func_dump(sqlite3_context *ctx, int argc, sqlite3_value **argv)
  * the XSLT transformation.
  */
 
-static void 
+static void
 xpath_func_transform(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     xmlDocPtr doc = 0, docToFree = 0, res = 0;
@@ -1654,7 +1655,7 @@ xpath_init(sqlite3 *db)
  */
 
 int
-sqlite3_extension_init(sqlite3 *db, char **errmsg, 
+sqlite3_extension_init(sqlite3 *db, char **errmsg,
 		       const sqlite3_api_routines *api)
 {
     SQLITE_EXTENSION_INIT2(api);

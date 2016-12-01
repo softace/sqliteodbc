@@ -4,7 +4,7 @@
  * using SQLite 3.3.x virtual table API plus some useful
  * scalar and aggregate functions.
  *
- * $Id: blobtoxy.c,v 1.25 2016/01/05 17:48:52 chw Exp chw $
+ * $Id: blobtoxy.c,v 1.26 2016/08/14 10:02:55 chw Exp chw $
  *
  * Copyright (c) 2007-2016 Christian Werner <chw@ch-werner.de>
  *
@@ -121,7 +121,7 @@
  *    Tk 3D Canvas: "1 1 0 2 2 0 3 7 0 4 1 0"<br>
  *
  *   Arguments:
- * 
+ *
  *   0. blob data (required); this parameter is always
  *      interpreted as blob. It must contain at least
  *      two elements, otherwise the function's result
@@ -157,7 +157,7 @@
  *   -> X'0B0F'
  *
  *  Arguments:
- * 
+ *
  *  0. blob data (required); this parameter is always
  *     interpreted as blob.<br>
  *  1. start offset (required) in bytes as in substr
@@ -339,7 +339,7 @@ static int
 b2xy_destroy(sqlite3_vtab *vtab)
 {
     b2xy_table *bt = (b2xy_table *) vtab;
-  
+
     sqlite3_free(bt);
     return SQLITE_OK;
 }
@@ -894,7 +894,7 @@ refetch:
 
 	if (rc == SQLITE_SCHEMA) {
 	    rc = sqlite3_step(bc->select);
-	}	
+	}
 	if (rc != SQLITE_ROW) {
 	    sqlite3_finalize(bc->select);
 	    bc->select = 0;
@@ -1892,7 +1892,7 @@ b2xy_init(sqlite3 *db)
  */
 
 int
-sqlite3_extension_init(sqlite3 *db, char **errmsg, 
+sqlite3_extension_init(sqlite3 *db, char **errmsg,
 		       const sqlite3_api_routines *api)
 {
     SQLITE_EXTENSION_INIT2(api);

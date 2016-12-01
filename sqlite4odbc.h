@@ -15,7 +15,7 @@
  * @file sqlite4odbc.h
  * Header file for SQLite4 ODBC driver.
  *
- * $Id: sqlite4odbc.h,v 1.6 2016/01/05 17:48:52 chw Exp chw $
+ * $Id: sqlite4odbc.h,v 1.7 2016/08/14 10:08:33 chw Exp chw $
  *
  * Copyright (c) 2013-2016 Christian Werner <chw@ch-werner.de>
  *
@@ -208,7 +208,7 @@ typedef struct {
     void *param0;	/**< Parameter buffer, initial value */
     int inc;		/**< Increment for paramset size > 1 */
     int need;		/**< True when SQL_LEN_DATA_AT_EXEC */
-    int bound;		/**< True when SQLBindParameter() called */ 
+    int bound;		/**< True when SQLBindParameter() called */
     int offs, len;	/**< Offset/length for SQLParamData()/SQLPutData() */
     void *parbuf;	/**< Buffer for SQL_LEN_DATA_AT_EXEC etc. */
     char strbuf[64];	/**< String buffer for scalar data */

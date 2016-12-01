@@ -71,7 +71,7 @@
  *       rows are optionally introduced with a column made up of
  *       the prefix (non-empty string) for the respective table.
  *       If "schema" is NULL, "sqlite_master" is used, otherwise
- *       specify e.g. "sqlite_temp_master" for temporary tables or 
+ *       specify e.g. "sqlite_temp_master" for temporary tables or
  *       "att.sqlite_master" for the attached database "att".
  *
  *          CREATE TABLE A(a,b);
@@ -106,9 +106,9 @@
  *       rows are optionally enclosed with the "root" tag,
  *       the row data is enclosed in "item" tags. If "schema"
  *       is NULL, "sqlite_master" is used, otherwise specify
- *       e.g. "sqlite_temp_master" for temporary tables or 
+ *       e.g. "sqlite_temp_master" for temporary tables or
  *       "att.sqlite_master" for the attached database "att".
- *          
+ *
  *          <item>
  *           <columnname TYPE="INTEGER|REAL|NULL|TEXT|BLOB">value</columnname>
  *           ...
@@ -753,7 +753,7 @@ quote_xml_func(sqlite3_context *context, int argc, sqlite3_value **argv)
 	if (addtype > 0) {
 	    strcpy(p, " TYPE=\"TEXT\">");
 	    n = strlen(p);
-	}	    
+	}
 	for (i = 0; arg[i]; i++) {
 	    if (arg[i] == '"') {
 		p[n++] = '&';
@@ -1178,7 +1178,7 @@ dump_cb(void *udata, int nargs, char **args, char **cols)
 	if (dd->with_schema) {
 	    sqlite3_stmt *stmt = 0;
 	    char *creat = 0, *table_info = 0;
-   
+
 	    append(&table_info, "PRAGMA table_info(", 0);
 	    append(&table_info, table, '"');
 	    append(&table_info, ")", 0);
@@ -1247,7 +1247,7 @@ bailout0:
 	sqlite3_stmt *stmt = 0;
 	char *select = 0, *hdr = 0, *table_info = 0;
 	char buffer[256];
-   
+
 	append(&table_info, "PRAGMA table_info(", 0);
 	append(&table_info, table, '"');
 	append(&table_info, ")", 0);
@@ -2474,7 +2474,7 @@ static int
 #else
 int
 #endif
-sqlite3_extension_init(sqlite3 *db, char **errmsg, 
+sqlite3_extension_init(sqlite3 *db, char **errmsg,
 		       const sqlite3_api_routines *api)
 {
     int rc, i;

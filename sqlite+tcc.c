@@ -355,7 +355,7 @@ error:
 }
 
 int sqlite3_extension_init(
-  sqlite3 *db,                          /* SQLite3 database connection */ 
+  sqlite3 *db,                          /* SQLite3 database connection */
   char **pzErrMsg,                      /* Put error message here if not 0 */
   const sqlite3_api_routines *api       /* SQLite3 API entries */
 ){

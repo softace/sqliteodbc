@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Tue Dec 01 2016 version 0.9995 released
+
+	* update to SQLite 3.15.2
+	* don't statically buffer result of localeconv()
+	* increased some internal string buffers
+	* fixes in SQLSetPos() 
+	* fix locking in xpath module, thanks Abramo Bagnara
+
 Sun Jun 05 2016 version 0.9994 released
 
 	* update to SQLite 3.13.0

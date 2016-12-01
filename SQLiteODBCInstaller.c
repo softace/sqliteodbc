@@ -3,7 +3,7 @@ SQLiteODBCInstaller:
 --------------------
 Installs SQLiteODBC Driver.
 
-Contact: 
+Contact:
 Fjord-e-design GmbH, Kanzleistr. 91-93, D-24943 Flensburg
 Telephone: +49 (0)461/480897-80, (Germany)
 Fax: +49 (0)461/480897-81 (Germany)
@@ -27,25 +27,25 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-    * Redistributions of source code must retain the above copyright notice, 
+    * Redistributions of source code must retain the above copyright notice,
 	this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice, 
-	this list of conditions and the following disclaimer in the documentation 
+    * Redistributions in binary form must reproduce the above copyright notice,
+	this list of conditions and the following disclaimer in the documentation
 	and/or other materials provided with the distribution.
-    * Neither the name of the fjord-e-design nor the names of its contributors 
-	may be used to endorse or promote products derived from this software without 
+    * Neither the name of the fjord-e-design nor the names of its contributors
+	may be used to endorse or promote products derived from this software without
 	specific prior written permission.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED 
-TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR 
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
 PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
-BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE 
-GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) 
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT 
-LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
-OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 SUCH DAMAGE.
 -----------------------------------------------------------------------
 */
@@ -99,7 +99,7 @@ struct SQLiteDriverData_Struct
 	const char		*pArgOptionName;
 	// SQLINST_DRIVER_*
 	const unsigned char	ArgFlag;
-	
+
 	// DriverName
 	const char		*pDriverName;
 	// DSN-Name
@@ -111,7 +111,7 @@ struct SQLiteDriverData_Struct
 // Define availably Driver (SQLINST_DRIVER_DLL = use given DLL)
 static const struct SQLiteDriverData_Struct	g_SQLiteDriverData[SQLINST_DRIVER_COUNT] = \
 {
-	{	"sql2"	, SQLINST_DRIVER_SQL2		, "SQLite ODBC Driver"			, "SQLite Datasource"		, "sqliteodbc.dll"	},	
+	{	"sql2"	, SQLINST_DRIVER_SQL2		, "SQLite ODBC Driver"			, "SQLite Datasource"		, "sqliteodbc.dll"	},
 	{	"sql2u"	, SQLINST_DRIVER_SQL2_UTF	, "SQLite ODBC (UTF-8) Driver"		, "SQLite UTF-8 Datasource"	, "sqliteodbcu.dll"	},
 	{	"sql3"	, SQLINST_DRIVER_SQL3		, "SQLite3 ODBC Driver"			, "SQLite3 Datasource"		, "sqlite3odbc.dll"	},
 	{	""	, SQLINST_DRIVER_DLL		, ""					, ""				, ""			}
@@ -348,7 +348,7 @@ int main(int argc, char* argv[])
 				case SQLINST_ARGID_QUIET:
 					RunData.Quiet = TRUE;
 				break;
-				
+
 				case SQLINST_ARGID_SHOW_MSG_BOX:
 					g_ShowErrorInWindowsMessageBoxes = TRUE;
 				break;
@@ -544,7 +544,7 @@ char *SeperateArgAndValue( char *pArgName )
 	CheckValaue	= FALSE; // Arg not ended
 	while ( pArgName[StringPos] )
 	{
-		// Check some end chars 
+		// Check some end chars
 		switch ( pArgName[StringPos] )
 		{
 			case '\t':
@@ -589,10 +589,10 @@ void SaveValues( struct ParstArgsData_Struct *pDestArg, const char *pValues )
 	// do not write above dest buffer stop when string ends
 	while ( (pDestArg->ArgValueCount < SQLINST_MAX_ARG_VALUE) && pValues[StringPos] )
 	{
-		// no value startet 
+		// no value startet
 		ValueLength = 0;
 		BreakMe = FALSE;
-		pValueStart	= &pValues[StringPos]; 
+		pValueStart	= &pValues[StringPos];
 		Quote = 0;
 
 		// Parse string
@@ -851,7 +851,7 @@ void MakeTempFile( char *pDestBuffer, int MaxDestBuffer, const char *pSourceBuff
 			// Found
 			break;
 		}
-	
+
 		StartPosition--;
 	} // while ( SrcPosition >= 0 )
 	// if -1 or skip "\" or "/" or ":"

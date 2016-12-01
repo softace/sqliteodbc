@@ -516,7 +516,7 @@ error0:
     if (sep && sep[0]) {
 	csv->sep = sqlite3_malloc(strlen(sep) + 1);
 	if (!csv->sep) {
-error1:	    
+error1:
 	    sqlite3_free(csv);
 	    goto error0;
 	}
@@ -1247,7 +1247,7 @@ csv_vtab_eof(sqlite3_vtab_cursor *cursor)
  * @param ctx SQLite function context
  * @param n column index
  * @result SQLite error code
- */ 
+ */
 
 static int
 csv_vtab_column(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int n)
@@ -1513,7 +1513,7 @@ defcol:
 		append(&sql, cnames[i], '"');
 		if (i + 6 < argc) {
 		    char *type = (char *) sqlite3_value_text(argv[i + 6]);
-		    
+
 		    if (type) {
 			append(&sql, " ", 0);
 			append(&sql, type, 0);

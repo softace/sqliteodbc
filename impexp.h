@@ -72,7 +72,7 @@ int impexp_export_sql(sqlite3 *db, char *filename, int mode, ...);
  * rows are optionally introduced with a column made up of
  * the prefix (non-empty string) for the respective table.
  * If "schema" is NULL, "sqlite_master" is used, otherwise
- * specify e.g. "sqlite_temp_master" for temporary tables or 
+ * specify e.g. "sqlite_temp_master" for temporary tables or
  * "att.sqlite_master" for the attached database "att".
  * @param db SQLite database pointer
  * @param filename name of output file
@@ -110,7 +110,7 @@ int impexp_export_csv(sqlite3 *db, char *filename, int hdr, ...);
  * rows are optionally enclosed with the "root" tag,
  * the row data is enclosed in "item" tags. If "schema"
  * is NULL, "sqlite_master" is used, otherwise specify
- * e.g. "sqlite_temp_master" for temporary tables or 
+ * e.g. "sqlite_temp_master" for temporary tables or
  * "att.sqlite_master" for the attached database "att".
  * @param db SQLite database pointer
  * @param filename name of output file
@@ -225,7 +225,7 @@ int impexp_export_json(sqlite3 *db, char *sql, impexp_putc pfunc,
  * order to open a system file dialog for interactive filename
  * selection.
  */
-	
+
 int impexp_init(sqlite3 *db);
 
 
