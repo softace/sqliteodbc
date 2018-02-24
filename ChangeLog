@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Feb 24 2018 version 0.9996 released
+
+	* update to SQLite 3.22.0
+	* fixes in handling DDL in SQLExecDirect() et.al., thanks
+	  Andre Mikulec for testing
+	* cleanup utf8/unicode conversion functions
+
 Tue Dec 01 2016 version 0.9995 released
 
 	* update to SQLite 3.15.2

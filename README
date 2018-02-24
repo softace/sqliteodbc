@@ -13,7 +13,7 @@ WIN32 binaries (the ODBC driver DLL, install/uninstall programs) are in
 
     http://www.ch-werner.de/sqliteodbc/sqliteodbc.exe
 
-The binaries were made with SQLite 2.8.17, SQLite 3.15.2, MingW
+The binaries were made with SQLite 2.8.17, SQLite 3.22.0, MingW
 cross compiler and tested on Windows NT 4.0 with the query tool
 of MS Excel 97, with StarOffice 5.2 and OpenOffice 1.1 and 2.x.
 Execute the sqliteodbc.exe NSIS installer to unpack the necessary
@@ -26,7 +26,7 @@ on as an absolute pathname including the drive letter, eg as
 can be specified in the respective field. If empty a default value
 of 100000 milliseconds is used.
 
-The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.15.2,
+The Win64 installer (sqliteodbc_w64.exe) was made with SQLite 3.22.0,
 MingW cross compiler and only rudimentary tested on Windows Vista 64.
 
 Other tests were made on Linux with the "isql" command line tool
@@ -395,7 +395,7 @@ TODO:
 - improve documentation
 
 
-2016-12-01
+2018-02-24
 Christian Werner
 mailto:chw@ch-werner.de
 

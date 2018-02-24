@@ -15,9 +15,9 @@
  * @file sqliteodbc.h
  * Header file for SQLite ODBC driver.
  *
- * $Id: sqliteodbc.h,v 1.64 2016/08/14 10:08:33 chw Exp chw $
+ * $Id: sqliteodbc.h,v 1.65 2018/02/24 09:32:47 chw Exp chw $
  *
- * Copyright (c) 2001-2016 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2018 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -111,6 +111,7 @@ struct stmt;
 typedef struct {
     int magic;			/**< Magic cookie */
     int ov3;			/**< True for SQL_OV_ODBC3 */
+    int pool;			/**< True for SQL_CP_ONE_PER_DRIVER */
 #if defined(_WIN32) || defined(_WIN64)
     CRITICAL_SECTION cs;	/**< For serializing most APIs */
 #endif

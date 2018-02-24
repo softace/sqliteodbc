@@ -149,7 +149,11 @@ static struct {
   SYM(rollback_hook),
   SYM(set_authorizer),
   SYM(set_auxdata),
+#if SQLITE_VERSION_NUMBER >= 3022000
+  SYM2(snprintf, xsnprintf),
+#else
   SYM(snprintf),
+#endif
   SYM(step),
   SYM(table_column_metadata),
   SYM(thread_cleanup),

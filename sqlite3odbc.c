@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.176 2016/11/20 19:00:52 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.177 2018/02/24 09:32:47 chw Exp chw $
  *
- * Copyright (c) 2004-2016 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2018 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -910,28 +910,6 @@ uc_from_utf_buf(unsigned char *str, int len, SQLWCHAR *uc, int ucLen)
 		    uc[i++] = c;
 		    ++str;
 		}
-	    } else if (c < 0xfc) {
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 &&
-		    (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80) {
-		    unsigned long t = ((c & 0x01) << 24) |
-			((str[1] & 0x3f) << 18) | ((str[2] & 0x3f) << 12) |
-			((str[3] & 0x3f) << 6) | (str[4] & 0x3f);
-
-		    if (sizeof (SQLWCHAR) == 2 * sizeof (char) &&
-			t >= 0x10000) {
-			t -= 0x10000;
-			uc[i++] = 0xd800 | ((t >> 10) & 0x3ff);
-			if (i >= ucLen) {
-			    break;
-			}
-			t = 0xdc00 | (t & 0x3ff);
-		    }
-		    uc[i++] = t;
-		    str += 5;
-		} else {
-		    uc[i++] = c;
-		    ++str;
-		}
 	    } else {
 		/* ignore */
 		++str;
@@ -1024,21 +1002,8 @@ uc_to_utf(SQLWCHAR *str, int len)
 	    *cp++ = 0xe0 | ((c >> 12) & 0x0f);
 	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
 	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x200000) {
+	} else if (c <= 0x10ffff) {
 	    *cp++ = 0xf0 | ((c >> 18) & 0x07);
-	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x4000000) {
-	    *cp++ = 0xf8 | ((c >> 24) & 0x03);
-	    *cp++ = 0x80 | ((c >> 18) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
-	    *cp++ = 0x80 | (c & 0x3f);
-	} else if (c < 0x80000000) {
-	    *cp++ = 0xfc | ((c >> 31) & 0x01);
-	    *cp++ = 0x80 | ((c >> 24) & 0x3f);
-	    *cp++ = 0x80 | ((c >> 18) & 0x3f);
 	    *cp++ = 0x80 | ((c >> 12) & 0x3f);
 	    *cp++ = 0x80 | ((c >> 6) & 0x3f);
 	    *cp++ = 0x80 | (c & 0x3f);
@@ -2497,6 +2462,54 @@ mapdeftype(int type, int stype, int nosign, int nowchar)
 }
 
 /**
+ * Check if query is a DDL statement.
+ * @param sql query string
+ * @result true or false
+ */
+
+static int
+checkddl(char *sql)
+{
+    int isddl = 0;
+
+    while (*sql && ISSPACE(*sql)) {
+	++sql;
+    }
+    if (*sql && *sql != ';') {
+	int i, size;
+	static const struct {
+	    int len;
+	    const char *str;
+	} ddlstr[] = {
+	    { 5, "alter" },
+	    { 7, "analyze" },
+	    { 6, "attach" },
+	    { 5, "begin" },
+	    { 6, "commit" },
+	    { 6, "create" },
+	    { 6, "detach" },
+	    { 4, "drop" },
+	    { 3, "end" },
+	    { 7, "reindex" },
+	    { 7, "release" },
+	    { 8, "rollback" },
+	    { 9, "savepoint" },
+	    { 6, "vacuum" }
+	};
+
+	size = strlen(sql);
+	for (i = 0; i < array_size(ddlstr); i++) {
+	    if (size >= ddlstr[i].len &&
+		strncasecmp(sql, ddlstr[i].str, ddlstr[i].len) == 0) {
+		isddl = 1;
+		break;
+	    }
+	}
+    }
+    return isddl;
+}
+
+/**
  * Fixup query string with optional parameter markers.
  * @param sql original query string
  * @param sqlLen length of query string or SQL_NTS
@@ -2569,46 +2582,7 @@ errout:
 	case ';':
 	    if (!inq) {
 		if (isddl < 0) {
-		    char *qq = out;
-
-		    while (*qq && ISSPACE(*qq)) {
-			++qq;
-		    }
-		    if (*qq && *qq != ';') {
-			int i;
-			static const struct {
-			    int len;
-			    const char *str;
-			} ddlstr[] = {
-			    { 5, "alter" },
-			    { 7, "analyze" },
-			    { 6, "attach" },
-			    { 5, "begin" },
-			    { 6, "commit" },
-			    { 6, "create" },
-			    { 6, "detach" },
-			    { 4, "drop" },
-			    { 3, "end" },
-			    { 7, "reindex" },
-			    { 7, "release" },
-			    { 8, "rollback" },
-			    { 9, "savepoint" },
-			    { 6, "vacuum" }
-			};
-
-			size = strlen(qq);
-			for (i = 0; i < array_size(ddlstr); i++) {
-			    if (size >= ddlstr[i].len &&
-				strncasecmp(qq, ddlstr[i].str, ddlstr[i].len)
-				== 0) {
-				isddl = 1;
-				break;
-			    }
-			}
-			if (isddl != 1) {
-			    isddl = 0;
-			}
-		    }
+		    isddl = checkddl(out);
 		}
 		if (isddl == 0) {
 		    char *qq = q;
@@ -2715,6 +2689,9 @@ errout:
 	*nparam = np;
     }
     if (isselect) {
+	if (isddl < 0) {
+	    isddl = checkddl(out);
+	}
 	if (isddl > 0) {
 	    *isselect = 2;
 	} else {
@@ -8403,10 +8380,21 @@ SQLGetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val,
 #endif
     switch (attr) {
     case SQL_ATTR_CONNECTION_POOLING:
-	ret = SQL_ERROR;
+	if (val) {
+	    *((SQLINTEGER *) val) = e->pool ?
+		SQL_CP_ONE_PER_DRIVER : SQL_CP_OFF;
+	}
+	if (lenp) {
+	    *lenp = sizeof (SQLINTEGER);
+	}
+	ret = SQL_SUCCESS;
 	break;
     case SQL_ATTR_CP_MATCH:
-	ret = SQL_NO_DATA;
+	*((SQLINTEGER *) val) = SQL_CP_RELAXED_MATCH;
+	if (lenp) {
+	    *lenp = sizeof (SQLINTEGER);
+	}
+	ret = SQL_SUCCESS;
 	break;
     case SQL_ATTR_OUTPUT_NTS:
 	if (val) {
@@ -8460,10 +8448,16 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 #endif
     switch (attr) {
     case SQL_ATTR_CONNECTION_POOLING:
-	ret = SQL_SUCCESS;
+	if (val == (SQLPOINTER) SQL_CP_ONE_PER_DRIVER) {
+	    e->pool = 1;
+	    ret = SQL_SUCCESS;
+	} else if (val == (SQLPOINTER) SQL_CP_OFF) {
+	    e->pool = 0;
+	    ret = SQL_SUCCESS;
+	}
 	break;
     case SQL_ATTR_CP_MATCH:
-	ret = SQL_NO_DATA;
+	ret = SQL_SUCCESS;
 	break;
     case SQL_ATTR_OUTPUT_NTS:
 	if (val == (SQLPOINTER) SQL_TRUE) {
@@ -8477,8 +8471,7 @@ SQLSetEnvAttr(SQLHENV env, SQLINTEGER attr, SQLPOINTER val, SQLINTEGER len)
 	if (val == (SQLPOINTER) SQL_OV_ODBC2) {
 	    e->ov3 = 0;
 	    ret = SQL_SUCCESS;
-	}
-	if (val == (SQLPOINTER) SQL_OV_ODBC3) {
+	} else if (val == (SQLPOINTER) SQL_OV_ODBC3) {
 	    e->ov3 = 1;
 	    ret = SQL_SUCCESS;
 	}
@@ -11704,6 +11697,7 @@ drvallocenv(SQLHENV *env)
     }
     e->magic = ENV_MAGIC;
     e->ov3 = 0;
+    e->pool = 0;
 #if defined(_WIN32) || defined(_WIN64)
     InitializeCriticalSection(&e->cs);
 #else
