@@ -2,9 +2,9 @@
  * @file sqlite4odbc.c
  * SQLite4 ODBC Driver main module.
  *
- * $Id: sqlite4odbc.c,v 1.22 2018/02/24 09:32:47 chw Exp chw $
+ * $Id: sqlite4odbc.c,v 1.23 2020/06/13 11:05:30 chw Exp chw $
  *
- * Copyright (c) 2014-2018 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2014-2020 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -3947,7 +3947,7 @@ s4stmt_step(STMT *s)
 	    char *p;
 	    COL *dyncols;
 	    const char *colname, *typename;
-	    char *tblname;
+	    char *tblname, *dbname;
 
 	    for (i = size = 0; i < ncols; i++) {
 		colname = sqlite4_column_name(s->s4stmt, i);
@@ -3956,6 +3956,11 @@ s4stmt_step(STMT *s)
 	    tblname = (char *) size;
 	    for (i = 0; i < ncols; i++) {
 		p = (char *) sqlite4_column_table_name(s->s4stmt, i);
+		size += 2 + (p ? strlen(p) : 0);
+	    }
+	    dbname = (char *) size;
+	    for (i = 0; i < ncols; i++) {
+		p = (char *) sqlite4_column_database_name(s->s4stmt, i);
 		size += 2 + (p ? strlen(p) : 0);
 	    }
 	    dyncols = xmalloc(ncols * sizeof (COL) + size);
@@ -3970,6 +3975,7 @@ s4stmt_step(STMT *s)
 	    }
 	    p = (char *) (dyncols + ncols);
 	    tblname = p + (PTRDIFF_T) tblname;
+	    dbname = p + (PTRDIFF_T) dbname;
 	    for (i = 0; i < ncols; i++) {
 		char *q;
 
@@ -3988,8 +3994,16 @@ s4stmt_step(STMT *s)
 		}
 		dyncols[i].table = tblname;
 		tblname += strlen(tblname) + 1;
+		q = (char *) sqlite4_column_database_name(s->s4stmt, i);
+		strcpy(dbname, q ? q : "");
+		if (d->trace) {
+		    fprintf(d->trace, "-- database %d name: '%s'\n",
+			    i + 1, dbname);
+		    fflush(d->trace);
+		}
+		dyncols[i].db = dbname;
+		dbname += strlen(dbname) + 1;
 		typename = s4stmt_coltype(s->s4stmt, i, d, 0);
-		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
 		strcpy(p, colname);
 		dyncols[i].label = p;
 		p += strlen(p) + 1;
@@ -10118,9 +10132,6 @@ istmterr:
 	}
 	sql = dsappendq(sql, s->dyncols[0].table);
 	for (i = 0, k = 0; i < s->ncols; i++) {
-	    if (i == s->has_rowid) {
-		continue;
-	    }
 	    sql = dsappend(sql, (k > 0) ? ", " : " SET ");
 	    sql = dsappendq(sql, s->dyncols[i].column);
 	    sql = dsappend(sql, " = ?");
@@ -10178,9 +10189,6 @@ istmterr:
 		}
 	    }
 	    for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
-		if (i == s->has_rowid) {
-		    continue;
-		}
 		ret = setposbind(s, s4stmt, i, k, row);
 		if (ret != SQL_SUCCESS) {
 ustmterr:
@@ -10290,7 +10298,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	   SQLSMALLINT *valLen)
 {
     DBC *d;
-    char dummyc[16];
+    char dummyc[301];
     SQLSMALLINT dummy;
 #if defined(_WIN32) || defined(_WIN64)
     char pathbuf[301], *drvname;
@@ -10441,6 +10449,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_COLUMN_ALIAS:
     case SQL_NEED_LONG_DATA_LEN:
+    case SQL_OUTER_JOINS:
 	strmak(val, "Y", valMax, valLen);
 	break;
     case SQL_ROW_UPDATES:
@@ -10450,7 +10459,6 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_ODBC_SQL_OPT_IEF:
     case SQL_LIKE_ESCAPE_CLAUSE:
     case SQL_ORDER_BY_COLUMNS_IN_SELECT:
-    case SQL_OUTER_JOINS:
     case SQL_ACCESSIBLE_TABLES:
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
@@ -10471,7 +10479,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #ifdef SQL_OJ_CAPABILITIES
     case SQL_OJ_CAPABILITIES:
-	*((SQLUINTEGER *) val) = 0;
+	*((SQLUINTEGER *) val) = SQL_OJ_LEFT;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
@@ -14761,7 +14769,8 @@ static void
 mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 {
     int offs = row * asize;
-    char *tcode, *crpar = NULL, *quote = NULL, *sign = stringify(SQL_FALSE);
+    char *tcode, *crpar = NULL, *sign = stringify(SQL_FALSE);
+    char *quote[2] = { NULL, NULL };
     static char tcodes[32 * 32];
 
     if (tind <= 0) {
@@ -14783,7 +14792,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
     case SQL_WLONGVARCHAR:
 #endif
 	crpar = "length";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	s->rows[offs + 2] = "65536";
 	break;
@@ -14802,7 +14811,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
 	s->rows[offs + 2] = "255";
 	crpar = "length";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
     case SQL_TINYINT:
@@ -14830,7 +14839,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_DATE:
 	s->rows[offs + 2] = "10";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
 #ifdef SQL_TYPE_TIME
@@ -14838,7 +14847,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_TIME:
 	s->rows[offs + 2] = "8";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
 #ifdef SQL_TYPE_TIMESTAMP
@@ -14846,19 +14855,22 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_TIMESTAMP:
 	s->rows[offs + 2] = "32";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
     case SQL_VARBINARY:
+	quote[0] = "0x";
 	sign = NULL;
 	s->rows[offs + 2] = "255";
 	break;
     case SQL_LONGVARBINARY:
+	quote[0] = "0x";
 	sign = NULL;
 	s->rows[offs + 2] = "65536";
 	break;
     }
-    s->rows[offs + 3] = s->rows[offs + 4] = quote;
+    s->rows[offs + 3] = quote[0];
+    s->rows[offs + 4] = quote[1];
     s->rows[offs + 5] = crpar;
     s->rows[offs + 6] = stringify(SQL_NULLABLE);
     s->rows[offs + 7] = stringify(SQL_FALSE);
@@ -17569,7 +17581,7 @@ setupdyncols(STMT *s, sqlite4_stmt *s4stmt, int *ncolsp)
 	COL *dyncols;
 	DBC *d = (DBC *) s->dbc;
 	const char *colname, *typename;
-	char *tblname;
+	char *tblname, *dbname;
 
 	for (i = size = 0; i < ncols; i++) {
 	    colname = sqlite4_column_name(s4stmt, i);
@@ -17580,6 +17592,11 @@ setupdyncols(STMT *s, sqlite4_stmt *s4stmt, int *ncolsp)
 	    p = (char *) sqlite4_column_table_name(s4stmt, i);
 	    size += 2 + (p ? strlen(p) : 0);
 	}
+	dbname = (char *) size;
+	for (i = 0; i < ncols; i++) {
+	    p = (char *) sqlite4_column_database_name(s4stmt, i);
+	    size += 2 + (p ? strlen(p) : 0);
+	}
 	dyncols = xmalloc(ncols * sizeof (COL) + size);
 	if (!dyncols) {
 	    freedyncols(s);
@@ -17588,6 +17605,7 @@ setupdyncols(STMT *s, sqlite4_stmt *s4stmt, int *ncolsp)
 	} else {
 	    p = (char *) (dyncols + ncols);
 	    tblname = p + (PTRDIFF_T) tblname;
+	    dbname = p + (PTRDIFF_T) dbname;
 	    for (i = 0; i < ncols; i++) {
 		char *q;
 
@@ -17605,9 +17623,16 @@ setupdyncols(STMT *s, sqlite4_stmt *s4stmt, int *ncolsp)
 		    fflush(d->trace);
 		}
 		dyncols[i].table = tblname;
-		tblname += strlen(tblname) + 1;
+		q = (char *) sqlite4_column_database_name(s4stmt, i);
+		strcpy(dbname, q ? q : "");
+		if (d->trace) {
+		    fprintf(d->trace, "-- database %d name: '%s'\n",
+			    i + 1, dbname);
+		    fflush(d->trace);
+		}
+		dyncols[i].db = dbname;
+		dbname += strlen(dbname) + 1;
 		typename = s4stmt_coltype(s4stmt, i, d, &guessed_types);
-		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
 		strcpy(p, colname);
 		dyncols[i].label = p;
 		p += strlen(p) + 1;

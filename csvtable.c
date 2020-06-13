@@ -967,9 +967,9 @@ csv_vtab_connect(sqlite3* db, void *aux, int argc, const char * const *argv,
 		 sqlite3_vtab **vtabp, char **errp)
 {
     csv_file *csv;
-    int rc = SQLITE_ERROR, i, ncnames, row1;
+    int rc = SQLITE_ERROR, i, k, ncnames, row1, *colmap = 0;
     char **cnames, *schema = 0, **nargv;
-    csv_vtab *vtab;
+    csv_vtab *vtab = 0;
 
     if (argc < 4) {
 	*errp = sqlite3_mprintf("input file name missing");
@@ -990,6 +990,12 @@ cleanup:
 	    if (nargv[i]) {
 		sqlite3_free(nargv[i]);
 	    }
+	}
+	if (vtab) {
+	    sqlite3_free(vtab);
+	}
+	if (colmap) {
+	    sqlite3_free(colmap);
 	}
 	return rc;
     }
@@ -1028,7 +1034,14 @@ cleanup:
 	ncnames = csv_ncols(csv);
 	cnames = 0;
     }
-    vtab = sqlite3_malloc(sizeof(csv_vtab) + ncnames);
+    colmap = sqlite3_malloc(sizeof (int) * ncnames);
+    if (!colmap) {
+	csv_close(csv);
+	*errp = sqlite3_mprintf("out of memory");
+	goto cleanup;
+    }
+    memset(colmap, 0, sizeof (int) * ncnames);
+    vtab = sqlite3_malloc(sizeof (csv_vtab) + ncnames);
     if (!vtab) {
 	csv_close(csv);
 	*errp = sqlite3_mprintf("out of memory");
@@ -1044,12 +1057,38 @@ cleanup:
     }
     vtab->csv = csv;
     append(&schema, "CREATE TABLE x(", 0);
+    for (i = 0; cnames && (i < ncnames); i++) {
+	if (!cnames[i] || (cnames[i][0] == '\0')) {
+	    continue;
+	}
+	k = strlen(cnames[i]);
+	if ((k > 7) && (strncasecmp("column_", cnames[i], 7) == 0)) {
+	    char c;
+
+	    if (sscanf(cnames[i] + 7, "%d%c", &k, &c) == 1) {
+		colmap[i] = k;
+	    }
+	}
+    }
     for (i = 0; i < ncnames; i++) {
 	vtab->coltypes[i] = SQLITE_TEXT;
-	if (!cnames || !cnames[i]) {
+	if (!cnames || !cnames[i] || (cnames[i][0] == '\0')) {
+	    int want = i + 1;
 	    char colname[64];
 
-	    sprintf(colname, "column_%d", i + 1);
+	    while (1) {
+		for (k = 0; k < ncnames; k++) {
+		    if ((k != i) && (colmap[k] == want)) {
+			want++;
+			break;
+		    }
+		}
+		if (k >= ncnames) {
+		    colmap[i] = want;
+		    break;
+		}
+	    }
+	    sprintf(colname, "column_%d", colmap[i]);
 	    append(&schema, colname, '"');
 	} else if (row1 > 0) {
 	    append(&schema, cnames[i], '"');
@@ -1082,13 +1121,13 @@ cleanup:
     rc = sqlite3_declare_vtab(db, schema);
     if (rc != SQLITE_OK) {
 	csv_close(csv);
-	sqlite3_free(vtab);
 	*errp = sqlite3_mprintf("table definition failed, error %d, "
 				"schema '%s'", rc, schema);
 	goto cleanup;
     }
     *vtabp = &vtab->vtab;
     *errp = 0;
+    vtab = 0;
     goto cleanup;
 }
 
@@ -1162,7 +1201,7 @@ csv_vtab_bestindex(sqlite3_vtab *vtab, sqlite3_index_info *info)
 static int
 csv_vtab_open(sqlite3_vtab *vtab, sqlite3_vtab_cursor **cursorp)
 {
-    csv_cursor *cur = sqlite3_malloc(sizeof(*cur));
+    csv_cursor *cur = sqlite3_malloc(sizeof (*cur));
     csv_vtab *tab = (csv_vtab *) vtab;
 
     if (!cur) {
@@ -1351,7 +1390,7 @@ static void
 csv_import_func(sqlite3_context *ctx, int argc, sqlite3_value **argv)
 {
     csv_file *csv;
-    int rc, i, ncnames, row1, convert = 0, useargs = 0;
+    int rc, i, k, ncnames, row1, convert = 0, useargs = 0, *colmap = 0;
     char *tname, *fname, *sql = 0, **cnames, *coltypes = 0;
     sqlite3 *db = (sqlite3 *) sqlite3_user_data(ctx);
     sqlite3_stmt *stmt = 0;
@@ -1380,8 +1419,8 @@ cleanup:
 	    sqlite3_finalize(stmt);
 	}
 	append_free(&sql);
-	if (coltypes) {
-	    sqlite3_free(coltypes);
+	if (colmap) {
+	    sqlite3_free(colmap);
 	}
 	if (csv) {
 	    csv_close(csv);
@@ -1478,14 +1517,30 @@ selfail:
 	/* create new table */
 	sqlite3_finalize(stmt);
 	stmt = 0;
-	coltypes = sqlite3_malloc(ncnames);
-	if (!coltypes) {
+	colmap = (int *) sqlite3_malloc(ncnames + sizeof (int) * ncnames);
+	if (!colmap) {
 	    goto oom;
 	}
+	memset(colmap, 0, sizeof (int) * ncnames);
+	coltypes = (char *) (colmap + ncnames);
 	append(&sql, "CREATE TABLE ", 0);
 	append(&sql, tname, '"');
 	append(&sql, "(", 0);
+	for (i = 0; cnames && (i < ncnames); i++) {
+	    if (!cnames[i] || (cnames[i][0] == '\0')) {
+		continue;
+	    }
+	    k = strlen(cnames[i]);
+	    if ((k > 7) && (strncasecmp("column_", cnames[i], 7) == 0)) {
+		char c;
+
+		if (sscanf(cnames[i] + 7, "%d%c", &k, &c) == 1) {
+		    colmap[i] = k;
+		}
+	    }
+	}
 	for (i = 0; i < ncnames; i++) {
+	    int want = i + 1;
 	    char colname[64];
 
 	    coltypes[i] = SQLITE_TEXT;
@@ -1505,7 +1560,19 @@ selfail:
 		coltypes[i] = maptype(type);
 	    } else if (!cnames || !cnames[i]) {
 defcol:
-		sprintf(colname, "column_%d", i + 1);
+		while (1) {
+		    for (k = 0; k < ncnames; k++) {
+			if ((k != i) && (colmap[k] == want)) {
+			    want++;
+			    break;
+			}
+		    }
+		    if (k >= ncnames) {
+			colmap[i] = want;
+			break;
+		    }
+		}
+		sprintf(colname, "column_%d", colmap[i]);
 		append(&sql, colname, '"');
 	    } else if (row1 > 0) {
 		append(&sql, cnames[i], '"');

@@ -1,6 +1,14 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Jun 13 2020 version 0.9997 released
+
+	* update to SQLite 3.32.2
+	* fix info for SQL_OUTER_JOINS/SQL_OJ_CAPABILITIES
+	* provide more clean quote hints in type info
+	* improve SQLBulkOperations()
+	* better deal with auto column names in csvtable module
+
 Sat Feb 24 2018 version 0.9996 released
 
 	* update to SQLite 3.22.0

@@ -2,9 +2,9 @@
  * @file sqlite3odbc.c
  * SQLite3 ODBC Driver main module.
  *
- * $Id: sqlite3odbc.c,v 1.177 2018/02/24 09:32:47 chw Exp chw $
+ * $Id: sqlite3odbc.c,v 1.178 2020/06/13 11:05:30 chw Exp chw $
  *
- * Copyright (c) 2004-2018 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2004-2020 Christian Werner <chw@ch-werner.de>
  *
  * See the file "license.terms" for information on usage
  * and redistribution of this file and for a
@@ -4305,6 +4305,9 @@ s3stmt_step(STMT *s)
 #if defined(HAVE_SQLITE3COLUMNTABLENAME) && (HAVE_SQLITE3COLUMNTABLENAME)
 	    char *tblname;
 #endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	    char *dbname;
+#endif
 
 	    for (i = size = 0; i < ncols; i++) {
 		colname = sqlite3_column_name(s->s3stmt, i);
@@ -4314,6 +4317,13 @@ s3stmt_step(STMT *s)
 	    tblname = (char *) size;
 	    for (i = 0; i < ncols; i++) {
 		p = (char *) sqlite3_column_table_name(s->s3stmt, i);
+		size += 2 + (p ? strlen(p) : 0);
+	    }
+#endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	    dbname = (char *) size;
+	    for (i = 0; i < ncols; i++) {
+		p = (char *) sqlite3_column_database_name(s->s3stmt, i);
 		size += 2 + (p ? strlen(p) : 0);
 	    }
 #endif
@@ -4330,6 +4340,9 @@ s3stmt_step(STMT *s)
 	    p = (char *) (dyncols + ncols);
 #if defined(HAVE_SQLITE3COLUMNTABLENAME) && (HAVE_SQLITE3COLUMNTABLENAME)
 	    tblname = p + (PTRDIFF_T) tblname;
+#endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	    dbname = p + (PTRDIFF_T) dbname;
 #endif
 	    for (i = 0; i < ncols; i++) {
 		char *q;
@@ -4351,8 +4364,20 @@ s3stmt_step(STMT *s)
 		dyncols[i].table = tblname;
 		tblname += strlen(tblname) + 1;
 #endif
-		typename = s3stmt_coltype(s->s3stmt, i, d, 0);
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+		q = (char *) sqlite3_column_database_name(s->s3stmt, i);
+		strcpy(dbname, q ? q : "");
+		if (d->trace) {
+		    fprintf(d->trace, "-- database %d name: '%s'\n",
+			    i + 1, dbname);
+		    fflush(d->trace);
+		}
+		dyncols[i].db = dbname;
+		dbname += strlen(dbname) + 1;
+#else
 		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
+#endif
+		typename = s3stmt_coltype(s->s3stmt, i, d, 0);
 		strcpy(p, colname);
 		dyncols[i].label = p;
 		p += strlen(p) + 1;
@@ -10720,9 +10745,6 @@ istmterr:
 	}
 	sql = dsappendq(sql, s->dyncols[0].table);
 	for (i = 0, k = 0; i < s->ncols; i++) {
-	    if (i == s->has_rowid) {
-		continue;
-	    }
 	    sql = dsappend(sql, (k > 0) ? ", " : " SET ");
 	    sql = dsappendq(sql, s->dyncols[i].column);
 	    sql = dsappend(sql, " = ?");
@@ -10798,9 +10820,6 @@ istmterr:
 		}
 	    }
 	    for (i = 0, k = 1; s->bindcols && i < s->ncols; i++) {
-		if (i == s->has_rowid) {
-		    continue;
-		}
 		ret = setposbind(s, s3stmt, i, k, row);
 		if (ret != SQL_SUCCESS) {
 ustmterr:
@@ -10911,7 +10930,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	   SQLSMALLINT *valLen)
 {
     DBC *d;
-    char dummyc[16];
+    char dummyc[301];
     SQLSMALLINT dummy;
 #if defined(_WIN32) || defined(_WIN64)
     char pathbuf[301], *drvname;
@@ -11062,6 +11081,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
     case SQL_COLUMN_ALIAS:
     case SQL_NEED_LONG_DATA_LEN:
+    case SQL_OUTER_JOINS:
 	strmak(val, "Y", valMax, valLen);
 	break;
     case SQL_ROW_UPDATES:
@@ -11071,7 +11091,6 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
     case SQL_ODBC_SQL_OPT_IEF:
     case SQL_LIKE_ESCAPE_CLAUSE:
     case SQL_ORDER_BY_COLUMNS_IN_SELECT:
-    case SQL_OUTER_JOINS:
     case SQL_ACCESSIBLE_TABLES:
     case SQL_MULT_RESULT_SETS:
     case SQL_MULTIPLE_ACTIVE_TXN:
@@ -11092,7 +11111,7 @@ drvgetinfo(SQLHDBC dbc, SQLUSMALLINT type, SQLPOINTER val, SQLSMALLINT valMax,
 	break;
 #ifdef SQL_OJ_CAPABILITIES
     case SQL_OJ_CAPABILITIES:
-	*((SQLUINTEGER *) val) = 0;
+	*((SQLUINTEGER *) val) = SQL_OJ_LEFT;
 	*valLen = sizeof (SQLUINTEGER);
 	break;
 #endif
@@ -15409,7 +15428,8 @@ static void
 mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 {
     int offs = row * asize;
-    char *tcode, *crpar = NULL, *quote = NULL, *sign = stringify(SQL_FALSE);
+    char *tcode, *crpar = NULL, *sign = stringify(SQL_FALSE);
+    char *quote[2] = { NULL, NULL };
     static char tcodes[32 * 32];
 
     if (tind <= 0) {
@@ -15431,7 +15451,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
     case SQL_WLONGVARCHAR:
 #endif
 	crpar = "length";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	s->rows[offs + 2] = "65536";
 	break;
@@ -15450,7 +15470,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
 	s->rows[offs + 2] = "255";
 	crpar = "length";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
     case SQL_TINYINT:
@@ -15478,7 +15498,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_DATE:
 	s->rows[offs + 2] = "10";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
 #ifdef SQL_TYPE_TIME
@@ -15486,7 +15506,7 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_TIME:
 	s->rows[offs + 2] = "8";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
 #ifdef SQL_TYPE_TIMESTAMP
@@ -15494,19 +15514,22 @@ mktypeinfo(STMT *s, int row, int asize, char *typename, int type, int tind)
 #endif
     case SQL_TIMESTAMP:
 	s->rows[offs + 2] = "32";
-	quote = "'";
+	quote[0] = quote[1] = "'";
 	sign = NULL;
 	break;
     case SQL_VARBINARY:
+	quote[0] = "0x";
 	sign = NULL;
 	s->rows[offs + 2] = "255";
 	break;
     case SQL_LONGVARBINARY:
+	quote[0] = "0x";
 	sign = NULL;
 	s->rows[offs + 2] = "65536";
 	break;
     }
-    s->rows[offs + 3] = s->rows[offs + 4] = quote;
+    s->rows[offs + 3] = quote[0];
+    s->rows[offs + 4] = quote[1];
     s->rows[offs + 5] = crpar;
     s->rows[offs + 6] = stringify(SQL_NULLABLE);
     s->rows[offs + 7] = stringify(SQL_FALSE);
@@ -18220,6 +18243,9 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 #if defined(HAVE_SQLITE3COLUMNTABLENAME) && (HAVE_SQLITE3COLUMNTABLENAME)
 	char *tblname;
 #endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	char *dbname;
+#endif
 
 	for (i = size = 0; i < ncols; i++) {
 	    colname = sqlite3_column_name(s3stmt, i);
@@ -18232,6 +18258,13 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 	    size += 2 + (p ? strlen(p) : 0);
 	}
 #endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	dbname = (char *) size;
+	for (i = 0; i < ncols; i++) {
+	    p = (char *) sqlite3_column_database_name(s3stmt, i);
+	    size += 2 + (p ? strlen(p) : 0);
+	}
+#endif
 	dyncols = xmalloc(ncols * sizeof (COL) + size);
 	if (!dyncols) {
 	    freedyncols(s);
@@ -18241,6 +18274,9 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 	    p = (char *) (dyncols + ncols);
 #if defined(HAVE_SQLITE3COLUMNTABLENAME) && (HAVE_SQLITE3COLUMNTABLENAME)
 	    tblname = p + (PTRDIFF_T) tblname;
+#endif
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+	    dbname = p + (PTRDIFF_T) dbname;
 #endif
 	    for (i = 0; i < ncols; i++) {
 		char *q;
@@ -18262,8 +18298,20 @@ setupdyncols(STMT *s, sqlite3_stmt *s3stmt, int *ncolsp)
 		dyncols[i].table = tblname;
 		tblname += strlen(tblname) + 1;
 #endif
-		typename = s3stmt_coltype(s3stmt, i, d, &guessed_types);
+#if defined(HAVE_SQLITE3COLUMNDATABASENAME) && (HAVE_SQLITE3COLUMNDATABASENAME)
+		q = (char *) sqlite3_column_database_name(s3stmt, i);
+		strcpy(dbname, q ? q : "");
+		if (d->trace) {
+		    fprintf(d->trace, "-- database %d name: '%s'\n",
+			    i + 1, dbname);
+		    fflush(d->trace);
+		}
+		dyncols[i].db = dbname;
+		dbname += strlen(dbname) + 1;
+#else
 		dyncols[i].db = ((DBC *) (s->dbc))->dbname;
+#endif
+		typename = s3stmt_coltype(s3stmt, i, d, &guessed_types);
 		strcpy(p, colname);
 		dyncols[i].label = p;
 		p += strlen(p) + 1;

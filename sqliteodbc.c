@@ -2,9 +2,9 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.223 2018/02/24 09:32:47 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.224 2020/06/13 11:04:17 chw Exp chw $
  *
- * Copyright (c) 2001-2018 Christian Werner <chw@ch-werner.de>
+ * Copyright (c) 2001-2020 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
  *
  * See the file "license.terms" for information on usage
