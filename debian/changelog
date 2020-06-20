@@ -1,6 +1,6 @@
-sqliteodbc (0.9997-1) unstable; urgency=low
+sqliteodbc (0.9998-1) unstable; urgency=low
 
   * automatically recreated by configure
 
- -- Christian Werner <chw@ch-werner.de>  Sat, 13 Jun 2020 13:07:14 +0200
+ -- Christian Werner <chw@ch-werner.de>  Sat, 20 Jun 2020 13:59:33 +0200
 

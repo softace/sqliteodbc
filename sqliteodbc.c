@@ -2,7 +2,7 @@
  * @file sqliteodbc.c
  * SQLite ODBC Driver main module.
  *
- * $Id: sqliteodbc.c,v 1.224 2020/06/13 11:04:17 chw Exp chw $
+ * $Id: sqliteodbc.c,v 1.225 2020/06/20 11:56:09 chw Exp chw $
  *
  * Copyright (c) 2001-2020 Christian Werner <chw@ch-werner.de>
  * OS/2 Port Copyright (c) 2004 Lorne R. Sunley <lsunley@mb.sympatico.ca>
@@ -4610,139 +4610,259 @@ doit:
 	return ret;
     }
 #if defined(_WIN32) || defined(_WIN64)
-    rc = sqlite_get_table_printf(d->sqlite,
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'SELECT' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'UPDATE' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'DELETE' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'INSERT' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'REFERENCES' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q'",
-				 &s->rows, &s->nrows, &ncols, &errp,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 npatt ? "like" : "=", tname,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 npatt ? "like" : "=", tname);
+    if (npatt) {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'SELECT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'UPDATE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'DELETE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'INSERT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'REFERENCES' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q'",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname);
+    } else {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'SELECT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'UPDATE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'DELETE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'INSERT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'REFERENCES' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q')",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL", tname);
+    }
 #else
-    rc = sqlite_get_table_printf(d->sqlite,
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'SELECT' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'UPDATE' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'DELETE' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'INSERT' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q' "
-				 "UNION "
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "'' as 'GRANTOR', "
-				 "'' as 'GRANTEE', "
-				 "'REFERENCES' AS 'PRIVILEGE', "
-				 "NULL as 'IS_GRANTABLE' "
-				 "from sqlite_master where "
-				 "(type = 'table' or type = 'view') "
-				 "and tbl_name %s '%q'",
-				 &s->rows, &s->nrows, &ncols, &errp,
-				 npatt ? "like" : "=", tname,
-				 npatt ? "like" : "=", tname,
-				 npatt ? "like" : "=", tname,
-				 npatt ? "like" : "=", tname,
-				 npatt ? "like" : "=", tname);
+    if (npatt) {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'SELECT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'UPDATE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'DELETE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'INSERT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q' "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'REFERENCES' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and tbl_name like '%q'",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     tname, tname, tname, tname, tname);
+    } else {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'SELECT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'UPDATE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'DELETE' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'INSERT' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q') "
+				     "UNION "
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "'' as 'GRANTOR', "
+				     "'' as 'GRANTEE', "
+				     "'REFERENCES' AS 'PRIVILEGE', "
+				     "NULL as 'IS_GRANTABLE' "
+				     "from sqlite_master where "
+				     "(type = 'table' or type = 'view') "
+				     "and lower(tbl_name) = lower('%q')",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     tname, tname, tname, tname, tname);
+    }
 #endif
     if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
@@ -11248,29 +11368,57 @@ doit:
 	return ret;
     }
 #if defined(_WIN32) || defined(_WIN64)
-    rc = sqlite_get_table_printf(d->sqlite,
-				 "select %s as 'TABLE_QUALIFIER', "
-				 "%s as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "upper(type) as 'TABLE_TYPE', "
-				 "NULL as 'REMARKS' "
-				 "from sqlite_master where %s "
-				 "and tbl_name %s '%q'",
-				 &s->rows, &s->nrows, &ncols, &errp,
-				 d->xcelqrx ? "'main'" : "NULL",
-				 d->xcelqrx ? "''" : "NULL",
-				 where, npatt ? "like" : "=", tname);
+    if (npatt) {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "upper(type) as 'TABLE_TYPE', "
+				     "NULL as 'REMARKS' "
+				     "from sqlite_master where %s "
+				     "and tbl_name like '%q'",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL",
+				     where, tname);
+    } else {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select %s as 'TABLE_QUALIFIER', "
+				     "%s as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "upper(type) as 'TABLE_TYPE', "
+				     "NULL as 'REMARKS' "
+				     "from sqlite_master where %s "
+				     "and lower(tbl_name) = lower('%q')",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     d->xcelqrx ? "'main'" : "NULL",
+				     d->xcelqrx ? "''" : "NULL",
+				     where, tname);
+    }
 #else
-    rc = sqlite_get_table_printf(d->sqlite,
-				 "select NULL as 'TABLE_QUALIFIER', "
-				 "NULL as 'TABLE_OWNER', "
-				 "tbl_name as 'TABLE_NAME', "
-				 "upper(type) as 'TABLE_TYPE', "
-				 "NULL as 'REMARKS' "
-				 "from sqlite_master where %s "
-				 "and tbl_name %s '%q'",
-				 &s->rows, &s->nrows, &ncols, &errp,
-				 where, npatt ? "like" : "=", tname);
+    if (npatt) {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "upper(type) as 'TABLE_TYPE', "
+				     "NULL as 'REMARKS' "
+				     "from sqlite_master where %s "
+				     "and tbl_name like '%q'",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     where, tname);
+    } else {
+	rc = sqlite_get_table_printf(d->sqlite,
+				     "select NULL as 'TABLE_QUALIFIER', "
+				     "NULL as 'TABLE_OWNER', "
+				     "tbl_name as 'TABLE_NAME', "
+				     "upper(type) as 'TABLE_TYPE', "
+				     "NULL as 'REMARKS' "
+				     "from sqlite_master where %s "
+				     "and lower(tbl_name) = lower('%q')",
+				     &s->rows, &s->nrows, &ncols, &errp,
+				     where, tname);
+    }
 #endif
     if (rc == SQLITE_OK) {
 	if (ncols != s->ncols) {
@@ -11502,12 +11650,19 @@ drvcolumns(SQLHSTMT stmt,
     if (sret != SQL_SUCCESS) {
 	return sret;
     }
-    ret = sqlite_get_table_printf(d->sqlite,
-				  "select tbl_name from sqlite_master where "
-				  "(type = 'table' or type = 'view') "
-				  "and tbl_name %s '%q'",
-				  &trows, &tnrows, &tncols, &errp,
-				  npatt ? "like" : "=", tname);
+    if (npatt) {
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "select tbl_name from sqlite_master "
+				      "where (type = 'table' or type = 'view')"
+				      " and tbl_name like '%q'",
+				      &trows, &tnrows, &tncols, &errp, tname);
+    } else {
+	ret = sqlite_get_table_printf(d->sqlite,
+				      "select tbl_name from sqlite_master "
+				      "where (type = 'table' or type = 'view')"
+				      " and lower(tbl_name) = lower('%q')",
+				      &trows, &tnrows, &tncols, &errp, tname);
+    }
     if (ret != SQLITE_OK) {
 	setstat(s, ret, "%s (%d)", (*s->ov3) ? "HY000" : "S1000",
 		errp ? errp : "unknown error", ret);

@@ -1,6 +1,13 @@
 SQLite ODBC Driver
 ------------------
 
+Sat Jun 20 2020 version 0.9998 released
+
+	* update to SQLite 3.32.3
+	* make all comparisons for table names etc. in SQLTables()
+	  and friends case insensitive (thanks Kris Habraken for
+	  initial fix)
+
 Sat Jun 13 2020 version 0.9997 released
 
 	* update to SQLite 3.32.2
